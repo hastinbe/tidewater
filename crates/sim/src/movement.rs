@@ -484,6 +484,8 @@ impl World {
     /// `restart`, a step starts the move animation and runs it at once even if it is already playing (a two-tile
     /// transport landing or pushing off, transports spec, "Moving near the shore").
     pub(crate) fn move_toward_as(&mut self, i: usize, g: Goal, restart: bool) -> Walk {
+        // 0. Orders spec, "Walking orders", step 1: an undetected attacker in play is forgotten first, in every order.
+        self.forget_undetected_attacker(i);
         // 1. Arrival: measured to the stored goal, not the one the search rounds to even (pathfinding spec, "One walk
         // goal"; V20 there).
         if self.at_goal(i, g) {

@@ -173,8 +173,8 @@ impl World {
         // the submarine rule; there is no owner test. The kind checks in their order, with the
         // transport-on-shore case.
         let owner = self.units[i].owner;
-        let target_ok =
-            !self.target_lost(owner, target) && self.unit(target).is_some_and(|t| self.can_hit_kind(&self.units[i], t));
+        let target_ok = (!self.target_lost(owner, target) || self.marked_hold(i))
+            && self.unit(target).is_some_and(|t| self.can_hit_kind(&self.units[i], t));
         // Orders spec, "Attack orders" (step 5): a target that fails the kind check gives a pending idle, by the common
         // path with the resume step, taken over in the same update as order 11's steps 4.3 and 4.4 do (round 68, code
         // Q3; static study only).
@@ -625,8 +625,9 @@ impl World {
         if let Some(a) = self.unit(attacker) {
             self.credit_kill(a.owner, ti);
         }
+        let victim = self.units[ti].id;
         self.kill(ti);
-        self.forget_kill(attacker);
+        self.forget_kill(attacker, victim);
     }
 
     /// Damage spec, "A kill": a unit (not a building) that made a kill checks its own records at once,
@@ -639,7 +640,7 @@ impl World {
     /// Only the killer forgets the victim as its attacker at once (movement spec, "Blocked rules");
     /// every other unit keeps that record while the victim is dying. This applies to every kill,
     /// a splash kill of a unit other than the target included (`xhuman10-blizzard` ballista 1483, n = 309).
-    fn forget_kill(&mut self, attacker: UnitId) {
+    pub(crate) fn forget_kill(&mut self, attacker: UnitId, victim: UnitId) {
         let Some(a) = self.index(attacker) else { return };
         let u = &self.units[a];
         if u.building {
@@ -665,7 +666,16 @@ impl World {
         if let Some(t) = crate::orders::target_of(u.order)
             && self.stale(owner, t)
         {
-            self.units[a].forgot = Some(self.units[a].order);
+            let o = self.units[a].order;
+            self.units[a].forgot = Some(o);
+            // Orders spec, "Arriving and losing the target" (PI8a): an order-15 unit that forgot its target at the kill
+            // of a different unit goes idle, not to stand ground, when it then finds the target lost.
+            let id = self.units[a].id;
+            if matches!(o, Order::AttackInPlace { .. }) && t != victim {
+                self.forgot_other.insert(id, o);
+            } else {
+                self.forgot_other.remove(&id);
+            }
         }
     }
 
@@ -784,6 +794,7 @@ impl World {
         // recorded at this moment, so a killer that forgot its target dies with none.
         let target = self.recorded_target_of(&self.units[ti]);
         self.walk_on.remove(&self.units[ti].id);
+        self.forgot_other.remove(&self.units[ti].id);
         let slot = target.and_then(|t| self.unit(t)).map(|t| t.slot);
         let u = &mut self.units[ti];
         u.dying_target = slot;
@@ -2718,8 +2729,10 @@ mod tests {
             assert_eq!(w.players[0].kills, 0);
             w.units[bi].script.wait = 1;
             w.run_order(bi);
+            // Round 107 (PI8a): both pins moved with the mark of a target forgotten at the kill of a different unit.
+            assert_eq!(w.forgot_other.get(&w.units[bi].id), Some(&w.units[bi].order));
             got.push(pinned(&w));
-            assert_eq!(got, [3256194767279609934, 4435873144727676853]);
+            assert_eq!(got, [9892453790001654335, 11214435385013525853]);
         }
 
         /// V73 to V75: a killer whose target is the victim, and one whose live target isn't, each dying afterwards.

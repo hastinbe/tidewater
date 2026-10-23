@@ -984,6 +984,11 @@ pub struct World {
     /// marks the killer, who doesn't walk on, and outside the units so that a game that never has one is stored,
     /// hashed and fingerprinted as before: left out of both while empty.
     pub(crate) walk_on: BTreeMap<UnitId, WalkOn>,
+    /// Order-15 units that forgot their target at a kill of a different unit (orders spec, "Arriving and losing the
+    /// target", PI8a): when such a unit then finds the target lost it goes idle, not to stand ground. The value is the
+    /// order that forgot; a mark whose order has changed is void. Outside the units and left out of the hash, the
+    /// fingerprint and the save while empty, like [`World::walk_on`].
+    pub(crate) forgot_other: BTreeMap<UnitId, Order>,
     /// The computer players' army: threat map, base boxes, pass counter (attack-ai spec).
     pub army: crate::attack_ai::Army,
     /// Upgrade data: the defaults, or the map's UGRD section (tech-tree spec, "Default upgrade data").
@@ -1176,6 +1181,7 @@ impl World {
             group_surplus: Default::default(),
             army_surplus: Default::default(),
             walk_on: BTreeMap::new(),
+            forgot_other: BTreeMap::new(),
             army,
             upgrade_data: crate::tech::default_upgrades(),
             ai_file: None,
@@ -2031,6 +2037,9 @@ impl World {
         // The walk-on marks join the hash only while there are some (`World::walk_on`).
         if !self.walk_on.is_empty() {
             self.walk_on.hash(&mut h);
+        }
+        if !self.forgot_other.is_empty() {
+            self.forgot_other.hash(&mut h);
         }
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);

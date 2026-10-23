@@ -553,7 +553,9 @@ impl World {
     /// `human01-order15-lost-700`, n = 469, footman 1593 in order 15 gets order 13 with wait 3 (V273).
     pub(crate) fn lose_target(&mut self, i: usize) {
         if self.units[i].pending.is_none() {
-            if matches!(self.units[i].order, Order::AttackInPlace { .. }) {
+            let id = self.units[i].id;
+            let other = self.forgot_other.remove(&id) == Some(self.units[i].order);
+            if matches!(self.units[i].order, Order::AttackInPlace { .. }) && !other {
                 self.give(i, Order::StandGround);
             } else {
                 // "Resuming patrol and attack-move": losing the target is one of the places idle becomes pending.
@@ -630,6 +632,21 @@ impl World {
         }
     }
 
+    /// "Walking orders", step 1 (round 107, PI14a to PI14e): at each step boundary of a walk the unit forgets a
+    /// recorded attacker that is in play (not dying, removed or inside something) and isn't detected by its owner. A
+    /// dying attacker is handled by order; an attacker inside something or removed is still open.
+    pub(crate) fn forget_undetected_attacker(&mut self, i: usize) {
+        let u = &self.units[i];
+        if let Some(a) = u.attacked_by
+            && let Some(t) = self.unit(a)
+            && t.present()
+            && !t.removing
+            && !self.detected(t, u.owner)
+        {
+            self.units[i].attacked_by = None;
+        }
+    }
+
     /// A recorded attacker that fails the lost-target test ([`World::target_lost`]: dying, gone, inside something or
     /// not detected) is forgotten: pushing off's step 3 (transports spec) and order 25's target check (harvest spec,
     /// "Entering", step 3).
@@ -648,6 +665,18 @@ impl World {
         self.unit(t).is_none_or(|t| t.dying || !self.detected(t, owner))
     }
 
+    /// Orders spec, "Walking orders" (round 107, PI13a to PI13c): a marked unit in order 12 whose held target is dying
+    /// or inside something, still detected and out of range, goes on holding it for the walk: the walk's step 2 doesn't
+    /// drop it. (A target no longer detected, or whose slot is released, is dropped even with the mark: gap-fill.)
+    pub(crate) fn marked_hold(&self, i: usize) -> bool {
+        let u = &self.units[i];
+        let Order::Chase { target } = u.order else { return false };
+        u.skip_search
+            && self
+                .unit(target)
+                .is_some_and(|t| (t.dying || t.inside) && self.detected(t, u.owner) && !self.in_range(u, t))
+    }
+
     /// Orders spec, "Order 12 with no route" step 3 (`xorc8-10000` elven destroyer 1468, n = 7372):
     /// a unit in order 12 out of reach of a target it still holds takes a move step instead of running its order
     /// logic, and the move step's target search runs whatever the skip mark.
@@ -655,7 +684,7 @@ impl World {
         let u = &self.units[i];
         let Order::Chase { target } = u.order else { return false };
         if self.target_lost(u.owner, target) {
-            return false;
+            return self.marked_hold(i);
         }
         let t = self.unit(target).expect("held");
         !self.in_range(u, t)
@@ -763,7 +792,7 @@ impl World {
         if job && !self.job_walks(i, o) {
             return true;
         }
-        if lost {
+        if lost && !self.marked_hold(i) {
             // "Losing the target while cooling down": in orders 12, 15 and 16 the cooldown test comes
             // before the target check, so a unit still cooling down restarts its attack animation with the cooldown
             // left as its wait, its pending order cleared, and keeps its order until the cooldown runs out
@@ -1116,6 +1145,10 @@ impl World {
 
     /// Whether `t` is within `u`'s attack range, measured to the reference tile ("Distance").
     pub(crate) fn in_range(&self, u: &Unit, t: &Unit) -> bool {
+        // Round 107 (PI20a, PI20b): a land unit's range to a shore building is measured to its shore corner goal.
+        if self.aims_at_shore_corner(u, t) {
+            return chebyshev(u.tile, self.target_goal(u, t)) <= self.reach(u);
+        }
         distance(u.tile, t) <= self.reach(u)
     }
 
@@ -1141,8 +1174,8 @@ impl World {
 
     /// "Checks on an attack command": the attack order's kind check, by the attacker type's
     /// can-target value, in this order. An air target needs air; a submarine hits only types flagged as sea units,
-    /// oil platforms or shore buildings; a transport on a shore tile can be hit with land or sea; any other target in
-    /// the sea layer needs sea; any other target needs land.
+    /// oil platforms or shore buildings; a transport on a shore tile can be hit with land or sea; an oil platform needs
+    /// sea; any other target in the sea layer needs sea; any other target needs land.
     pub(crate) fn can_hit_kind(&self, u: &Unit, t: &Unit) -> bool {
         let s = self.stats_of(u.kind);
         let tf = self.flags_of_unit(t);
@@ -1154,6 +1187,11 @@ impl World {
         }
         if tf & flags::TRANSPORT != 0 && self.terrain.word(t.tile.0, t.tile.1) & crate::terrain::bits::SHORE != 0 {
             return s.can_target & 3 != 0;
+        }
+        // Round 107 (PL1a, PL1b): an oil platform, finished or not, needs sea wherever it stands, so a land-only unit
+        // never takes one.
+        if tf & flags::OIL_SOURCE != 0 {
+            return s.can_target & 2 != 0;
         }
         if t.layer == Layer::Sea {
             return s.can_target & 2 != 0;
@@ -1378,6 +1416,12 @@ impl World {
             let fled = self.flee(i);
             return fled || computer_worker;
         }
+        // "Special cases", "Invisible units" (round 107, PI4a, PI4b; the static reading of round 68): a unit under
+        // invisibility that isn't a worker or a tanker makes no target search and no reaction after step 1, with or
+        // without an attacker; it keeps its order.
+        if u.invisibility > 0 && !worker_like {
+            return false;
+        }
         // "Special cases" (round 71, S1; static study): in Enhanced mode a demolition unit with a remembered order runs
         // the target search after step 1, and a unit found that isn't its current target is given command 19 on it
         // (order 20, demolish at the unit). Nothing else of the acquisition runs, the reaction and its flee included,
@@ -1415,11 +1459,6 @@ impl World {
             if non_combat {
                 return self.react(i);
             }
-            // "Reacting to an attacker", step 3: an invisible mage-type unit does nothing more in
-            // that run (static study only).
-            if mage && u.invisibility > 0 {
-                return false;
-            }
         }
         if self.flags_of_unit(u) & flags::CAN_ATTACK == 0 {
             return false;
@@ -1448,8 +1487,21 @@ impl World {
         // new target out of range; the target is forgotten and idle takes over in the same update, attacker kept.
         // Static study only: while the unit is still cooling down, the cooling-down rule wins and the new
         // target is taken with no range test.
-        if matches!(u.order, Order::IdleReact { .. }) && !self.in_range(u, t) && !self.still_cooling(u) {
-            self.idle_now(i);
+        // Round 107 (PI5a to PI5c): order 15 shares the rule (13 instead of 2), and a "new" target is any the search
+        // gives other than the one the unit holds: the attacker seed counts, and so does a pick by a unit holding none.
+        if matches!(u.order, Order::IdleReact { .. } | Order::AttackInPlace { .. })
+            && !self.in_range(u, t)
+            && !self.still_cooling(u)
+        {
+            // Order 15 gives 13 (stand ground), the rest 2, as when the target is lost.
+            if matches!(u.order, Order::AttackInPlace { .. }) {
+                self.give(i, Order::StandGround);
+                if let Some(o) = self.units[i].pending.take() {
+                    self.take_over(i, o);
+                }
+            } else {
+                self.idle_now(i);
+            }
             return true;
         }
         let reach = self.within_strike_reach(u, t);
@@ -5922,6 +5974,129 @@ mod tests {
                     ],
                 ]
             );
+        }
+    }
+
+    /// Round 107, the person-input sweep (orders spec, vectors PI4 to PI20; attack-AI spec, PL1).
+    mod round_107 {
+        use super::*;
+
+        fn arena(units: &[(u8, u8, (i32, i32))]) -> (World, Vec<UnitId>) {
+            let mut w = map();
+            let ids = units.iter().map(|&(k, o, t)| w.spawn(k, o, t, 0).unwrap()).collect();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            (w, ids)
+        }
+
+        fn ready(w: &mut World, id: UnitId, o: Order) -> usize {
+            let i = at(w, id);
+            let u = &mut w.units[i];
+            (u.order, u.pending, u.commanded) = (o, None, false);
+            u.script.wait = 1;
+            i
+        }
+
+        /// PL1: an oil platform is a sea target in the kind check.
+        #[test]
+        fn an_oil_platform_is_a_sea_target() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FARM, 1, (8, 8))]);
+            w.stats.0[FARM as usize].flags |= flags::OIL_SOURCE;
+            let (f, p) = (at(&w, ids[0]), at(&w, ids[1]));
+            for (can_target, expected) in [(1, false), (2, true), (3, true)] {
+                w.stats.0[FOOTMAN as usize].can_target = can_target;
+                assert_eq!(
+                    w.can_hit_kind(&w.units[f], &w.units[p]),
+                    expected,
+                    "can_target {can_target}"
+                );
+            }
+        }
+
+        /// PI14: each walk step forgets a recorded attacker in play that the owner does not detect.
+        #[test]
+        fn a_walk_forgets_an_undetected_attacker() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (12, 12))]);
+            let i = ready(&mut w, ids[0], Order::Idle);
+            w.units[i].attacked_by = Some(ids[1]);
+            let a = at(&w, ids[1]);
+            w.units[a].detected_by = 0xff;
+            w.move_toward(i, Goal::tile((9, 5), 0));
+            assert_eq!(w.units[i].attacked_by, Some(ids[1]), "a detected attacker is kept");
+            w.units[a].detected_by = 0;
+            w.move_toward(i, Goal::tile((9, 5), 0));
+            assert_eq!(w.units[i].attacked_by, None);
+        }
+
+        /// PI4: an invisible unit that is not a worker makes no target search after step 1.
+        #[test]
+        fn an_invisible_unit_searches_for_nothing() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (5, 6))]);
+            let i = ready(&mut w, ids[0], Order::StandGround);
+            assert!(w.acquire(i, Acquires::Other, false), "visible: it takes the footman");
+            let i = ready(&mut w, ids[0], Order::StandGround);
+            w.units[i].invisibility = 100;
+            assert!(!w.acquire(i, Acquires::Other, false));
+            assert_eq!(w.units[i].order, Order::StandGround);
+        }
+
+        /// PI5: an order-15 unit whose search gives a target out of range goes to 13; order 16 goes to 2.
+        #[test]
+        fn a_new_target_out_of_range_ends_orders_15_and_16() {
+            for (order, expected) in [
+                (
+                    Order::AttackInPlace {
+                        target: UnitId(u32::MAX),
+                    },
+                    Order::StandGround,
+                ),
+                (
+                    Order::IdleReact {
+                        target: UnitId(u32::MAX),
+                    },
+                    Order::Idle,
+                ),
+            ] {
+                let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (5, 8))]);
+                let i = ready(&mut w, ids[0], order);
+                w.units[i].attacked_by = Some(ids[1]);
+                assert!(w.acquire(i, Acquires::Other, true));
+                let u = &w.units[i];
+                assert_eq!((u.order, u.script.wait), (expected, 3), "{order:?}");
+            }
+        }
+
+        /// PI8: an order-15 unit that forgot its target at the kill of a different unit goes idle, not to 13, once it
+        /// finds the target lost; one that killed its own target goes to 13.
+        #[test]
+        fn a_target_forgotten_at_another_kill_leaves_idle() {
+            for (own_target, expected) in [(false, Order::Idle), (true, Order::StandGround)] {
+                let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (5, 6)), (FOOTMAN, 1, (9, 9))]);
+                let (k, t, other) = (ids[0], ids[1], ids[2]);
+                let i = ready(&mut w, k, Order::AttackInPlace { target: t });
+                let ti = at(&w, t);
+                w.units[ti].dying = true;
+                let victim = if own_target { t } else { other };
+                w.forget_kill(k, victim);
+                assert_eq!(w.forgot_other.contains_key(&w.units[i].id), !own_target);
+                w.lose_target(i);
+                assert_eq!(w.units[i].order, expected);
+                assert!(w.forgot_other.is_empty());
+            }
+        }
+
+        /// PI13: a marked order-12 unit keeps a dying target out of range for the walk; unmarked, it drops it.
+        #[test]
+        fn a_marked_unit_holds_a_dying_target_out_of_reach() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (5, 12))]);
+            let i = ready(&mut w, ids[0], Order::Chase { target: ids[1] });
+            let ti = at(&w, ids[1]);
+            w.units[ti].dying = true;
+            assert!(!w.marked_hold(i) && !w.out_of_reach(i));
+            w.units[i].skip_search = true;
+            assert!(w.marked_hold(i) && w.out_of_reach(i));
+            w.units[ti].detected_by = 0;
+            assert!(!w.marked_hold(i), "a target no longer detected is dropped");
         }
     }
 }
