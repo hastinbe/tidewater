@@ -1,9 +1,9 @@
 # Game-file import
 
 Tidewater contains no game data. `crates/import` (no SDL, no `unsafe`) finds the user's *Warcraft II: Battle.net
-Edition* files, checks them and copies the ones the client needs into Tidewater's data directory. This is phase I1:
-the library and the command line, phase I2, the first-run screen (below), phase I3, reading the GOG installer
-(below), and phase I3b, reading CD images (below).
+Edition* files, checks them and copies the ones the client needs into Tidewater's data directory. It covers the
+library and the command line, the first-run screen, the GOG installer and CD images (each below); the phone apps' file
+pickers are in [ios.md](ios.md) and [android.md](android.md).
 
 ## Decision: always copy
 
@@ -28,16 +28,17 @@ files must not come along.
 ## Command line
 
 - `tidewater --import <path> [--data-dir <dir>]`: validate, copy, print the report and a summary, exit.
+- `tidewater --reimport`: open the first-run screen even though `<data>/game` exists (Esc leaves it as it was).
 - `twtool import-check <path>`: the same checks and report, copies nothing.
 - `tidewater` without `--install` uses `<data>/game` when it exists, else opens the first-run screen (a run without a
   window prints how to import and exits with 1).
 - `--data-dir` moves the whole per-user directory (`game`, `Save`, the settings file); `--save-dir` and `--settings` still override their parts.
 
 Exit codes: 0 success, 10 path not found, 11 DOS edition, 12 installer, 13 no game files, 14 no `War2Dat.mpq`, 15
-damaged archive, 16 key file missing or unreadable, 17 not enough space, 18 other i/o error, 19 CD image (unreadable, or the disc holds an installer). (12 covers every installer problem: not an Inno Setup installer, `innoextract` missing, extraction failed.) (2 is clap's,
+damaged archive, 16 incomplete files (a key file is missing or unreadable), 17 not enough space, 18 other i/o error, 19 CD image (unreadable, or the disc holds an installer). (12 covers every installer problem: not an Inno Setup installer, `innoextract` missing, extraction failed.) (2 is clap's,
 for a bad command line.)
 
-## First-run screen (I2)
+## First-run screen
 
 With no `--install` and no imported copy, a run with a window opens the first-run screen (`client/src/firstrun.rs`,
 core state `AppState::FirstRun`) instead of printing the import message. A scripted or headless run still prints the
@@ -56,7 +57,7 @@ every screen of the original stays as it was.
   file dialog (`SDL_ShowOpenFolderDialog`, `SDL_ShowOpenFileDialog`; the `sdl-dialog` feature of `sdl3-sys`), and a
   file or folder dropped on the window (`SDL_EVENT_DROP_FILE`) does the same. Both come into the core as input events
   (`Input::picked`, `Input::dropped`) and go through the same import, so a GOG installer is read like any source and a CD
-  image is read like any source (phase I3b). The core asks for a dialog with `Core::take_pick_requests`; the shell
+  image is read like any source. The core asks for a dialog with `Core::take_pick_requests`; the shell
   shows it. Nothing else of SDL is known to the core.
 - **Importing.** The copy runs on a worker thread through `Backend::import` (`DesktopBackend` calls `classify`,
   `validate` and `import`); the screen shows the callback's progress as a bar, then the result line ("Imported
@@ -69,15 +70,15 @@ every screen of the original stays as it was.
 - **Tests.** The rules are tested through the core's input with a fake `Backend`; the scripted scene `firstrun` (a
   demo backend and a fake list of installs, so it needs no game data) has a frame snapshot in
   `tests/snapshots/firstrun.txt`.
-- **Not done here.** The sandboxed platforms' pickers (I4).
+- **Phones.** iOS and Android use a shared folder and their own pickers instead of SDL's dialogs: [ios.md](ios.md), [android.md](android.md).
 
-## GOG installer (I3)
+## GOG installer
 
 `classify` accepts the installer `setup_*.exe` (or its `-1.bin` part; the `.exe` beside it is used), and a folder that
 contains one. Any `.exe` counts when it is an Inno Setup installer: a Windows program with the text `Inno Setup Setup
 Data (` in its first 8 MiB. Another `setup*.exe` is `InstallerUnsupported`.
 
-`inno::InstallerReader` implements `SourceFiles` for it. Today it drives the `innoextract` program (zlib licence; found
+`inno::InstallerReader` implements `SourceFiles` for it. It drives the `innoextract` program (zlib licence; found
 through `TIDEWATER_INNOEXTRACT`, then the `PATH`, then `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`): `innoextract
 --list` finds the top-level `*.mpq` entries, then one `innoextract --include ... --output-dir` run extracts only those
 and `Maps` into a staging folder under the system temp folder (`tidewater-installer-<pid>-<n>`). That folder is then
@@ -105,7 +106,7 @@ the real installer when `TIDEWATER_GOG_INSTALLER` names it (skipped otherwise, a
 with `TIDEWATER_INSTALL` set it also compares every imported file's SHA-256 with an installed copy.
 `twtool import-check <setup.exe>` takes the installer path like any other.
 
-## CD images (I3b)
+## CD images
 
 `classify` accepts a disc image and `tidewater --import` / `twtool import-check` take it like any path. `crates/import/src/disc.rs`
 is our own small read-only ISO 9660 reader (no new dependency); its module doc cites the public format sources.
@@ -172,8 +173,7 @@ Nero v1 and v2 with a leading offset, a multi-extent file, a large directory, cl
 folder with the manifest, installer and DOS discs, junk images, truncated images, a directory loop, and a byte-flipping
 fuzz loop; a disc whose game is in an installer archive (as `.iso`, MODE1 and MODE2 `.bin` and a `.cue`), seeking inside
 a disc file, a `.bin` beside a `.cue` with audio first, `MODE1/2048` sheets, a `.bin` with no sheet, and the errors for a
-sheet naming a missing file or listing only audio. A real Battle.net Edition BIN/CUE has been imported by hand (see
-above); no real disc data is in the repository.
+sheet naming a missing file or listing only audio. A real Battle.net Edition BIN/CUE has been imported by hand; no real disc data is in the repository.
 
 ## Free space
 
@@ -181,8 +181,8 @@ There is no portable free-space query without `unsafe` or a new dependency, so t
 full disk surfaces as a write error, which is reported as "Not enough free space" and cleans up the temporary
 folder; an earlier import is untouched.
 
-## Later phases
+## Sources
 
 The copy step reads through the `SourceFiles` trait (`list()` relative paths and sizes, `open(rel)`), with a plain
-folder (`FolderFiles`) and the GOG installer (`InstallerReader`, above) as implementations. The CD image (`DiscFiles`, below) is a third; `copy::import_from` takes any of them unchanged. Validation opens archives by
+folder (`FolderFiles`) and the GOG installer (`InstallerReader`, above) as implementations. The CD image (`DiscFiles`, above) is a third; `copy::import_from` takes any of them unchanged. Validation opens archives by
 path, so a source that isn't a folder first stages the archives in a temporary folder and validates them there.

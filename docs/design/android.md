@@ -4,8 +4,7 @@
 in the emulator with touch, landscape only, background pause, and a first-run import both from the app's folder and
 from the system file picker. It is not yet tried on a phone.
 
-This covers phase T2b (the Android shell) and the Android part of I4 (import on a phone). The gestures are in
-[touch.md](touch.md), the import in [import.md](import.md) and the iPhone version in [ios.md](ios.md).
+The gestures are in [touch.md](touch.md), the import in [import.md](import.md) and the iPhone version in [ios.md](ios.md).
 
 ## What you get
 
@@ -110,12 +109,6 @@ whatever orientation it chooses, and the game returns to landscape afterwards.
 - **The CD-image picker is untried** on Android (the folder picker was run); the import of CD images is the pure-Rust
   reader that works elsewhere.
 - **Storage.** Imported files are about 700 MB and the original stays; the picker needs the same again in cache.
-- **Network play** has no screen on the phone (command line only, as on the desktop).
+- **Network play** is untried on the phone.
 - **No app icon,** no release signing, no Play Store packaging.
 - **Sound** is untested in the emulator (it ran with `-no-audio`).
-
-## Deviations from the brief
-
-- Gradle 8.14.3 replaces the 8.12 of SDL's template, because the installed JDK is 24, which 8.12 cannot run on.
-- SDL's own `SDL_ShowOpenFileDialog` is not used on Android (see Picker above); a Java helper does the picking, as the
-  brief allowed.

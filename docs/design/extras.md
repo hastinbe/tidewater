@@ -10,7 +10,7 @@ settings in a game with other players. Enhanced rules stay the target; Classic s
 
 The table is generated from the one registry in `crates/client/src/extras.rs` (`REGISTRY`); a test fails if this copy
 drifts from it. **Scope** C is client-only. **C+L** is client-only but gives an edge, so in a game with other players
-the session (the lobby, later) sets it for everyone instead of your own setting. **S** changes the simulation: the host
+the session should set it for everyone instead of your own setting (not built for network games yet: see "Multiplayer (C+L)"). **S** changes the simulation: the host
 chooses it in the lobby and it travels with the game, saves and replays (see "Sim options").
 
 | Option | Flag | Values | Scope | Default | What it does |
@@ -206,23 +206,19 @@ idle-worker=ctrl+i
 A game never reads sim options from the local settings unless it is a new local game (`extras::local_sim_extras`).
 A replay uses the recording's; a loaded game keeps the ones it was saved with.
 
-**Versions.** The extras raised the saved game from 17 to 18 (`savefile::VERSION`), the replay from 1 to 2
-(`tidewater_replay::format::VERSION`) and the network protocol from 2 to 3 (`net::proto::PROTOCOL`), because the
-lobby's messages carry the set. With every extra off the new data is empty or skipped: nothing else in the file or the
-hash differs, and the frame snapshot's `.sav` hash lines are the only snapshot lines that moved (the version number is
-part of the file).
-
-Shift-queued orders then added a fifth byte to the set: the saved game went from 19 to 20, the replay from 2 to 3, and
-the network protocol moved with the observer slot (`docs/design/network.md`, "Observers"). The `.sav` hash lines are
-again the only snapshot lines that moved.
+**Versions.** Sim options are part of the file formats and the protocol, so changing them bumps all three: the saved game
+(`savefile::VERSION`, 23), the replay (`tidewater_replay::format::VERSION`, 5) and the network protocol
+(`net::proto::PROTOCOL`, 6). With every extra off the option data is empty or skipped, so nothing else in a file or the
+hash differs.
 
 ## Multiplayer (C+L)
 
 `extras::effective(local, session)` picks a game's values. A local session returns `None` from
 `Session::lobby_client_extras` and the player's own settings are used. Any other session returns its own set, and
-for the C+L options that set wins over the local settings. Until the lobby exists (M3) the only non-local session is a
-replay, which hands over the defaults (off): a recording carries no health-bar choice of its own. The lobby will hand
-over what its players agreed. Tests: `a_non_local_session_sets_the_c_plus_l_options_and_leaves_the_c_ones` and
+for the C+L options that set wins over the local settings. A replay hands over the defaults (off), because a recording
+carries no health-bar choice of its own. **A network session does not override them yet** (`NetSession` keeps the
+default `None`), so in a network game each player still uses their own C+L settings; the lobby handing over the host's
+choices is not built. Tests: `a_non_local_session_sets_the_c_plus_l_options_and_leaves_the_c_ones` and
 `a_replay_follows_its_recording_and_a_local_game_the_player` in `extras.rs`.
 
 ## How to add an option

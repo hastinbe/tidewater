@@ -46,7 +46,7 @@ tidewater --join HOST-ADDRESS            # or HOST-ADDRESS:PORT
 - **Both programs must be the same build with the same game data.** The handshake refuses a joiner that differs and
   says which of the protocol, the simulation build, the data tables (`unitdata.dat`, `upgrades.dat`, `script.bin`,
   `ai.bin`), the game edition or the game files differs ("Compatibility check"). A joiner without the host's map is
-  sent it ("Map transfer"). `--host`, `--join` and `--lobby` work as before and do not need the menus.
+  sent it ("Map transfer").
 
 | `--lobby` choice | Meaning | Default |
 |---|---|---|
@@ -101,9 +101,7 @@ the end; `Hello` is first so a program of another protocol version can still rea
 | `MapRequest`, `MapOffer`, `MapChunk`, `MapDenied` | see "Map transfer" | The map, in chunks |
 | `Chat` | any (the host relays) | An in-game chat line: sender slot, allies only or not, text |
 
-The protocol number is **6**. Protocol 2 brought the lobby, map transfer and chat; protocol 4 added the observer flag to
-`Hello` and the new `Command` variants and `Extras` fields (Shift-queued orders); protocol 5 the diplomacy command; protocol 6 the Hold workers and Release workers commands and a speed command that
-carries its value. A
+The protocol number is **6** (`net::proto::PROTOCOL`); it changes whenever a message or `Command` variant does. A
 joiner of another protocol is refused with a message naming both versions: the host reads only the first varint of the
 `Hello` to know that it cannot read the rest.
 

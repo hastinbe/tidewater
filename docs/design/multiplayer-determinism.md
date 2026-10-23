@@ -1,15 +1,8 @@
 # Design: multiplayer determinism
 
 **Bottom line.** Two machines that run the same commands from the same start compute the same `World::state_hash` every
-cycle, whichever player is local and whatever the pointer width. Phase M0 made that true and tests it. Three reads of
-the local player still change game state in a network game; they need a spec before network play ships
-([Open questions](#open-questions)).
-
-## What we need from you
-
-- [ ] **Nick:** decide who writes the specs for the open questions below (network turn length, the "Unexplored" build
-      check, the victory check, rescue alliances). **[Recommended: ask research for all four together,** before the
-      lockstep transport work starts.]
+cycle, whichever player is local and whatever the pointer width. This is tested. Three reads of the local player still
+change game state in a network game; they need a spec ([Open questions](#open-questions)).
 
 ## What makes the sim deterministic
 
@@ -61,7 +54,7 @@ Mark a game-state read of the local player that the specs don't settle with
 
 ## Writes to the world outside the command stream
 
-| Where | Status after M0 |
+| Where | Status |
 | --- | --- |
 | Passenger click, `game.rs` `tick` | Now `Command::UnloadOne`, applied first in the cycle as before |
 | `set_fog_of_war`, `gamemenu.rs` | Skipped in network games (the spec disables the radio there) |
@@ -89,7 +82,7 @@ local player gave to `Session::submit`, then asks `Session::ready_commands(tick)
 
 ## The replay format
 
-A `.twrep` file (`crates/replay`) is: the magic `TWREPLAY`, a `u16` format version (1), the body length as `u64`, the
+A `.twrep` file (`crates/replay`) is: the magic `TWREPLAY`, a `u16` format version (`tidewater_replay::format::VERSION`, currently 5), the body length as `u64`, the
 body, and an FNV-64 checksum of everything before it (all little-endian). The body is a `postcard` encoding of
 `Replay`: a header (sim build, map file name, FNV-64 of the map bytes, seed, setup, lobby, rules, start cheats, local
 slot), the commands by cycle, the checkpoints (`state_hash` after every 100th cycle) and notes about out-of-band
@@ -104,8 +97,6 @@ first differing field. Run the same replay from two seats to check that no code 
 
 ## Open questions
 
-- **Network turn length.** How many cycles one network turn spans, and what a late turn does. The timing spec leaves it
-  open (`docs/specs/core/timing-and-rng.md`, scheduler rule 5).
 - **"Unexplored" in network games.** Does the builder's own machine refuse a site, or does the check go away? As it
   stands, the owner's machine can refuse a site that its peers accept. In-turn build commands skip the check
   already; the later check when the builder arrives does not.

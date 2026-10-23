@@ -4,8 +4,7 @@
 the Simulator with touch, the safe area, background pause and a first-run import from the app's shared folder. It is
 not yet tried on a device, and signing is yours to add.
 
-This covers phases T2 (the iOS shell) and the iOS part of I4 (import on a phone). The gestures are in
-[touch.md](touch.md) and the import in [import.md](import.md).
+The gestures are in [touch.md](touch.md) and the import in [import.md](import.md); the Android version is [android.md](android.md).
 
 ## What you get
 
@@ -118,11 +117,5 @@ platforms always use. Touch is active from the first frame.
 - **Not tried on a device.** The device library builds; signing, the picker and real fingers are untried.
 - **The picker is untried.** The Simulator run had no way to tap (no UI automation tool was available).
 - **Memory.** Imported files are about 500 MB; the app needs that much free storage and the original is not removed.
-- **Network play** has no screen on the phone yet (it is command-line only on the desktop too).
+- **Network play** is untried on the phone.
 - **No app icon.** The project has no asset catalog yet.
-
-## Deviations from client-core.md
-
-`Core::suspend` and `resume` exist now (the design called them "still to come"), with one addition: the shell runs one
-further frame after `suspend` so the pause is applied, and skips drawing from then on. The shell is not split into
-`SDL_AppIterate` style callbacks; see above for why.
