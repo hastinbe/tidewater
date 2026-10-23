@@ -89,6 +89,7 @@ Downloads are checked against the size the release lists; they are not signed. A
 | **Game screen** | Map view with fog of war, minimap, resource bar, selection and unit information panel, command buttons and hotkeys, building placement, messages and the status bar. |
 | **Game rules** | Movement and pathfinding, combat, spells, harvesting, construction, training and research, repair, transports, walls, rescue, victory and defeat, and computer players that build, train, attack and cast. |
 | **Custom games** | The Custom Scenario screen (see below), or any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog). |
+| **Settings** | Tidewater's own Settings screen (F2 on the main menu): the optional improvements, the window, the mouse lock, the intro video, the update check and the game files. See [Settings](#settings). |
 | **Menus** | Main menu (Single Player Game, Multi Player Game, Replay Introduction, Show Credits, Exit Program), single-player menu (New Campaign, Load Game, Custom Scenario), new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
 | **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
@@ -118,7 +119,7 @@ copy your own maps there. When the game ends, the score screen leads back to the
 | **Speed and pause** | `+` and `-` change the game speed; Ctrl+P pauses. |
 | **Menu** | F10 or Alt+M opens the game menu; Escape closes it. Tab moves between controls in dialogs and Enter presses a button. |
 
-The pointer is locked to the window during a game, as in full screen, so pushing it against an edge scrolls the map. The game menus free it, and so does holding Cmd (the Windows key elsewhere) or switching to another app. `--no-mouse-lock` turns this off. The full key list is in the specs under [`docs/specs/ui`](docs/specs/ui/).
+The pointer is locked to the window during a game, as in full screen, so pushing it against an edge scrolls the map. The game menus free it, and so does holding Cmd (the Windows key elsewhere) or switching to another app. The Settings screen's **Mouse lock** row turns this off for good; `--no-mouse-lock` turns it off for one run. The full key list is in the specs under [`docs/specs/ui`](docs/specs/ui/).
 
 ### Touch
 
@@ -170,11 +171,37 @@ Fidelity is measured, not assumed. The simulation is deterministic and integer-o
 
 Some screens are our own layout, because the original's dialog definition files are not specified yet: the menus, dialogs, briefing and score screen look different from the original.
 
+## Settings
+
+**Open Settings from the main menu: press F2, or click or tap the "Settings (F2)" link at the bottom right.** Choose a
+value in each drop-down, then **OK** to apply and save, **Cancel** (or Esc) to throw the changes away, or **Defaults**
+to put every row on every page back to its default (Cancel still discards that). Changes are written to `settings.txt`
+at once, so a phone app that the system closes keeps them. The screen works with the mouse, the keyboard (Tab and Shift+Tab or Up and
+Down move, Enter opens a drop-down or presses a button, Left and Right change a value) and touch. It is our own addition: the
+original's main-menu buttons are unchanged.
+
+| Page | What it holds | Takes effect |
+|---|---|---|
+| **General** | Window or full screen (desktop), Scaling, Widescreen, Mouse lock (desktop), Intro video, Check for updates (desktop release builds), the imported game files with **Import game files again...**, and **Open settings folder** (desktop). | Window, Scaling and Mouse lock at once; Widescreen from the next game; Intro video and Check for updates the next time Tidewater starts |
+| **Interface** | Health bars, idle worker button, game clock, control group bar, smart attack-move, minimap ping, record replays. | At once or from the next game |
+| **Sound** | Unit voices, sound effects and music, 0 to 100 percent in steps of 10. | At once |
+| **Gameplay** | Rally points, production queue, selection limit, extra game speeds, shift-queued orders. These change the game rules: they apply to single-player games you start, and in a multiplayer game the host chooses them in the lobby. | From the next game |
+
+Rows that make no sense on a phone (window, mouse lock, update check, settings folder) are hidden there. **Import game files
+again...** opens the import screen over the running program; Esc there leaves everything as it was and returns to the
+main menu. It is hidden when the game files are read in place with `--install`.
+
+**Power users** can still edit `settings.txt` (the keys are rebound in its `[keys]` section; **Open settings folder**
+finds it) or give a flag. A flag lasts for one run: a choice you make on the screen replaces the run's flag for that
+option, and `--no-mouse-lock`, `--no-intro` and `--no-update-check` still win over the screen's rows for the run.
+`--goto settings` opens the screen directly.
+
 ## Optional improvements
 
 Tidewater adds a few optional improvements that the original game does not have. **With none switched on, the game looks,
-sounds and plays as the original does.** Turn one on in the `[extras]` section of the
-settings file (`settings.txt`), or for one run with its flag; `--no-extra-NAME` puts an option back to its default.
+sounds and plays as the original does.** Turn them on in the [Settings screen](#settings) (the Interface, Sound and Gameplay
+pages, and Scaling and Widescreen on General). Power users can also use the `[extras]` section of the
+settings file (`settings.txt`), or for one run a flag; `--no-extra-NAME` puts an option back to its default.
 The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the same file (for example
 `pause=ctrl+u`, `button-move=j`, `slot-1=q`); with no section they are the original's. How they work, and how to add one, is in [`docs/design/extras.md`](docs/design/extras.md).
 
@@ -221,11 +248,11 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--install <PATH>` | Developer override: read the game files in place instead of the imported copy. Also `TIDEWATER_INSTALL`. |
 | `<MAP>` | Start this map at once (a `.pud` path or an archive name). |
 | `--setup <SETUP>` | Game setup: `campaign:ENTRY`, or `custom` with choices such as `custom:race=orc,opponents=2,resources=high,terrain=swamp,units=one-worker,fixed-starts,fog=off`. |
-| `--no-intro` | Skip the intro video. |
+| `--no-intro` | Skip the intro video for this run (the Settings screen's Intro video row does it for good). |
 | `--ui-scale <1-8>` | Open a 640N x 480N-point window instead of the largest whole-number scale that fits. |
 | `--save-dir <DIR>` | Where saved games go (default: `Save` in the data directory). |
 | `--settings <FILE>` | The settings file (default: `settings.txt` beside the saved games). |
-| `--no-mouse-lock` | Do not lock the pointer to the window during a game. |
+| `--no-mouse-lock` | Do not lock the pointer to the window during a game. Overrides the Settings screen's Mouse lock row for this run. |
 | `--second-mouse-style` | Right click centres the view instead of giving a command. |
 | `--mouse-scroll-speed <0-6>` | Mouse scroll speed; 6 is fastest. Default: the stored setting. |
 | `--key-scroll-speed <0-6>` | Keyboard scroll speed; 6 is fastest. Default: the stored setting. |
@@ -238,7 +265,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--touch-dpi <PPI>` | The screen's density in physical pixels per inch, for touch sizes (taps, slop, buttons). Default: 140 points to the inch. |
 | `--free-zoom` | The mouse wheel zooms the map view (1/4 to 8 map pixels per screen pixel). |
 | `--zoom <N>` | Starting zoom; implies `--free-zoom`. |
-| `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `single` (the single-player menu), `custom`, `multi` (the multiplayer menus), `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
+| `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `single` (the single-player menu), `custom`, `settings` (the Settings screen), `multi` (the multiplayer menus), `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
 | `--demo-outcome <victory\|defeat>` | End the game at once, to see the dialog and score screen. |
 | `--demo-move <X,Y>` | Order all your units to a tile at the start. |
 | `--demo-fight` | Send every player's units against the nearest enemy within 16 tiles. |

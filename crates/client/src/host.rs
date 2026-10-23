@@ -67,6 +67,7 @@ const NO_GAME_FILES: &str = "No game files yet. Import your Warcraft II: Battle.
 /// the startup sequence ("Startup") or a screen named by `--goto`.
 pub(crate) fn start_steps(
     args: &Args,
+    prefs: &prefs::Prefs,
     flow: &mut frontend::Flow,
     front: &mut frontend::Front,
 ) -> Result<Vec<frontend::Step>> {
@@ -85,8 +86,22 @@ pub(crate) fn start_steps(
             }
             steps
         }
-        (None, None) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
+        // The introduction video plays unless `--no-intro` or the Settings screen's Intro video row (the stored
+        // "opening film" bit) says not to.
+        (None, None) => frontend::startup_steps(
+            false,
+            flow.skip_videos,
+            !args.no_intro && prefs.has(prefs::bit::OPENING_FILM),
+        ),
     })
+}
+
+/// The settings file's place: `--settings`, else `settings.txt` in the user folder (`--save-dir`, else Tidewater's own
+/// per-user data directory). The Settings screen opens its folder.
+pub fn settings_path(args: &Args) -> std::path::PathBuf {
+    args.settings
+        .clone()
+        .unwrap_or_else(|| storage::user_dir(args.save_dir.as_deref(), args.data_dir.as_deref()).join(prefs::FILE_NAME))
 }
 
 /// The core on the first-run screen (`firstrun`), over `store` (whose game folder doesn't exist yet): `backend` does
@@ -226,6 +241,12 @@ pub fn launch(mut args: Args) -> Result<Launch> {
     };
     // `--host` / `--join`: the network game is set up before the window opens, on the command line (`net::lobby`).
     let net = network_start(&args, &mut front.install, &store)?;
+    // A scripted run starts from the default settings.
+    let prefs = if scripted.is_some() {
+        prefs::Prefs::default()
+    } else {
+        prefs::Prefs::load(&*store.0)
+    };
     let steps = match (&replay, &scripted, &net) {
         (_, _, Some(net)) => vec![frontend::Step::Play {
             map: net.config.map_name.clone(),
@@ -236,17 +257,11 @@ pub fn launch(mut args: Args) -> Result<Launch> {
             setup: Some(replay.header.setup),
         }],
         (None, Some((scene, _)), None) => scene.start.clone(),
-        (None, None, None) => start_steps(&args, &mut flow, &mut front)?,
+        (None, None, None) => start_steps(&args, &prefs, &mut flow, &mut front)?,
     };
     flow.steps = steps.into();
     flow.replay = replay.map(Box::new);
     flow.net = net.map(Box::new);
-    // A scripted run starts from the default settings.
-    let prefs = if scripted.is_some() {
-        prefs::Prefs::default()
-    } else {
-        prefs::Prefs::load(&*store.0)
-    };
     let stored =
         gamemenu::Stored(prefs.with_args(args.mouse_scroll_speed, args.key_scroll_speed, args.second_mouse_style));
     let title = match (&flow.replay, args.map.as_deref()) {

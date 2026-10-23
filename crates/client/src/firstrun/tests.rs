@@ -677,3 +677,34 @@ fn suspending_and_resuming_flip_the_core_once() {
     r.core.resume();
     assert!(!r.core.suspended);
 }
+
+#[test]
+fn opened_from_the_settings_screen_esc_and_the_last_button_go_back_to_the_menu() {
+    let mut r = rig();
+    let fr = r.core.first_run.take().unwrap().returning();
+    r.core.first_run = Some(fr);
+    r.frame();
+    // Esc leaves, with nothing imported and the program running on.
+    let fr = r.core.first_run.as_mut().unwrap();
+    assert_eq!(fr.key(Key::Escape, false), Some(Outcome::Back));
+    // The last button says "Back" and does the same.
+    assert_eq!(fr.activate(Item::Quit), Some(Outcome::Back));
+    assert!(fr.items().contains(&Item::Quit));
+    // Without the flag Esc and the button still quit, as at start-up.
+    let mut plain = rig();
+    let fr = plain.core.first_run.as_mut().unwrap();
+    assert_eq!(fr.key(Key::Escape, false), Some(Outcome::Quit));
+    assert_eq!(fr.activate(Item::Quit), Some(Outcome::Quit));
+}
+
+#[test]
+fn a_phone_that_came_from_the_settings_screen_has_a_way_back() {
+    let mut r = phone_rig();
+    let fr = r.core.first_run.take().unwrap().returning();
+    r.core.first_run = Some(fr);
+    r.frame();
+    let items = r.screen().items();
+    assert_eq!(items.last(), Some(&Item::Quit), "a Back button after the rescan");
+    let fr = r.core.first_run.as_mut().unwrap();
+    assert_eq!(fr.key(Key::Escape, false), Some(Outcome::Back));
+}

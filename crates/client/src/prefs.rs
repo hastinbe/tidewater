@@ -89,6 +89,12 @@ pub struct Prefs {
     pub update_check: bool,
     /// The "move Tidewater to Applications" notice (`update`) has been shown once; the `move_notice_seen` line.
     pub move_notice_seen: bool,
+    /// Whether the desktop window opens (and stays) full screen; the `fullscreen` line, off by default
+    /// (`settings`, the Settings screen's Window row).
+    pub fullscreen: bool,
+    /// Whether the mouse lock holds the pointer in the window during a game (`display`, "Mouse lock"); the `mouse_lock`
+    /// line, on by default. `--no-mouse-lock` turns it off for a run whatever this says.
+    pub mouse_lock: bool,
     /// Ctrl+M's remembered music volume, while the music is off by it.
     music_before: Option<u8>,
     /// Ctrl+S's remembered digital volume.
@@ -116,6 +122,8 @@ impl Default for Prefs {
             mp_port: "6112".to_string(),
             update_check: true,
             move_notice_seen: false,
+            fullscreen: false,
+            mouse_lock: true,
             music_before: None,
             digital_before: None,
         }
@@ -189,6 +197,8 @@ impl Prefs {
                 "mp_answer" => p.mp_answer = text == "1",
                 "update_check" => p.update_check = text != "0",
                 "move_notice_seen" => p.move_notice_seen = text == "1",
+                "fullscreen" => p.fullscreen = text == "1",
+                "mouse_lock" => p.mouse_lock = text != "0",
                 _ => {}
             }
             let Ok(n) = value.trim().parse::<u32>() else {
@@ -213,7 +223,7 @@ impl Prefs {
     /// The text form of everything stored, ending with the `[extras]` section.
     pub fn to_text(&self) -> String {
         format!(
-            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\nmp_name={}\nmp_method={}\nmp_answer={}\nmp_address={}\nmp_port={}\nupdate_check={}\nmove_notice_seen={}\n{}{}",
+            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\nmp_name={}\nmp_method={}\nmp_answer={}\nmp_address={}\nmp_port={}\nupdate_check={}\nmove_notice_seen={}\nfullscreen={}\nmouse_lock={}\n{}{}",
             self.game_speed,
             self.mouse_scroll,
             self.key_scroll,
@@ -228,6 +238,8 @@ impl Prefs {
             self.mp_port,
             u8::from(self.update_check),
             u8::from(self.move_notice_seen),
+            u8::from(self.fullscreen),
+            u8::from(self.mouse_lock),
             self.extras.section_text(),
             self.keys.section_text()
         )
@@ -317,6 +329,27 @@ mod tests {
         assert!(!p.has(bit::SUBTITLES) && !p.has(bit::SYSTEM_POINTER));
         assert!(!p.has(bit::SPEECH_RECOGNITION) && !p.has(bit::SPEAK_MESSAGES));
         assert!(p.minimap_terrain);
+    }
+
+    #[test]
+    fn the_window_and_mouse_lock_settings_round_trip() {
+        let p = Prefs::from_text("");
+        assert!(
+            !p.fullscreen && p.mouse_lock,
+            "windowed with the mouse lock on, by default"
+        );
+        let set = Prefs {
+            fullscreen: true,
+            mouse_lock: false,
+            ..Prefs::default()
+        };
+        let text = set.to_text();
+        assert!(text.contains("fullscreen=1\n") && text.contains("mouse_lock=0\n"));
+        let back = Prefs::from_text(&text);
+        assert!(back.fullscreen && !back.mouse_lock);
+        // Anything but the stored words falls back to the defaults' meaning.
+        let odd = Prefs::from_text("fullscreen=yes\nmouse_lock=maybe\n");
+        assert!(!odd.fullscreen && odd.mouse_lock);
     }
 
     #[test]

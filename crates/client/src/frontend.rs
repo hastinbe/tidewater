@@ -49,6 +49,7 @@ use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
+use crate::settings;
 use crate::states::Machine;
 use crate::video;
 
@@ -68,6 +69,8 @@ pub enum Step {
     SinglePlayer,
     /// The Custom Scenario screen (`customsetup`), opened by the single-player menu.
     CustomSetup,
+    /// Tidewater's Settings screen (`settings`), opened by F2 or the link on the main menu.
+    Settings,
     /// The multiplayer menus and the lobby (`mpmenu`), opened by the main menu's Multi Player Game.
     Multiplayer,
     /// "Starting a mission": the act screen check, the briefing, the game.
@@ -328,6 +331,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
             }
             Step::NewCampaign => AppState::NewCampaign,
             Step::CustomSetup => AppState::CustomSetup,
+            Step::Settings => AppState::Settings,
             Step::Multiplayer => AppState::Multiplayer,
             Step::SinglePlayer => AppState::SinglePlayer,
             &Step::Mission(e) => {
@@ -604,6 +608,7 @@ pub fn goto_steps(s: &str) -> Result<Vec<Step>, String> {
         "menu" => vec![Step::MainMenu],
         "campaign" => vec![Step::NewCampaign],
         "custom" => vec![Step::CustomSetup, Step::MainMenu],
+        "settings" => vec![Step::Settings, Step::MainMenu],
         "multi" => vec![Step::Multiplayer, Step::MainMenu],
         "single" => vec![Step::SinglePlayer, Step::MainMenu],
         "mission" => vec![Step::Mission(entry()?)],
@@ -725,6 +730,7 @@ pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
         | AppState::SinglePlayer
         | AppState::NewCampaign
         | AppState::CustomSetup
+        | AppState::Settings
         | AppState::Multiplayer => FlowPointer::OrcArrow,
         AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
         AppState::Boot | AppState::Game | AppState::FirstRun => FlowPointer::Default,
@@ -745,6 +751,7 @@ pub(crate) fn pointer_palette(state: AppState, flow: &Flow) -> &'static str {
             | AppState::SinglePlayer
             | AppState::NewCampaign
             | AppState::CustomSetup
+            | AppState::Settings
             | AppState::Multiplayer,
             _,
             _,
@@ -829,6 +836,8 @@ pub struct Screens {
     menu_picture: Option<(Picture, Palette)>,
     menu_load: Option<MenuLoad>,
     custom: Option<CustomScreen>,
+    /// Tidewater's Settings screen.
+    settings: Option<SettingsScreen>,
     /// The multiplayer menus.
     mp: Option<MpScreen>,
     /// The place in the typed events the multiplayer menus have read.
@@ -890,6 +899,9 @@ pub(crate) fn screen_systems(c: &mut Core) {
     }
     if state(c) == AppState::CustomSetup {
         run_custom_setup(c);
+    }
+    if state(c) == AppState::Settings {
+        run_settings(c);
     }
     if state(c) == AppState::Multiplayer {
         run_multiplayer(c);
@@ -1378,6 +1390,8 @@ enum MenuPick {
     Campaign(VecDeque<Step>),
     /// Custom Scenario: the setup screen, after a fade out with the music playing on.
     CustomSetup,
+    /// F2 or the Settings link: the Settings screen, after a fade out with the music playing on.
+    Settings,
 }
 
 /// The main menu's load dialog (`loadgamt.bin`, spec `game/save-load.md`, "Load dialog"), open over the menu.
@@ -1392,6 +1406,9 @@ struct MenuItem {
     label: String,
     key: Option<char>,
     enabled: bool,
+    /// Not a button: the main menu's Settings link, drawn as text in the version line's font (`menuscreen`). It takes
+    /// the pointer but never the focus, and has no number key.
+    link: bool,
 }
 
 /// A menu's buttons in the main menu's column (`menuscreen::button_rects`), from their labels and hotkeys.
@@ -1404,6 +1421,7 @@ fn menu_items(labels: &[(&str, Option<char>)]) -> Vec<MenuItem> {
             label: l.to_string(),
             key,
             enabled: true,
+            link: false,
         })
         .collect()
 }
@@ -1478,6 +1496,7 @@ pub(crate) fn menu_screen(state: AppState) -> Option<MenuScreen> {
         AppState::SinglePlayer => Some(MenuScreen::SinglePlayer),
         AppState::NewCampaign => Some(MenuScreen::Campaign),
         AppState::CustomSetup => Some(MenuScreen::CustomSetup),
+        AppState::Settings => Some(MenuScreen::Settings),
         AppState::Multiplayer => Some(MenuScreen::Multiplayer),
         _ => None,
     }
@@ -1539,13 +1558,15 @@ fn menu_input(
     menu.hot = at.and_then(|p| menu.items.iter().position(|it| it.enabled && it.r.contains(p.x, p.y)));
     if mouse.just_pressed(Button::Left) {
         menu.held.down(menu.hot);
-        // Screen spec, "Pressing": pressing a button also gives it the focus.
-        if let Some(h) = menu.hot {
+        // Screen spec, "Pressing": pressing a button also gives it the focus (the Settings link is not a button).
+        if let Some(h) = menu.hot
+            && !menu.items[h].link
+        {
             menu.focus = h;
         }
     }
     if let Some(k) = focus_key(keys) {
-        let enabled: Vec<bool> = menu.items.iter().map(|it| it.enabled).collect();
+        let enabled: Vec<bool> = menu.items.iter().map(|it| it.enabled && !it.link).collect();
         menu.focus = menuscreen::move_focus(&enabled, menu.focus, k);
     }
     let released = mouse.just_released(Button::Left);
@@ -1558,6 +1579,12 @@ fn menu_input(
             menuscreen::draw_heading(&mut p, &front.font, &menu.palette, UPDATE_NOTICE, text);
         }
         for (i, it) in menu.items.iter().enumerate() {
+            if it.link {
+                if it.enabled {
+                    menuscreen::draw_settings_link(&mut p, &front.small, &menu.palette, menu.hot == Some(i));
+                }
+                continue;
+            }
             let state = menuscreen::ButtonState {
                 enabled: it.enabled,
                 hover: menu.hot == Some(i),
@@ -1584,7 +1611,8 @@ fn menu_input(
         return chosen;
     }
     // Screen spec, "Keyboard focus": Enter activates the focused button, as a click on it does.
-    if keys.any_just_pressed([Key::Enter, Key::NumpadEnter]) && menu.items.get(menu.focus).is_some_and(|it| it.enabled)
+    if keys.any_just_pressed([Key::Enter, Key::NumpadEnter])
+        && menu.items.get(menu.focus).is_some_and(|it| it.enabled && !it.link)
     {
         return Some(menu.focus);
     }
@@ -1597,7 +1625,7 @@ fn menu_input(
         Key::Digit(6),
     ];
     if let Some(i) = DIGITS.iter().position(|&k| keys.just_pressed(k))
-        && menu.items.get(i).is_some_and(|it| it.enabled)
+        && menu.items.get(i).is_some_and(|it| it.enabled && !it.link)
     {
         return Some(i);
     }
@@ -1610,9 +1638,12 @@ fn menu_input(
     })
 }
 
-/// The main menu's five buttons; the update offer adds two below them.
-const MAIN_BUTTONS: usize = 5;
-/// Where the update notice line is: under the fifth button.
+/// The main menu's five buttons and the Settings link after them (item 5); the update offer adds two more.
+const MAIN_BUTTONS: usize = 6;
+/// The Settings link's place among the main menu's items.
+const SETTINGS_ITEM: usize = 5;
+/// Where the update notice line is: under the fifth button, above the update offer's buttons and clear of the
+/// Settings link (which is on the version line's row, y 448 to 476, at the right).
 const UPDATE_NOTICE: Rect = Rect::new(0, 427, 640, 18);
 /// The update offer's buttons, side by side under the notice in the 164 × 28 faces: the 106-wide faces are narrower
 /// than the label "Update now" in `font12x`. The pair is centred on the 640-wide picture with a 12-pixel gap.
@@ -1642,6 +1673,7 @@ fn sync_update_notice(menu: &mut Menu, notice: &crate::update::Notice) {
                 label: label.to_string(),
                 key: Some(key),
                 enabled: true,
+                link: false,
             });
         }
     }
@@ -1661,6 +1693,16 @@ pub(crate) fn enter_menu(c: &mut Core) {
         ("Exit Program", Some('x')),
     ]);
     // Multi Player Game opens the multiplayer menus (`enter_multiplayer`); all five buttons are always enabled.
+    let mut items = items;
+    // Not in the original: the link to Tidewater's own Settings screen on the version line's row (and the F2 key). The
+    // main menu also stands in for the multiplayer lobby, which has no settings link.
+    items.push(MenuItem {
+        r: menuscreen::SETTINGS_LINK,
+        label: menuscreen::SETTINGS_LINK_TEXT.to_string(),
+        key: None,
+        enabled: !c.flow.in_lobby && !c.flow.in_join_screen,
+        link: true,
+    });
     open_menu(c, &[], items, AppState::MainMenu);
 }
 
@@ -1740,6 +1782,10 @@ fn run_menu_close(c: &mut Core) -> bool {
             flow.steps = VecDeque::from([Step::CustomSetup]);
             go_on(flow, front, keys, next, exit);
         }
+        MenuPick::Settings => {
+            flow.steps = VecDeque::from([Step::Settings]);
+            go_on(flow, front, keys, next, exit);
+        }
     }
     true
 }
@@ -1796,7 +1842,14 @@ fn run_menu(c: &mut Core) {
         return;
     }
     let at = pointer(input, cam);
-    let pick = menu_input(menu, front, pictures, at, mouse, keys);
+    let mut pick = menu_input(menu, front, pictures, at, mouse, keys);
+    // F2 is the Settings link's key.
+    if pick.is_none()
+        && keys.just_pressed(Key::F(2))
+        && menu.items.get(SETTINGS_ITEM).is_some_and(|it| it.link && it.enabled)
+    {
+        pick = Some(SETTINGS_ITEM);
+    }
     // Music spec, "Where music fades out": Show Credits and Exit Program fade all sound, then the menu fades out.
     let mut close = |menu: &mut Menu, pick: MenuPick| {
         menu.closing = Some((close_with_sound(music, fades::MENUS), pick));
@@ -1818,7 +1871,10 @@ fn run_menu(c: &mut Core) {
         Some(2) => close(menu, MenuPick::Intro),
         Some(3) => close(menu, MenuPick::ShowCredits),
         Some(4) => close(menu, MenuPick::Quit),
-        Some(5) => updater.install(),
+        // Not in the original: Tidewater's Settings screen opens like the Custom Scenario screen, a fade out and in with
+        // the music playing on.
+        Some(SETTINGS_ITEM) => menu.closing = Some((cf::SoundThenBlack::new(fades::MENUS), MenuPick::Settings)),
+        Some(6) => updater.install(),
         Some(_) => updater.dismiss(),
         None => {}
     }
@@ -1855,6 +1911,7 @@ pub(crate) fn enter_single_player(c: &mut Core) {
             label: label.to_string(),
             key: Some(key),
             enabled: true,
+            link: false,
         })
         .collect();
     open_menu(c, &[], items, AppState::SinglePlayer);
@@ -1989,6 +2046,7 @@ pub(crate) fn enter_new_campaign(c: &mut Core) {
             label: label.to_string(),
             key: Some(key),
             enabled: true,
+            link: false,
         })
         .collect();
     open_menu(c, &menuscreen::CAMPAIGN_HEADINGS, items, AppState::NewCampaign);
@@ -2224,6 +2282,217 @@ fn run_custom_setup(c: &mut Core) {
             if let Some((map, setup)) = cs.ui.start() {
                 cs.closing = Some((close_with_sound(music, fades::MENUS), CustomPick::Start(map, setup)));
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The Settings screen
+
+/// What the Settings screen does once its close ends.
+enum SettingsPick {
+    /// OK or Cancel: the main menu.
+    Back,
+    /// Import game files again...: the import screen (`firstrun`), which returns to the main menu.
+    Reimport,
+}
+
+/// The Settings screen (`settings`) open on the menu picture.
+struct SettingsScreen {
+    image: PictureId,
+    background: Picture,
+    palette: Palette,
+    ui: settings::Screen,
+    closing: Option<(cf::SoundThenBlack, SettingsPick)>,
+    /// When the fade-in ends: the controls are drawn and the screen takes input from then on.
+    ready_at: f64,
+}
+
+/// The line about the imported game files for the Settings screen; `None` when the files are read in place
+/// (`--install`), so there is nothing to import again.
+fn game_files_line(opts: &crate::args::Args) -> Option<String> {
+    if opts.install.is_some() {
+        return None;
+    }
+    let data = crate::storage::data_dir(opts.data_dir.as_deref());
+    Some(
+        match tidewater_import::Manifest::read(&tidewater_import::game_dir(&data)) {
+            Some(m) => settings::data_summary(&m),
+            None => settings::DATA_UNKNOWN.to_string(),
+        },
+    )
+}
+
+pub(crate) fn enter_settings(c: &mut Core) {
+    let opening = MenuScreen::Settings.opening(menu_screen(c.states.previous()));
+    let Core {
+        commands,
+        front,
+        pictures,
+        screens,
+        stored,
+        extras,
+        opts,
+        touch,
+        ..
+    } = c;
+    // Like the Custom Scenario screen: the menu picture is loaded again and fades in, with no version line.
+    let (bg, palette) = menu_art(&mut front.install);
+    screens.menu_picture = Some((dup(&bg), palette.clone()));
+    let env = settings::Env {
+        touch: touch.touch_only,
+        updates: !touch.touch_only && crate::update::build_version().is_some(),
+        data: game_files_line(opts),
+    };
+    let values = settings::Values::new(&stored.0, extras, opts.no_intro, opts.no_update_check);
+    let ui = settings::Screen::new(env, values);
+    // The panel and the heading are part of the picture and fade in with it; the controls come with the end of the fade.
+    let look = customsetup::Look {
+        font: &front.font,
+        pal: &palette,
+        faces: &front.button_faces,
+    };
+    let first = settings::Screen::frame(&bg, &look);
+    let image = spawn_layer(commands, pictures, first, 0, AppState::Settings, None);
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let screen = SettingsScreen {
+        image,
+        background: bg,
+        palette,
+        ui,
+        closing: None,
+        ready_at: opening.fade_in_ms as f64,
+    };
+    commands.queue(move |c| c.screens.settings = Some(screen));
+    if opening.fade_in_ms > 0 {
+        fade_in_new_screen(commands, opening.fade_in_ms);
+    }
+}
+
+/// One frame of the screen's close, if one runs; when it ends, the flow goes on (or the import screen opens). Returns
+/// whether a close ran.
+fn run_settings_close(c: &mut Core) -> bool {
+    let pick = {
+        let Core {
+            commands,
+            screens:
+                Screens {
+                    settings: Some(ss),
+                    clock: Some(clock),
+                    ..
+                },
+            layers,
+            jukebox: music,
+            ..
+        } = c
+        else {
+            return false;
+        };
+        let Some((close, _)) = &mut ss.closing else {
+            return false;
+        };
+        if !close_done(close, music, commands, layers, clock.0) {
+            return true;
+        }
+        ss.closing.take().map(|(_, p)| p)
+    };
+    match pick {
+        Some(SettingsPick::Back) => {
+            c.flow.steps = VecDeque::from([Step::MainMenu]);
+            go_on(&mut c.flow, &c.front, &c.input.keys, &mut c.states, &mut c.exit);
+        }
+        Some(SettingsPick::Reimport) => open_reimport(c),
+        None => {}
+    }
+    true
+}
+
+/// Opens the first-run import screen over the running program, the way `--reimport` does at start-up: the game files
+/// are let go first (a replacement swaps the folder they are in), and Esc comes back to the main menu.
+fn open_reimport(c: &mut Core) {
+    let data = crate::storage::data_dir(c.opts.data_dir.as_deref());
+    let backend = std::sync::Arc::new(crate::firstrun::DesktopBackend { data_dir: data });
+    let screen = crate::firstrun::FirstRun::searching(backend)
+        .with_intake(crate::firstrun::Intake::native())
+        .returning();
+    stop_music(c);
+    c.front = Front::none();
+    c.first_run = Some(screen);
+    c.states.set(AppState::FirstRun);
+}
+
+fn run_settings(c: &mut Core) {
+    if run_settings_close(c) {
+        return;
+    }
+    let outcome = {
+        let Core {
+            screens:
+                Screens {
+                    settings: Some(ss),
+                    clock: Some(clock),
+                    ..
+                },
+            front,
+            pictures,
+            front_screen: cam,
+            input,
+            ..
+        } = c
+        else {
+            return;
+        };
+        if clock.0 < ss.ready_at {
+            return;
+        }
+        let out = ss.ui.update(&custom_input(input, cam));
+        if ss.ui.take_changed() {
+            let look = customsetup::Look {
+                font: &front.font,
+                pal: &ss.palette,
+                faces: &front.button_faces,
+            };
+            set_image(pictures, &ss.image, ss.ui.draw(&ss.background, &look, &front.small));
+        }
+        out
+    };
+    let fade = || cf::SoundThenBlack::new(fades::MENUS);
+    match outcome {
+        settings::Outcome::Stay => {}
+        settings::Outcome::Ok => {
+            // The changed rows go into the stored settings and the run's live values at once, and the file is written
+            // now: a phone's program can be ended at any moment.
+            if let Some(ss) = c.screens.settings.as_ref() {
+                let values = ss.ui.values().clone();
+                settings::commit(&values, &mut c.stored.0, &mut c.extras, &mut c.audio);
+            }
+            c.store_settings();
+            if let Some(ss) = c.screens.settings.as_mut() {
+                ss.closing = Some((fade(), SettingsPick::Back));
+            }
+        }
+        settings::Outcome::Cancel => {
+            if let Some(ss) = c.screens.settings.as_mut() {
+                ss.closing = Some((fade(), SettingsPick::Back));
+            }
+        }
+        settings::Outcome::OpenFolder => {
+            let file = crate::host::settings_path(&c.opts);
+            let dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+            let _ = std::fs::create_dir_all(&dir);
+            c.request_open(settings::folder_url(&dir));
+        }
+        settings::Outcome::Reimport => {
+            // The changes made on the screen are thrown away, as Cancel does.
+            let Core {
+                jukebox,
+                screens: Screens { settings: Some(ss), .. },
+                ..
+            } = c
+            else {
+                return;
+            };
+            ss.closing = Some((close_with_sound(jukebox, fades::MENUS), SettingsPick::Reimport));
         }
     }
 }
@@ -3513,6 +3782,37 @@ mod tests {
             UPDATE_BUTTONS[0].x as u32,
             640 - (UPDATE_BUTTONS[1].x as u32 + UPDATE_BUTTONS[1].w)
         );
+    }
+
+    #[test]
+    fn the_settings_link_clears_the_buttons_the_update_offer_and_the_version_line() {
+        let apart = |a: Rect, b: Rect| {
+            a.x + a.w as i32 <= b.x || b.x + b.w as i32 <= a.x || a.y + a.h as i32 <= b.y || b.y + b.h as i32 <= a.y
+        };
+        let link = menuscreen::SETTINGS_LINK;
+        for r in UPDATE_BUTTONS {
+            assert!(apart(link, r), "the update offer's {r:?}");
+        }
+        assert!(apart(link, UPDATE_NOTICE), "the update notice line");
+        for r in menuscreen::button_rects(5) {
+            assert!(apart(link, r), "the main menu's button {r:?}");
+        }
+        // The version line starts at x 60 in the small font and is a few words long; the link is far to its right.
+        assert!(link.x > menuscreen::VERSION_CELL.0 + 300);
+        // The link is the item after the five buttons, and the update offer's buttons follow it.
+        assert_eq!(SETTINGS_ITEM, 5);
+        assert_eq!(MAIN_BUTTONS, SETTINGS_ITEM + 1);
+    }
+
+    #[test]
+    fn the_settings_screen_opens_by_goto_and_returns_to_the_main_menu() {
+        assert_eq!(goto_steps("settings").unwrap(), [Step::Settings, Step::MainMenu]);
+        let mut f = flow(&[]);
+        f.steps = VecDeque::from(goto_steps("settings").unwrap());
+        assert_eq!(advance(&mut f, &Install::none(), false), Some(AppState::Settings));
+        assert_eq!(advance(&mut f, &Install::none(), false), Some(AppState::MainMenu));
+        assert_eq!(menu_screen(AppState::Settings), Some(MenuScreen::Settings));
+        assert_eq!(flow_pointer(AppState::Settings), FlowPointer::OrcArrow);
     }
 
     // The screen spec's "Pointers outside a game" and its test vectors.

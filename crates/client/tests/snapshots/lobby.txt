@@ -12,7 +12,7 @@ frames	10-10	0c564bf75225e8a5
 frames	11-11	1c74e8b7a0380beb
 frames	12-12	38a5ca800b2a4f9b
 sound	14	d0e6afe865a35291	0.7516	Loop
-frames	13-28	545fcae9c2d9b368
+frames	13-28	ae002ae8f7021e83
 frames	29-32	b6581ec9fb687a37
 frames	33-36	b760fbfe45f23f14
 frames	37-37	466cadb6252d7f99

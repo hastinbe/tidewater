@@ -12,8 +12,8 @@ frames	10-10	0c564bf75225e8a5
 frames	11-11	1c74e8b7a0380beb
 frames	12-12	38a5ca800b2a4f9b
 sound	14	d0e6afe865a35291	0.7516	Loop
-shot	28	menu	545fcae9c2d9b368
-frames	13-29	545fcae9c2d9b368
+shot	28	menu	ae002ae8f7021e83
+frames	13-29	ae002ae8f7021e83
 shot	34	choice	b6581ec9fb687a37
 frames	30-34	b6581ec9fb687a37
 shot	39	methods	b760fbfe45f23f14
@@ -50,11 +50,11 @@ frames	78-80	f8127726807a1968
 shot	85	games	c49edea1dde361e1
 frames	81-85	c49edea1dde361e1
 frames	86-86	712988b6bac4c7d1
-frames	87-113	e475755a8c3c1e96
+frames	87-113	d655ad1b85d3e6bd
 frames	114-117	6d25b144a38216af
 shot	122	classic-name	06ec5be23df7ed32
 frames	118-122	06ec5be23df7ed32
 shot	127	classic-methods	7e67db6fe134d157
 frames	123-128	7e67db6fe134d157
-shot	155	menu-end	e475755a8c3c1e96
-frames	129-155	e475755a8c3c1e96
+shot	155	menu-end	d655ad1b85d3e6bd
+frames	129-155	d655ad1b85d3e6bd

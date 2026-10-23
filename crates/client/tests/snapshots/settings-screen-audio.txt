@@ -1,0 +1,6 @@
+# mixed sound fingerprints of the scripted scene `settings-screen` (hashes only): 22050 Hz stereo 16-bit, one-second blocks
+blocks	0-0	a20a08ef41593b29
+blocks	1-1	f3251a1129e5db59
+blocks	2-2	83f87550b7848bb7
+blocks	3-3	fc594244a76b030e
+tail	4410	3079d58505e479f6

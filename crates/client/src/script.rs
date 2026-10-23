@@ -227,6 +227,15 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        // Tidewater's Settings screen: opened by F2 and by the link on the main menu, each page, a drop-down, Defaults,
+        // Cancel and OK.
+        Scene {
+            name: "settings-screen",
+            start: vec![Step::MainMenu],
+            cmds: settings(),
+            extras: &[],
+            keys: "",
+        },
         // The multiplayer menus, up to the game list.
         Scene {
             name: "multi",
@@ -986,6 +995,72 @@ fn custom() -> Vec<Cmd> {
     v.extend(tap(K::Letter('Q')));
     v.extend([Release(K::ControlLeft), Wait(3)]);
     v.extend(tap(K::Enter));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
+}
+
+/// Tidewater's Settings screen (`settings`): F2 on the main menu opens it, each page is looked at, a drop-down is
+/// opened and a value picked with the pointer, the keyboard moves the focus, Defaults resets, Esc leaves; the link
+/// opens it again, a volume is chosen and OK applies it.
+fn settings() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25), Shot("menu")];
+    v.extend([
+        Move(560.0, 462.0),
+        Wait(2),
+        Shot("menu-link-hover"),
+        Move(320.0, 200.0),
+        Wait(1),
+    ]);
+    v.extend(tap(K::F(2)));
+    v.extend([
+        Wait(3),
+        Shot("menu-leaving"),
+        Until(AppState::Settings),
+        Wait(3),
+        Shot("fading-in"),
+        Wait(20),
+        Shot("general"),
+    ]);
+    // The Scaling row (the second): its list, then the second line.
+    v.extend(click(460.0, 144.0));
+    v.extend([Wait(2), Move(460.0, 190.0), Wait(1), Shot("scaling-list")]);
+    v.extend(click(460.0, 187.0));
+    v.extend([Wait(2), Shot("scaling-sharp")]);
+    // The tabs.
+    v.extend(click(263.0, 76.0));
+    v.extend([Wait(2), Shot("interface")]);
+    v.extend(click(377.0, 76.0));
+    v.extend([Wait(2), Shot("sound")]);
+    v.extend(click(460.0, 174.0));
+    v.extend([Wait(2), Shot("music-list")]);
+    v.extend(tap(K::Escape));
+    v.extend(click(491.0, 76.0));
+    v.extend([Wait(2), Shot("gameplay")]);
+    // The keyboard: Tab to the first row, Enter opens its list, Down and Enter pick.
+    v.extend(tap(K::Tab));
+    v.extend(tap(K::Tab));
+    v.extend([Wait(2), Shot("focus")]);
+    v.extend(tap(K::Enter));
+    v.extend(tap(K::Down));
+    v.extend(tap(K::Enter));
+    v.extend([Wait(2), Shot("rally-on")]);
+    // Defaults resets every row; Esc leaves without applying anything.
+    v.extend(click(117.0, 424.0));
+    v.extend([Wait(2), Shot("defaults")]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-back")]);
+    // The link opens it again; the music volume is set to 30% and OK applies it.
+    v.extend(click(560.0, 462.0));
+    v.extend([Until(AppState::Settings), Wait(25), Shot("again"), Wait(2)]);
+    v.extend(click(377.0, 76.0));
+    v.extend([Wait(2), Shot("again-sound")]);
+    v.extend(click(460.0, 174.0));
+    v.extend([Wait(2), Move(460.0, 250.0), Wait(1)]);
+    v.extend(click(460.0, 247.0));
+    v.extend([Wait(2), Shot("music-30")]);
+    v.extend(click(523.0, 424.0));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
     v
 }

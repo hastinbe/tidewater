@@ -27,6 +27,8 @@ pub enum AppState {
     NewCampaign,
     /// The Custom Scenario screen (`customsetup`).
     CustomSetup,
+    /// Tidewater's Settings screen (`settings`).
+    Settings,
     /// The multiplayer menus and the lobby (`mpmenu`, `lobbyscreen`).
     Multiplayer,
     Act,
@@ -113,6 +115,7 @@ pub enum Hook {
     EnterSinglePlayer,
     EnterNewCampaign,
     EnterCustomSetup,
+    EnterSettings,
     EnterMultiplayer,
     EnterAct,
     EnterBriefing,
@@ -142,6 +145,7 @@ pub fn on_enter(state: AppState) -> &'static [Hook] {
         AppState::SinglePlayer => &[EnterSinglePlayer],
         AppState::NewCampaign => &[EnterNewCampaign],
         AppState::CustomSetup => &[EnterCustomSetup],
+        AppState::Settings => &[EnterSettings],
         AppState::Multiplayer => &[EnterMultiplayer],
         AppState::Act => &[EnterAct],
         AppState::Briefing => &[EnterBriefing],
@@ -155,7 +159,7 @@ pub fn on_enter(state: AppState) -> &'static [Hook] {
 
 /// Every hook: the test checks that each is used.
 #[cfg(test)]
-const HOOKS: [Hook; 20] = {
+const HOOKS: [Hook; 21] = {
     use Hook::*;
     [
         StopMusic,
@@ -172,6 +176,7 @@ const HOOKS: [Hook; 20] = {
         EnterSinglePlayer,
         EnterNewCampaign,
         EnterCustomSetup,
+        EnterSettings,
         EnterMultiplayer,
         EnterAct,
         EnterBriefing,
@@ -185,7 +190,7 @@ const HOOKS: [Hook; 20] = {
 mod tests {
     use super::*;
 
-    const ALL: [AppState; 15] = [
+    const ALL: [AppState; 16] = [
         AppState::Boot,
         AppState::FirstRun,
         AppState::Video,
@@ -194,6 +199,7 @@ mod tests {
         AppState::SinglePlayer,
         AppState::NewCampaign,
         AppState::CustomSetup,
+        AppState::Settings,
         AppState::Multiplayer,
         AppState::Act,
         AppState::Briefing,

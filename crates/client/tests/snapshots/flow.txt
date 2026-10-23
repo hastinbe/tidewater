@@ -50,26 +50,26 @@ frames	235-235	70840faa2f4f2984
 frames	236-236	0c564bf75225e8a5
 frames	237-237	1c74e8b7a0380beb
 frames	238-238	38a5ca800b2a4f9b
-frames	239-254	545fcae9c2d9b368
+frames	239-254	ae002ae8f7021e83
 shot	259	single-player	f8195c41512791ee
 frames	255-260	f8195c41512791ee
 shot	264	campaigns	6c93bd5f0dbbd438
 frames	261-265	6c93bd5f0dbbd438
 shot	270	single-player-back	f8195c41512791ee
 frames	266-271	f8195c41512791ee
-shot	298	menu-again	545fcae9c2d9b368
-frames	272-299	545fcae9c2d9b368
+shot	298	menu-again	ae002ae8f7021e83
+frames	272-299	ae002ae8f7021e83
 shot	304	multi-open	b6581ec9fb687a37
 frames	300-305	b6581ec9fb687a37
-frames	306-331	545fcae9c2d9b368
-shot	335	menu-tab	33e24c0f0843a068
-frames	332-335	33e24c0f0843a068
-frames	336-337	545fcae9c2d9b368
-shot	341	menu-shift-tab	f94460ba8b68d208
-frames	338-341	f94460ba8b68d208
-frames	342-344	545fcae9c2d9b368
-frames	345-345	beff312e6e6ce5af
-frames	346-346	9d7a8a5524159b5b
+frames	306-331	ae002ae8f7021e83
+shot	335	menu-tab	231a4d415aec3183
+frames	332-335	231a4d415aec3183
+frames	336-337	ae002ae8f7021e83
+shot	341	menu-shift-tab	4cfe8926a0016863
+frames	338-341	4cfe8926a0016863
+frames	342-344	ae002ae8f7021e83
+frames	345-345	4c2738e6e80d1fe4
+frames	346-346	a208627de35517e0
 frames	347-350	3a6155fbc47c6eb7
 frames	351-351	5ed9f780bfae2ede
 frames	352-352	3a6155fbc47c6eb7
@@ -252,5 +252,5 @@ frames	889-889	0c564bf75225e8a5
 frames	890-890	1c74e8b7a0380beb
 frames	891-891	38a5ca800b2a4f9b
 sound	893	d0e6afe865a35291	0.7516	Loop
-shot	907	menu-end	b81a3c0a87e4a6c7
-frames	892-907	b81a3c0a87e4a6c7
+shot	907	menu-end	a592135dc2fe288c
+frames	892-907	a592135dc2fe288c

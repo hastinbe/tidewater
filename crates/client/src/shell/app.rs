@@ -162,7 +162,8 @@ fn run(l: host::Launch) -> Result<()> {
             resizable: !scripted,
             always_on_top: scripted,
             not_focusable: scripted,
-            fullscreen: MOBILE,
+            // A phone's window fills the screen; a desktop's opens full screen if the Settings screen's Window row says so.
+            fullscreen: MOBILE || core.fullscreen_wanted(),
         },
     )?;
     // A phone's window fills the screen: no sizes to pick and nowhere to centre it.
@@ -209,8 +210,10 @@ fn run(l: host::Launch) -> Result<()> {
         locked: LockedPointer::default(),
         grabbed: false,
         motion: (0.0, 0.0),
-        // The mouse lock fights a dragging "finger", so the emulation does without it.
-        lock_enabled: !core.opts.no_mouse_lock && !emulating,
+        // The mouse lock is the Settings screen's setting unless `--no-mouse-lock` says otherwise; the emulation's
+        // dragging "finger" does without it (`Core::mouse_lock_enabled`, followed every frame).
+        lock_enabled: core.mouse_lock_enabled(),
+        fullscreen: MOBILE || core.fullscreen_wanted(),
         cursor_shown: true,
         emulating,
         mods: (false, false, false),
@@ -256,7 +259,17 @@ fn run(l: host::Launch) -> Result<()> {
             last = Instant::now();
             continue;
         }
+        // The Settings screen's rows take effect at once: the mouse lock for this frame's pointer, the window's full
+        // screen after the frame (a phone's window is always full screen).
+        shell.lock_enabled = core.mouse_lock_enabled();
         core.advance(elapsed, &mut shell);
+        if !MOBILE && core.fullscreen_wanted() != shell.fullscreen {
+            shell.fullscreen = core.fullscreen_wanted();
+            window.set_fullscreen(shell.fullscreen);
+        }
+        for url in core.take_open_requests() {
+            sdl::open_url(&url);
+        }
         // The soft keyboard follows the chrome's button; a desktop keeps its text input open for the real keyboard.
         if core.touch.chrome.keyboard != shell.keyboard && (core.touch.active || MOBILE) {
             shell.keyboard = core.touch.chrome.keyboard;
@@ -394,6 +407,8 @@ struct Shell<'a> {
     /// The mouse's motion since the last frame, in points.
     motion: (f32, f32),
     lock_enabled: bool,
+    /// The window is full screen.
+    fullscreen: bool,
     cursor_shown: bool,
     /// `--touch-emulation`: the left button and motion are a finger.
     emulating: bool,

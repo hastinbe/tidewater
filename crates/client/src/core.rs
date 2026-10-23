@@ -168,6 +168,9 @@ pub struct Core {
     pub touch: crate::touch::TouchState,
     /// The start-up check for a newer release, and the install (`update`).
     pub updater: crate::update::Updater,
+    /// Addresses the core wants the system to open (the Settings screen's "Open settings folder"); the shell opens each
+    /// and clears the list ([`Core::take_open_requests`]).
+    open_requests: Vec<String>,
 }
 
 impl Core {
@@ -252,7 +255,31 @@ impl Core {
             first_run: None,
             touch: crate::touch::TouchState::new(emulate),
             updater: crate::update::Updater::default(),
+            open_requests: Vec::new(),
         }
+    }
+
+    /// Whether the mouse lock may hold the pointer during a game: the `mouse_lock` setting, unless `--no-mouse-lock`
+    /// says not to for this run, or the touch emulation, whose dragging finger the lock fights. The shell follows it
+    /// every frame.
+    pub fn mouse_lock_enabled(&self) -> bool {
+        self.stored.0.mouse_lock && !self.opts.no_mouse_lock && !self.opts.touch_emulation
+    }
+
+    /// Whether the desktop window is to be full screen: the `fullscreen` setting. A phone's window always fills the
+    /// screen and a scripted run's is fixed, so neither follows it. The shell follows it every frame.
+    pub fn fullscreen_wanted(&self) -> bool {
+        self.stored.0.fullscreen && !self.touch.touch_only && self.script.is_none()
+    }
+
+    /// The addresses the core asked the system to open since the last call (`file://` URLs of folders).
+    pub fn take_open_requests(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.open_requests)
+    }
+
+    /// Asks the shell to open `url` in the system's own program.
+    pub(crate) fn request_open(&mut self, url: String) {
+        self.open_requests.push(url);
     }
 
     /// Starts the background check for a newer release, unless `--no-update-check`, the `update_check` setting, a
@@ -441,6 +468,7 @@ fn run_hook(c: &mut Core, hook: Hook) {
         EnterSinglePlayer => frontend::enter_single_player,
         EnterNewCampaign => frontend::enter_new_campaign,
         EnterCustomSetup => frontend::enter_custom_setup,
+        EnterSettings => frontend::enter_settings,
         EnterMultiplayer => frontend::enter_multiplayer,
         EnterAct => frontend::enter_act,
         EnterBriefing => frontend::enter_briefing,

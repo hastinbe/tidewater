@@ -322,6 +322,8 @@ pub(crate) enum Outcome {
     Quit,
     /// The import has finished: go on into the normal start-up.
     Continue,
+    /// Opened from the Settings screen: leave and go back to the main menu, the files as they were.
+    Back,
 }
 
 /// The first-run screen's state.
@@ -347,6 +349,9 @@ pub struct FirstRun {
     result_frames: u32,
     dirty: bool,
     picture: Option<PictureId>,
+    /// Opened from the Settings screen on a running program rather than at start-up: "Quit" and Esc go back to the main
+    /// menu instead of ending the program, and a finished import goes back there too.
+    returning: bool,
 }
 
 impl FirstRun {
@@ -367,6 +372,14 @@ impl FirstRun {
         std::thread::spawn(move || {
             let _ = tx.send(Msg::Found(b.search()));
         });
+    }
+
+    /// The screen as the Settings screen's "Import game files again..." opens it: Esc and the last button ("Back")
+    /// return to the main menu with the files as they were, on a phone too.
+    pub fn returning(mut self) -> FirstRun {
+        self.returning = true;
+        self.dirty = true;
+        self
     }
 
     /// The screen for a way of getting the files other than the desktop's ([`Intake`]).
@@ -402,6 +415,7 @@ impl FirstRun {
             result_frames: 0,
             dirty: true,
             picture: None,
+            returning: false,
         }
     }
 
@@ -417,9 +431,10 @@ impl FirstRun {
 
     /// The buttons under the list, top to bottom.
     fn buttons(&self) -> &'static [Item] {
-        match self.intake {
-            Intake::Dialogs => &[Item::Folder, Item::Installer, Item::Disc, Item::Quit],
-            Intake::SharedFolder => &[Item::Folder, Item::Disc, Item::Rescan],
+        match (self.intake, self.returning) {
+            (Intake::Dialogs, _) => &[Item::Folder, Item::Installer, Item::Disc, Item::Quit],
+            (Intake::SharedFolder, false) => &[Item::Folder, Item::Disc, Item::Rescan],
+            (Intake::SharedFolder, true) => &[Item::Folder, Item::Disc, Item::Rescan, Item::Quit],
         }
     }
 
@@ -511,6 +526,7 @@ impl FirstRun {
                 Key::Enter | Key::NumpadEnter | Key::Space => self.focused().and_then(|i| self.activate(i)),
                 Key::Escape => match self.page {
                     Page::Failed(_) => self.activate(Item::Back),
+                    _ if self.returning => Some(Outcome::Back),
                     // A phone's program doesn't quit.
                     _ if self.intake == Intake::SharedFolder => None,
                     _ => Some(Outcome::Quit),
@@ -603,7 +619,7 @@ impl FirstRun {
                     self.start_search();
                 }
             }
-            Item::Quit => return Some(Outcome::Quit),
+            Item::Quit => return Some(if self.returning { Outcome::Back } else { Outcome::Quit }),
             Item::Back => {
                 self.page = Page::List;
                 self.focus = self.default_focus();
@@ -737,7 +753,16 @@ impl FirstRun {
         let mut c = Canvas { pic };
         c.fill(Rect { x: 0, y: 0, w: W, h: H }, BG);
         c.text_centred(20, 4, TITLE, "TIDEWATER");
-        c.text_centred(60, 2, DIM, "First-run setup");
+        c.text_centred(
+            60,
+            2,
+            DIM,
+            if self.returning {
+                "Import the game files again"
+            } else {
+                "First-run setup"
+            },
+        );
         match &self.page {
             Page::List => self.draw_list(&mut c),
             Page::Importing {
@@ -855,7 +880,12 @@ impl FirstRun {
                 TEXT,
                 "You can also drop a game folder, an installer or a CD image on this window.",
             );
-            c.text_centred(454, 1, DIM, "Up/Down or Tab: move    Enter: choose    Esc: quit");
+            let hint = if self.returning {
+                "Up/Down or Tab: move    Enter: choose    Esc: back, nothing changes"
+            } else {
+                "Up/Down or Tab: move    Enter: choose    Esc: quit"
+            };
+            c.text_centred(454, 1, DIM, hint);
         }
         if self.picking {
             c.text_centred(468, 1, BAR, "Waiting for the file dialog...");
@@ -890,7 +920,7 @@ impl FirstRun {
                 Item::Installer => c.text_in(r, 2, TEXT, "Choose GOG installer..."),
                 Item::Disc => c.text_in(r, 2, TEXT, "Choose CD image..."),
                 Item::Rescan => c.text_in(r, 2, TEXT, "Scan again"),
-                Item::Quit => c.text_in(r, 2, TEXT, "Quit"),
+                Item::Quit => c.text_in(r, 2, TEXT, if self.returning { "Back" } else { "Quit" }),
                 Item::Back => c.text_in(r, 2, TEXT, "Back"),
             }
         }
@@ -935,7 +965,7 @@ pub(crate) fn run(c: &mut Core) {
     }
     match outcome {
         Some(Outcome::Quit) => c.exit = true,
-        Some(Outcome::Continue) => match go_on(c) {
+        Some(Outcome::Continue | Outcome::Back) => match go_on(c, fr.returning) {
             Ok(()) => return,
             Err(message) => fr.fail(message),
         },
@@ -946,12 +976,17 @@ pub(crate) fn run(c: &mut Core) {
 
 /// The import is in `<data>/game`: loads the game's screens and fonts and goes on into the normal start-up (or the
 /// map or `--goto` screen the command line asked for). The message for the player if the files can't be used.
-fn go_on(c: &mut Core) -> Result<(), String> {
+fn go_on(c: &mut Core, returning: bool) -> Result<(), String> {
     let install = crate::storage::open_install(&c.store.0)
         .map_err(|e| format!("The imported game files can't be opened: {e}."))?;
     let mut front =
         crate::frontend::Front::load(install).map_err(|e| format!("The imported game files can't be used: {e}."))?;
-    let steps = crate::host::start_steps(&c.opts, &mut c.flow, &mut front).map_err(|e| e.to_string())?;
+    // Opened from the Settings screen, it returns to the main menu; at start-up the usual start goes on.
+    let steps = if returning {
+        vec![crate::frontend::Step::MainMenu]
+    } else {
+        crate::host::start_steps(&c.opts, &c.stored.0, &mut c.flow, &mut front).map_err(|e| e.to_string())?
+    };
     c.flow.steps = steps.into();
     c.front = front;
     c.front_screen.ready = false;

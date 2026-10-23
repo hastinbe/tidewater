@@ -72,6 +72,8 @@ pub struct Spec {
     pub id: Id,
     /// The name in the settings file and after `--extra-` / `--no-extra-`.
     pub name: &'static str,
+    /// A short name for the Settings screen's row (`settings`).
+    pub label: &'static str,
     pub kind: Kind,
     /// The value when nothing says otherwise: off, the first choice, or (for a volume) 100, which leaves the sound as
     /// the game's own dialog sets it.
@@ -105,6 +107,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::HealthBars,
         name: "health-bars",
+        label: "Health bars",
         kind: Kind::Choice(HEALTH_BAR_MODES),
         default: 0,
         scope: Scope::ClientLobby,
@@ -113,6 +116,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::IdleWorker,
         name: "idle-worker",
+        label: "Idle worker button",
         kind: Kind::Flag,
         default: 0,
         scope: Scope::Client,
@@ -121,6 +125,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::GameClock,
         name: "game-clock",
+        label: "Game clock",
         kind: Kind::Choice(CLOCK_MODES),
         default: 0,
         scope: Scope::Client,
@@ -129,6 +134,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::ControlGroupBar,
         name: "group-bar",
+        label: "Control group bar",
         kind: Kind::Flag,
         default: 0,
         scope: Scope::Client,
@@ -137,6 +143,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::SmartAttackMove,
         name: "smart-attack-move",
+        label: "Smart attack-move",
         kind: Kind::Flag,
         default: 0,
         scope: Scope::ClientLobby,
@@ -145,6 +152,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::VolumeVoices,
         name: "volume-voices",
+        label: "Unit voices",
         kind: Kind::Percent,
         default: 100,
         scope: Scope::Client,
@@ -153,6 +161,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::VolumeEffects,
         name: "volume-effects",
+        label: "Sound effects",
         kind: Kind::Percent,
         default: 100,
         scope: Scope::Client,
@@ -161,6 +170,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::VolumeMusic,
         name: "volume-music",
+        label: "Music",
         kind: Kind::Percent,
         default: 100,
         scope: Scope::Client,
@@ -169,6 +179,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::Scaling,
         name: "scaling",
+        label: "Scaling",
         kind: Kind::Choice(SCALING_MODES),
         default: 0,
         scope: Scope::Client,
@@ -177,6 +188,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::RallyPoints,
         name: "rally-points",
+        label: "Rally points",
         kind: Kind::Flag,
         default: 0,
         scope: Scope::Sim,
@@ -185,6 +197,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::ProductionQueue,
         name: "production-queue",
+        label: "Production queue",
         kind: Kind::Flag,
         default: 0,
         scope: Scope::Sim,
@@ -193,6 +206,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::SelectionLimit,
         name: "selection-limit",
+        label: "Selection limit",
         kind: Kind::Choice(SELECTION_LIMITS),
         default: 0,
         scope: Scope::Sim,
@@ -201,6 +215,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::SpeedLevels,
         name: "speed-levels",
+        label: "Extra game speeds",
         kind: Kind::Choice(SPEED_LEVELS),
         default: 0,
         scope: Scope::Sim,
@@ -209,6 +224,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::MinimapPing,
         name: "minimap-ping",
+        label: "Minimap ping",
         kind: Kind::Flag,
         default: 0,
         scope: Scope::Client,
@@ -217,6 +233,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::ShiftQueue,
         name: "shift-queue",
+        label: "Shift-queued orders",
         kind: Kind::Flag,
         default: 0,
         scope: Scope::Sim,
@@ -225,6 +242,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::AutoReplay,
         name: "auto-replay",
+        label: "Record replays",
         kind: Kind::Choice(REPLAY_SAVING),
         default: 0,
         scope: Scope::Client,
@@ -233,6 +251,7 @@ pub const REGISTRY: [Spec; COUNT] = [
     Spec {
         id: Id::Widescreen,
         name: "widescreen",
+        label: "Widescreen",
         kind: Kind::Choice(WIDESCREEN_MODES),
         default: 0,
         scope: Scope::ClientLobby,

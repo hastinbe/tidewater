@@ -41,6 +41,33 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
   run; `--no-extra-NAME` puts it back to its default. The last of a pair wins. The command line is never written back
   to the settings file. `tidewater --help` lists them under "Optional improvements".
 
+## The Settings screen
+
+**Bottom line.** Every option here can be changed in the game, in the Settings screen (`settings.rs`), which the main
+menu opens with F2 or its "Settings (F2)" link. The screen is generated from the registry, so a new option shows up
+without new screen code. The file and the flags still work and are for power users.
+
+- **Entry.** F2 and a small text link in the version line's font at the main menu's bottom right (a 120 x 28 tap
+  target, clear of the version line and the update offer). The original's five main-menu buttons are unchanged: the key
+  and the link are a documented departure, like the version line and the update buttons.
+- **Rows from the registry.** Each page's registry rows come from `REGISTRY`: the row's name is `Spec::label`, its values
+  come from `Spec::kind` (a flag is Off and On, a percent is 0, 10 ... 100 percent with an odd stored value kept and
+  shown, a choice is its names), and its description is `Spec::description`, with a note that the change applies from
+  the next game for the widescreen and S options. The words of a choice's values (`CHOICE_WORDS`: "Hovered", "16:10",
+  "Unlimited") and the page of each option (`extra_page`, a `match` with no catch-all arm) are the only things written in
+  `settings.rs`; a test checks that every option is on exactly one page and has words.
+- **Rows that are not options.** Window (`fullscreen`), Mouse lock (`mouse_lock`), Intro video (the stored
+  `OPENING_FILM` bit, which start-up honours as well as `--no-intro`) and Check for updates (`update_check`) are stored
+  settings in `settings.txt`'s top section; the desktop-only ones are hidden on a phone.
+- **Applying.** The screen edits a copy. OK writes the rows that were changed (Defaults counts as changing every shown row)
+  into the stored settings and the run's live options (`Core::extras`, which also holds the command line), sets the
+  mixer's volumes, and writes `settings.txt` at once. A row left alone keeps a command-line override for the run.
+- **Window and mouse lock** are read by the shell every frame (`Core::fullscreen_wanted`, `Core::mouse_lock_enabled`),
+  so they apply at once; `--no-mouse-lock` and the touch emulation still turn the lock off for a run.
+- **Open settings folder** asks the shell (`Core::take_open_requests`) to open a `file://` address with SDL's
+  `SDL_OpenURL`. **Import game files again...** opens the first-run screen (`FirstRun::returning`) over the running
+  program, letting go of the game files first; Esc or Back returns to the main menu.
+
 ## What each one does
 
 - **Health bars** (`health-bars`). A three-row bar over a unit's selection box, as wide as the box, filled in the
@@ -233,15 +260,17 @@ choices is not built. Tests: `a_non_local_session_sets_the_c_plus_l_options_and_
    could, use C+L. Read it through `game::extras(c)`, not `c.extras`, so a session can override it.
 5. **Test it with the option on**: unit tests for the rules, and a scripted scene whose `extras` field turns it on
    (`script.rs`, scene `extras`). A new scene is a new snapshot entry; the old scenes must not change.
-6. **Document it**: copy `extras::doc_table()` into this file (a test checks), and add the flag to the README's
+6. **Put it on a Settings page**: give it a `label` in the registry row, a page in `settings::extra_page` (the build
+   fails until you do) and, for a choice, its words in `settings::CHOICE_WORDS` (a test fails without them).
+7. **Document it**: copy `extras::doc_table()` into this file (a test checks), and add the flag to the README's
    "Optional improvements".
-7. **If it touches the sim**, it is not a client option: add a field to `tidewater_sim::Extras` instead (and a registry
+8. **If it touches the sim**, it is not a client option: add a field to `tidewater_sim::Extras` instead (and a registry
    row only for the local default), bump the save and replay versions, and make sure it is hashed, saved and in the
    replay header.
 
 ## Checks that keep the defaults honest
 
 - The frame snapshot (`crates/client/tests/frames.rs`) runs its original scenes with every extra off and is never
-  re-blessed for an extra; the scenes `extras`, `extras-bars`, `extras-groups`, `extras-attack` and `extras-keys` turn options on and have their own entries.
+  re-blessed for an extra (the main menu's frames changed once, for the Settings link, which is not an extra); the scenes `extras`, `extras-bars`, `extras-groups`, `extras-attack` and `extras-keys` turn options on and have their own entries; the scene `settings-screen` shows the Settings screen.
 - `Trims::default()` leaves the mixed sound identical; the audio snapshot of the original scenes shows it.
 - The oracle traces and the whole-map snapshot run on the sim, which an empty `Extras` does not change.

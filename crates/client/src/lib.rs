@@ -60,6 +60,7 @@ mod screen;
 mod screenshot;
 pub mod script;
 pub mod session;
+mod settings;
 mod sound;
 mod states;
 pub mod storage;

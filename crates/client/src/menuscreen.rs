@@ -32,6 +32,9 @@ pub(crate) enum MenuScreen {
     SmallDialog,
     /// The custom-scenario setup ("Custom Game Setup").
     CustomSetup,
+    /// Tidewater's own Settings screen (`settings`): not in the original, opened like the custom-scenario setup (it
+    /// reloads the picture and fades, with no version line).
+    Settings,
 }
 
 /// How a menu screen opens.
@@ -49,7 +52,7 @@ impl MenuScreen {
     /// Whether the screen shows on the shared picture without loading it again: every menu screen but the
     /// custom-scenario setup.
     pub(crate) fn shares_picture(self) -> bool {
-        self != MenuScreen::CustomSetup
+        !matches!(self, MenuScreen::CustomSetup | MenuScreen::Settings)
     }
 
     /// How the screen opens after `from`, the menu screen before it (`None`: a screen not on the menu picture, such
@@ -59,7 +62,7 @@ impl MenuScreen {
         Opening {
             reload: !switch,
             fade_in_ms: if switch { 0 } else { fades::MENUS },
-            version_line: self != MenuScreen::CustomSetup,
+            version_line: self.shares_picture(),
         }
     }
 }
@@ -466,6 +469,36 @@ pub(crate) fn draw_text(
 pub(crate) fn draw_heading(dst: &mut Picture, font: &Font, pal: &Palette, r: Rect, s: &str) {
     let at = heading_cell(r, label_width(font, s));
     draw_text(dst, font, pal, at, s, WHITE, label_gap(font));
+}
+
+/// The Settings link on the main menu's bottom row, right of the version line: a tap target (not part of the original,
+/// like the version line). 120 × 28 so a finger hits it; the text is right-aligned inside, ending at
+/// [`SETTINGS_LINK_RIGHT`]. It clears the update offer's buttons (`frontend::UPDATE_BUTTONS`, which end at x 490).
+pub(crate) const SETTINGS_LINK: Rect = Rect::new(504, 448, 120, 28);
+/// Where the link's text ends.
+pub(crate) const SETTINGS_LINK_RIGHT: i32 = 612;
+/// The link's text.
+pub(crate) const SETTINGS_LINK_TEXT: &str = "Settings (F2)";
+
+/// The width of `s` in `font` with spaces leaving `gap` pixels.
+pub(crate) fn text_width(font: &Font, s: &str, gap: u32) -> u32 {
+    style(&[[0; 3]; 8], gap).width(font, s)
+}
+
+/// Draws the Settings link in `font10x`, right-aligned on the version line's row: white like the version line, gold
+/// while the pointer is over it.
+pub(crate) fn draw_settings_link(dst: &mut Picture, font: &Font, pal: &Palette, hover: bool) {
+    let w = text_width(font, SETTINGS_LINK_TEXT, SPACE_10X) as i32;
+    let at = (SETTINGS_LINK_RIGHT - w, VERSION_CELL.1);
+    draw_text(
+        dst,
+        font,
+        pal,
+        at,
+        SETTINGS_LINK_TEXT,
+        if hover { GOLD } else { VERSION },
+        SPACE_10X,
+    );
 }
 
 /// Draws the version line `s` in `font10x` with its glyph cell at [`VERSION_CELL`], spaces leaving 8 pixels.
@@ -970,6 +1003,38 @@ mod tests {
             "Custom Scenario on the single-player menu"
         );
         assert!(!CustomSetup.shares_picture());
+    }
+
+    #[test]
+    fn the_settings_screen_opens_like_the_custom_scenario_setup() {
+        for from in SHARED.map(Some).into_iter().chain([None]) {
+            assert_eq!(
+                Settings.opening(from),
+                Opening {
+                    reload: true,
+                    fade_in_ms: 200,
+                    version_line: false
+                },
+                "{from:?}"
+            );
+        }
+        assert!(!Settings.shares_picture());
+        assert!(switch_fades(Main, Settings) && switch_fades(Settings, Main));
+        assert_eq!(Main.opening(Some(Settings)), Main.opening(None));
+    }
+
+    #[test]
+    fn the_settings_link_is_a_finger_sized_target_on_the_version_lines_row() {
+        let l = SETTINGS_LINK;
+        assert!(l.h >= 24 && l.w >= 24);
+        assert!(l.x >= 0 && (l.x as u32 + l.w) <= 640 && (l.y as u32 + l.h) <= 480);
+        // On the version line's row, right of the version line's room (it starts at x 60 and a line of 24 letters of
+        // `font10x` ends well before x 300), and its text ends inside the target.
+        assert!(l.y <= VERSION_CELL.1 && VERSION_CELL.1 < l.y + l.h as i32);
+        assert!(l.x > 300);
+        assert!(SETTINGS_LINK_RIGHT <= l.x + l.w as i32);
+        // The text at its widest still starts inside the target: 13 characters of at most 8 pixels.
+        assert!(SETTINGS_LINK_RIGHT - 13 * 8 >= l.x);
     }
 
     #[test]

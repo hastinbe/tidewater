@@ -186,6 +186,13 @@ impl<'s> Window<'s> {
         unsafe { sys::SDL_SetWindowTitle(self.raw, title.as_ptr()) };
     }
 
+    /// Full screen on or off (the desktop's Settings screen); SDL keeps the window's windowed size and place for the way
+    /// back.
+    pub fn set_fullscreen(&self, on: bool) {
+        // SAFETY: a live window.
+        unsafe { sys::SDL_SetWindowFullscreen(self.raw, on) };
+    }
+
     /// Whether the window has the keyboard.
     pub fn focused(&self) -> bool {
         // SAFETY: a live window.
@@ -460,6 +467,16 @@ impl Drop for Window<'_> {
     fn drop(&mut self) {
         // SAFETY: the renderer borrowed the window and is gone by now.
         unsafe { sys::SDL_DestroyWindow(self.raw) };
+    }
+}
+
+/// Asks the system to open `url` in its own program: a `file://` address of a folder opens in the file manager (the
+/// Settings screen's "Open settings folder"). A failure is told on the console and otherwise ignored.
+pub fn open_url(url: &str) {
+    let c = cstring(url);
+    // SAFETY: a valid C string; SDL copies it before it returns.
+    if !unsafe { sys::SDL_OpenURL(c.as_ptr()) } {
+        eprintln!("{}", error("can't open the folder"));
     }
 }
 
