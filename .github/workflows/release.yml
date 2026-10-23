@@ -1,10 +1,23 @@
-# Builds the downloads for a version tag (vX.Y.Z) and publishes them as a GitHub release. How to cut one:
-# docs/release.md. Tests run in ci.yml, not here. Only the program is packaged: never any game data.
+# Cuts a release when main moves: works out the next version from the conventional commits since the last v* tag
+# (.github/scripts/release.py), builds the downloads, then creates the tag and the GitHub release in this one workflow
+# (a tag made with GITHUB_TOKEN would not start another one). How it works: docs/release.md. Tests run in ci.yml, not
+# here. Only the program is packaged: never any game data.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and smoke-test everything but publish nothing (no tag, no release)"
+        type: boolean
+        default: true
+
+# One release at a time; a second push waits instead of racing the first for the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -15,12 +28,61 @@ env:
   TIDEWATER_REPO: ${{ github.repository }}
 
 jobs:
-  linux:
+  # Decides whether there is anything to release, and which version.
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      build: ${{ steps.v.outputs.build }}
+      publish: ${{ steps.v.outputs.publish }}
     steps:
       - uses: actions/checkout@v7
-      - name: Stamp the version
-        run: echo "TIDEWATER_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        with:
+          fetch-depth: 0 # the tags and the history since the last one
+      - name: Test the release script
+        run: python3 -m unittest discover -s .github/scripts
+      - name: Work out the version
+        id: v
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          next=$(python3 .github/scripts/release.py version)
+          dry="$DRY_RUN"
+          # Only main publishes; a manual run from another branch can only be a dry run.
+          publish=false
+          if [ -n "$next" ] && [ "$dry" != true ] && [ "$GITHUB_REF" = refs/heads/main ]; then publish=true; fi
+          build=$publish
+          if [ "$dry" = true ]; then
+            build=true
+            # Nothing releasable: still build something to look at, with a version that never offers updates.
+            [ -n "$next" ] || next=0.0.0-dryrun
+          fi
+          {
+            echo "version=$next"
+            echo "build=$build"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Release plan"
+            echo
+            if [ -z "$next" ]; then
+              echo "Nothing to release: no feat, fix or perf commit since the last tag."
+            else
+              echo "- Version: **$next**"
+              echo "- Build: $build, publish: $publish (dry run: $dry)"
+              echo
+              python3 .github/scripts/release.py notes
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TIDEWATER_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
       - name: Install SDL 3 build dependencies
         run: |
           sudo apt-get update
@@ -34,10 +96,9 @@ jobs:
       - run: cargo build --release -p tidewater-client
       - name: Package
         run: |
-          name="tidewater-${TIDEWATER_VERSION}-linux-x64"
-          mkdir -p "dist/$name"
-          cp target/release/tidewater LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          mkdir -p dist
+          packaging/linux/build-tarball.sh "$TIDEWATER_VERSION" target/release/tidewater \
+            "dist/tidewater-${TIDEWATER_VERSION}-linux-x64.tar.gz"
       - uses: actions/upload-artifact@v7
         with:
           name: linux
@@ -45,11 +106,13 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: macos-latest
+    env:
+      TIDEWATER_VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Stamp the version
-        run: echo "TIDEWATER_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Install the pinned toolchain and both Mac targets
         run: |
           rustup toolchain install
@@ -65,6 +128,7 @@ jobs:
           lipo -create -output dist/tidewater \
             target/aarch64-apple-darwin/release/tidewater target/x86_64-apple-darwin/release/tidewater
           packaging/macos/build-dmg.sh "$TIDEWATER_VERSION" dist/tidewater "dist/tidewater-${TIDEWATER_VERSION}-macos.dmg"
+          rm dist/tidewater
       - uses: actions/upload-artifact@v7
         with:
           name: macos
@@ -72,14 +136,16 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: windows-latest
     defaults:
       run:
         shell: bash
+    env:
+      TIDEWATER_VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Stamp the version
-        run: echo "TIDEWATER_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p tidewater-client
@@ -100,23 +166,62 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
+  # Installs the built setup program silently, checks the installed program starts and reports the build's version,
+  # then uninstalls. Runs on dry runs too.
+  windows-smoke:
+    needs: [plan, windows]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows
+          path: dist
+      - name: Install, check, uninstall
+        env:
+          WANT: ${{ needs.plan.outputs.version }}
+          MSYS_NO_PATHCONV: "1" # keep /VERYSILENT and friends as they are
+        run: |
+          setup=$(ls dist/tidewater-*-windows-x64-setup.exe)
+          dir="$(cygpath -w "$RUNNER_TEMP")\\tw-smoke"
+          "$setup" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="$dir" /LOG="$(cygpath -w "$RUNNER_TEMP")\\install.log"
+          ls -l "$(cygpath -u "$dir")"
+          # A silent install starts the game afterwards ("Start Tidewater"); stop it.
+          taskkill /F /IM tidewater.exe || true
+          got=$("$(cygpath -u "$dir")/tidewater.exe" --version)
+          echo "$got"
+          [ "$got" = "tidewater $WANT" ] || { echo "expected 'tidewater $WANT'"; exit 1; }
+          "$(cygpath -u "$dir")/unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          # The uninstaller runs detached; wait for the program file to go.
+          for _ in $(seq 1 30); do [ -e "$(cygpath -u "$dir")/tidewater.exe" ] || break; sleep 1; done
+          if [ -e "$(cygpath -u "$dir")/tidewater.exe" ]; then echo "the uninstaller left the program behind"; exit 1; fi
+          echo "installed, ran and uninstalled"
+
   publish:
-    needs: [linux, macos, windows]
+    needs: [plan, linux, macos, windows, windows-smoke]
+    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
-      - name: Create the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+      - name: Checksums and notes
         run: |
-          ls -l dist
-          # A tag with a suffix (v1.2.3-rc1) is a pre-release, which "latest" and the update check skip.
-          pre=""
-          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* --title "Tidewater ${GITHUB_REF_NAME#v}" --generate-notes $pre
+          (cd dist && sha256sum tidewater-* > SHA256SUMS && cat SHA256SUMS)
+          python3 .github/scripts/release.py notes > notes.md
+      - name: Create the tag and the release
+        run: |
+          # --target makes the tag on the commit that was built; the tag is created here, with the release.
+          gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --title "Tidewater $VERSION" --notes-file notes.md
