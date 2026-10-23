@@ -18,10 +18,12 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# Runner images are named, not `-latest`, so the preinstalled NDK, Xcode and the Linux build's glibc change only when
+# we bump them (with rust-toolchain.toml). `--locked` fails the build if Cargo.lock is out of date instead of updating it.
 jobs:
   check:
     name: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Install SDL 3 build dependencies
@@ -38,9 +40,9 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
   build:
     name: build (${{ matrix.os }})
@@ -49,13 +51,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             name: linux
             exe: ""
-          - os: macos-latest
+          - os: macos-26
             name: macos
             exe: ""
-          - os: windows-latest
+          - os: windows-2025
             name: windows
             exe: ".exe"
     runs-on: ${{ matrix.os }}
@@ -74,7 +76,7 @@ jobs:
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - name: Build the client and twtool
-        run: cargo build --release -p tidewater-client -p twtool
+        run: cargo build --locked --release -p tidewater-client -p twtool
       - uses: actions/upload-artifact@v7
         with:
           name: tidewater-${{ matrix.name }}
@@ -91,7 +93,7 @@ jobs:
   ios:
     name: ios (simulator library)
     needs: check
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - name: Install the pinned toolchain and the iOS target
@@ -102,14 +104,14 @@ jobs:
       - name: Build the static library
         env:
           IPHONEOS_DEPLOYMENT_TARGET: "15.0"
-        run: cargo build --release --target aarch64-apple-ios-sim -p tidewater-ios
+        run: cargo build --locked --release --target aarch64-apple-ios-sim -p tidewater-ios
 
   # The Android app's native library for one ABI (docs/design/android.md): compiles SDL 3 and the shell with the
   # runner's own NDK, builds no APK and signs nothing. Kept to one ABI so it stays cheap.
   android:
     name: android (arm64 library)
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Install the pinned toolchain and the Android target
@@ -118,9 +120,9 @@ jobs:
           rustup target add aarch64-linux-android
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-ndk
+          tool: cargo-ndk@4.1.2
       - uses: Swatinem/rust-cache@v2
       - name: Build libmain.so
         run: |
           export CMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
-          cargo ndk -t arm64-v8a -P 24 build --release -p tidewater-android
+          cargo ndk -t arm64-v8a -P 24 build --locked --release -p tidewater-android
