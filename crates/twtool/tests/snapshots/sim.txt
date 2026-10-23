@@ -274,18 +274,18 @@ Campaign\Human\Human07.pud	harvest	25000	127dfe9382ec57b0	6910885cd6938a7e	138
 Campaign\Human\Human07.pud	harvest	27500	b045c0f6bba685a9	93d16242f159ab83	138
 Campaign\Human\Human07.pud	harvest	30000	0ddb2a81942c9eb0	6ce6046eabea30ce	136
 Campaign\Human\Human08.pud	move	0	2e38a325e20b30f1	560895099a19d824	122
-Campaign\Human\Human08.pud	move	2500	08b016cc2346cb06	47f32528e4186f58	122
-Campaign\Human\Human08.pud	move	5000	b0328a291f1f5f3d	c3be2fd2758e0237	118
-Campaign\Human\Human08.pud	move	7500	d89744800227e7f0	f74e9824c8dd8650	125
-Campaign\Human\Human08.pud	move	10000	57147d036eee8847	24211b48d74aae3b	132
-Campaign\Human\Human08.pud	move	12500	a3d247324a9a5c6f	7f9f1317cb713217	136
-Campaign\Human\Human08.pud	move	15000	ff5d6424f9ea23c8	f3d22f1f333d0727	142
-Campaign\Human\Human08.pud	move	17500	b15a5c0efa1138f8	4a7fcc0e9cd41f66	148
-Campaign\Human\Human08.pud	move	20000	3535a2ce6bfd2408	fef4ef25a2d06efb	141
-Campaign\Human\Human08.pud	move	22500	7c225dc0511db9b7	550f06d574564c4a	146
-Campaign\Human\Human08.pud	move	25000	78af700dd6bf6815	ec0f4f0ea21d6d8e	146
-Campaign\Human\Human08.pud	move	27500	b5bcbf33cc52bbba	ecab01f072743e99	146
-Campaign\Human\Human08.pud	move	30000	1d7931541c646367	9e2e76ad132867a6	144
+Campaign\Human\Human08.pud	move	2500	08b016cc2346cb06	38a5175496cce13d	122
+Campaign\Human\Human08.pud	move	5000	b0328a291f1f5f3d	11a051909cb176f2	118
+Campaign\Human\Human08.pud	move	7500	d89744800227e7f0	f8aa6cf24d7b2628	125
+Campaign\Human\Human08.pud	move	10000	57147d036eee8847	6661da292bf53d76	132
+Campaign\Human\Human08.pud	move	12500	a3d247324a9a5c6f	bd2d6a66c9b72768	136
+Campaign\Human\Human08.pud	move	15000	ff5d6424f9ea23c8	953889b90e9fe947	142
+Campaign\Human\Human08.pud	move	17500	b15a5c0efa1138f8	040dc4195dc7dcc6	148
+Campaign\Human\Human08.pud	move	20000	3535a2ce6bfd2408	ace5c6ecbf6a9be9	141
+Campaign\Human\Human08.pud	move	22500	7c225dc0511db9b7	4df73bd38386f3e2	146
+Campaign\Human\Human08.pud	move	25000	78af700dd6bf6815	31ecbf85c62c31ac	146
+Campaign\Human\Human08.pud	move	27500	b5bcbf33cc52bbba	b54f9151a1c38af0	146
+Campaign\Human\Human08.pud	move	30000	1d7931541c646367	25c68189f59da45b	144
 Campaign\Human\Human08.pud	fight	0	2e38a325e20b30f1	560895099a19d824	122
 Campaign\Human\Human08.pud	fight	2500	8f76246465d0dfb9	0096e7717431eb9c	120
 Campaign\Human\Human08.pud	fight	5000	e21c33ea84bc8310	241e30ae4044fccc	122
@@ -490,10 +490,10 @@ Campaign\Human\Human13.pud	fight	12500	1667f3e48eaf92a1	695f704d986fcb86	216
 Campaign\Human\Human13.pud	fight	15000	9abdc76dfb81eac2	6ac164e9068620dc	213
 Campaign\Human\Human13.pud	fight	17500	6733a8a3a79aafef	ee4156227c0a50a2	213
 Campaign\Human\Human13.pud	fight	20000	44165a8395fda49c	e32f1c47d3ac289f	211
-Campaign\Human\Human13.pud	fight	22500	698cf166b840bc8d	0b7f54d1f76a6db9	208
-Campaign\Human\Human13.pud	fight	25000	5e6ff022fec84ca3	f7631b3dd9954998	205
-Campaign\Human\Human13.pud	fight	27500	5a114fa48c9eb412	5e31c9850b1caaa0	206
-Campaign\Human\Human13.pud	fight	30000	1482a788d091d26b	636652f1f9f7966a	205
+Campaign\Human\Human13.pud	fight	22500	151574126c70c1d9	de9ce6ee3c801129	208
+Campaign\Human\Human13.pud	fight	25000	af647c3d20c3d53d	0c3fab12cf47f53d	208
+Campaign\Human\Human13.pud	fight	27500	c8da139a3d9744f3	efd5a1e9df92dce2	206
+Campaign\Human\Human13.pud	fight	30000	74b8e7a39b8bb1d9	d45a19f01b690a0d	206
 Campaign\Human\Human13.pud	harvest	0	5d1a9f1eeaf76459	d344d3e0403c5e17	205
 Campaign\Human\Human13.pud	harvest	2500	660b03f0e7a40de5	d958491a9953c753	208
 Campaign\Human\Human13.pud	harvest	5000	d65b61201fa57cf9	7c03347bb33cae69	212
@@ -504,9 +504,9 @@ Campaign\Human\Human13.pud	harvest	15000	20d6459652dcfc0d	78437872f67599dc	222
 Campaign\Human\Human13.pud	harvest	17500	238e675a52eaa65b	17271e3f5570f284	222
 Campaign\Human\Human13.pud	harvest	20000	c358173a26964c5d	cbd15ca2df4c06d9	221
 Campaign\Human\Human13.pud	harvest	22500	4ad07683fe3c0c69	1469e43085612412	220
-Campaign\Human\Human13.pud	harvest	25000	affcb9d1eb494dce	932fc5c622ccea8c	220
-Campaign\Human\Human13.pud	harvest	27500	a70264442d6d8f55	840c1cf7ed0c3520	217
-Campaign\Human\Human13.pud	harvest	30000	83a0a6f7d764e597	a0408026623e392c	217
+Campaign\Human\Human13.pud	harvest	25000	27e3229ab2dcbc76	da7f7beccdfbccc6	220
+Campaign\Human\Human13.pud	harvest	27500	5dcf4aa9b6bdb889	7b6f393fc84a884e	218
+Campaign\Human\Human13.pud	harvest	30000	cada6117aa466c93	f9eed948bc768e84	218
 Campaign\Human\Human14.pud	move	0	a2488947f30a7753	92edae952dc22758	190
 Campaign\Human\Human14.pud	move	2500	1f35a7be872867d8	556efb9457e217e4	198
 Campaign\Human\Human14.pud	move	5000	4ff000fe7f9c8dfe	740231cca89a3193	198
@@ -976,18 +976,18 @@ Campaign\Orc\Orc11.pud	harvest	25000	4ec2304428c0e0e8	e1317bc878c7044a	159
 Campaign\Orc\Orc11.pud	harvest	27500	99ee91b159de96ad	ad883f9aef8b1b88	159
 Campaign\Orc\Orc11.pud	harvest	30000	e02f8d135380d76a	24e462ca36516c1b	159
 Campaign\Orc\Orc12.pud	move	0	ce972c3e12d3a3fe	55e949646491f914	183
-Campaign\Orc\Orc12.pud	move	2500	a4d21ff9b78e1e37	8fcd22c1acc45031	195
-Campaign\Orc\Orc12.pud	move	5000	4cc2765375170ad6	d92200f2224a7c96	195
-Campaign\Orc\Orc12.pud	move	7500	471bdf51c2e35ffd	62847001acf99e77	198
-Campaign\Orc\Orc12.pud	move	10000	12e79561571858ca	623b9e06fda41bbc	200
-Campaign\Orc\Orc12.pud	move	12500	3eb8f97b8c770dd5	30c1adaa43f24516	203
-Campaign\Orc\Orc12.pud	move	15000	f49e3e99f7c32ee0	6491e1c2e21fa4a3	204
-Campaign\Orc\Orc12.pud	move	17500	50538e806f3a4685	49b18c30c84b26fb	205
-Campaign\Orc\Orc12.pud	move	20000	9c39354d0aeb5421	36c19c38952bfdb1	205
-Campaign\Orc\Orc12.pud	move	22500	037d4254ff4b6fc1	26207deff915d396	205
-Campaign\Orc\Orc12.pud	move	25000	a3cfe26fedf75b64	7cb2f63aa4f0632a	205
-Campaign\Orc\Orc12.pud	move	27500	7a6b5e1252515059	4e09908e50f8e99d	205
-Campaign\Orc\Orc12.pud	move	30000	48a94fe4cef1b933	aaa79d76f77c4830	205
+Campaign\Orc\Orc12.pud	move	2500	3bf5594b0488ce39	e2d645d1dd772686	194
+Campaign\Orc\Orc12.pud	move	5000	054a90224f5877ee	c063bc318b14e9d3	196
+Campaign\Orc\Orc12.pud	move	7500	96e478f3b2c691d3	193cf3b4773d05b1	197
+Campaign\Orc\Orc12.pud	move	10000	2d9eb92020407a00	65f5b68e9fec6566	199
+Campaign\Orc\Orc12.pud	move	12500	8bbda26b3c567e5e	9003868b83e80153	200
+Campaign\Orc\Orc12.pud	move	15000	e3a8e11a887d6c5b	64957b1e6cd3445c	201
+Campaign\Orc\Orc12.pud	move	17500	5a3f43aa83aa4ac2	24340ab4e3dc3949	202
+Campaign\Orc\Orc12.pud	move	20000	9c86c518460839df	cd04697131bfeb3d	202
+Campaign\Orc\Orc12.pud	move	22500	8c0b5b11b15d7e4b	570db8f1f64df290	202
+Campaign\Orc\Orc12.pud	move	25000	c00db6dcf3a6be79	233068a095703ff1	199
+Campaign\Orc\Orc12.pud	move	27500	1a3334619970f53b	bc328f6242f35b94	199
+Campaign\Orc\Orc12.pud	move	30000	ee40b484f3d584a1	d7b27d12e50e2ff7	199
 Campaign\Orc\Orc12.pud	fight	0	ce972c3e12d3a3fe	55e949646491f914	183
 Campaign\Orc\Orc12.pud	fight	2500	845c842ed16d53a5	feeda10d6034863b	196
 Campaign\Orc\Orc12.pud	fight	5000	bec24fd34246521c	e8edbcd04ee9cc96	200
@@ -1028,18 +1028,18 @@ Campaign\Orc\Orc13.pud	move	25000	f09945cc56bebf22	690bc7a4cece7f2c	162
 Campaign\Orc\Orc13.pud	move	27500	e9369be6c30d87c2	e39224d52a81c564	167
 Campaign\Orc\Orc13.pud	move	30000	8f9bb4da4b9ff6bc	d887ff4254006e9e	170
 Campaign\Orc\Orc13.pud	fight	0	d83d212cf6f36415	a54ed0b199aa1098	144
-Campaign\Orc\Orc13.pud	fight	2500	48755b1adcaa98dc	5f5910778225d09c	147
-Campaign\Orc\Orc13.pud	fight	5000	f3c62437fbe2a8b4	b14fd5477b95eac8	151
-Campaign\Orc\Orc13.pud	fight	7500	77690399cc4af211	438c245e1ab544c5	154
-Campaign\Orc\Orc13.pud	fight	10000	6710b8f8dd600586	925ba31054ada030	157
-Campaign\Orc\Orc13.pud	fight	12500	1f764a39f56f4aae	e0dca214afda70e0	162
-Campaign\Orc\Orc13.pud	fight	15000	5c19a12d90385264	7540613d53e22477	162
-Campaign\Orc\Orc13.pud	fight	17500	ad7d39f3253fb92b	1fb415a184136a19	162
-Campaign\Orc\Orc13.pud	fight	20000	6a5e530ac70278aa	4e216b736a34a33f	162
-Campaign\Orc\Orc13.pud	fight	22500	c91bd5878e45566d	cae6c758d3f5e1c9	162
-Campaign\Orc\Orc13.pud	fight	25000	4778039faff93d02	68f94aacd8a2f6ba	162
-Campaign\Orc\Orc13.pud	fight	27500	8036efe4cf7f215c	871065fcb604ae74	167
-Campaign\Orc\Orc13.pud	fight	30000	2313a8a82492cb48	27fa94944cc287e2	168
+Campaign\Orc\Orc13.pud	fight	2500	9dfbd3f13022f1c2	f1839778b015f8e2	147
+Campaign\Orc\Orc13.pud	fight	5000	629fd8026a102abf	e19e4c8968f00eda	151
+Campaign\Orc\Orc13.pud	fight	7500	bf030d989d694a86	2e48a476431f741a	154
+Campaign\Orc\Orc13.pud	fight	10000	9e6685a1dc6789e4	4823ea97eb1281c0	158
+Campaign\Orc\Orc13.pud	fight	12500	e16208752be7989d	9f97d6f100159a95	162
+Campaign\Orc\Orc13.pud	fight	15000	0c5be16269158368	8f76f6f40a8b21fa	165
+Campaign\Orc\Orc13.pud	fight	17500	152a443be0b2f1c7	76b9e15c55331897	165
+Campaign\Orc\Orc13.pud	fight	20000	b9c39429dd02e2b2	7eda1a399606f524	165
+Campaign\Orc\Orc13.pud	fight	22500	fce6b3f1c90fb1ee	fe75380f8bf436c5	165
+Campaign\Orc\Orc13.pud	fight	25000	16c7b92d0c15eca6	abe032dafe7e351c	165
+Campaign\Orc\Orc13.pud	fight	27500	74892de28913ceae	f63ce345c7512351	166
+Campaign\Orc\Orc13.pud	fight	30000	3332b3079d9dae69	8bf3f7a95b5bda33	170
 Campaign\Orc\Orc13.pud	harvest	0	d83d212cf6f36415	a54ed0b199aa1098	144
 Campaign\Orc\Orc13.pud	harvest	2500	8beecf10a02a68cd	f06cebfbf58af2c6	147
 Campaign\Orc\Orc13.pud	harvest	5000	d97328da9e540866	a6a3fe9875ba8010	151
@@ -3642,7 +3642,7 @@ Maps\Classic\Expansion\Icewall.pud	ai	27500	8a891bddda27957a	3fe5a83d1fb16607	15
 Maps\Classic\Expansion\Icewall.pud	ai	30000	b34220bef54e194c	7b33a0da9f30410b	151
 Maps\Classic\Expansion\Ironcros.pud	move	0	e4859e3b0a0b0988	7967e24fcb9c3bba	120
 Maps\Classic\Expansion\Ironcros.pud	move	2500	1ba6e2bceb957ba0	4a4c1377e940b270	153
-Maps\Classic\Expansion\Ironcros.pud	move	5000	a4d1110b581bb598	b9b85050c6d6ccd3	185
+Maps\Classic\Expansion\Ironcros.pud	move	5000	25f02e9bff638741	2ef581517fb9e27c	185
 Maps\Classic\Expansion\Ironcros.pud	move	7500	7c9533b3e49d7660	dd7d391c4852ec73	206
 Maps\Classic\Expansion\Ironcros.pud	move	10000	4e5ae2d24b692a1b	96bd5fcd0798455f	208
 Maps\Classic\Expansion\Ironcros.pud	move	12500	d87caff9958de31d	5cadd9ba7d16a98e	208
@@ -3655,7 +3655,7 @@ Maps\Classic\Expansion\Ironcros.pud	move	27500	1101a934b6ac2988	09e7980a97b1fd7b
 Maps\Classic\Expansion\Ironcros.pud	move	30000	197ee5e3ba753de1	b9be6eab6fd23e5c	213
 Maps\Classic\Expansion\Ironcros.pud	fight	0	e4859e3b0a0b0988	7967e24fcb9c3bba	120
 Maps\Classic\Expansion\Ironcros.pud	fight	2500	48a2f27118347b0c	f2d6f82e31057e44	153
-Maps\Classic\Expansion\Ironcros.pud	fight	5000	5aec22fae76b4d94	aa574b76de2678c5	186
+Maps\Classic\Expansion\Ironcros.pud	fight	5000	b4e8e67cc1c34643	8c019b17eab65690	186
 Maps\Classic\Expansion\Ironcros.pud	fight	7500	fedbae7f3fad0a18	33f7d91f4a991abb	207
 Maps\Classic\Expansion\Ironcros.pud	fight	10000	4739197e5a270c42	4f7644d197e7eb1b	208
 Maps\Classic\Expansion\Ironcros.pud	fight	12500	2f15814dbe2a41d5	8803136141621c86	209
@@ -3668,7 +3668,7 @@ Maps\Classic\Expansion\Ironcros.pud	fight	27500	a2f9db6d3ad3cafb	8544dbbe19b7d7a
 Maps\Classic\Expansion\Ironcros.pud	fight	30000	f934b7719e535d00	519f5320ad26c7c3	211
 Maps\Classic\Expansion\Ironcros.pud	harvest	0	e4859e3b0a0b0988	7967e24fcb9c3bba	120
 Maps\Classic\Expansion\Ironcros.pud	harvest	2500	11fc8d3cf166569e	fa7a06b2600c0c24	153
-Maps\Classic\Expansion\Ironcros.pud	harvest	5000	75b8a9cd118f996f	bda4f7eeb39e64ff	186
+Maps\Classic\Expansion\Ironcros.pud	harvest	5000	c5f69e6d56d81855	5eae8b1545fce66d	186
 Maps\Classic\Expansion\Ironcros.pud	harvest	7500	07e1a18b77311d6d	72eb68e89a66d0d7	206
 Maps\Classic\Expansion\Ironcros.pud	harvest	10000	84fe9feb938eb590	9b59a86c01152981	208
 Maps\Classic\Expansion\Ironcros.pud	harvest	12500	aef1fc3bf7b48a32	89388472b1b30ebb	208
@@ -3681,7 +3681,7 @@ Maps\Classic\Expansion\Ironcros.pud	harvest	27500	a51c6e0643413ddd	8e84cc696741c
 Maps\Classic\Expansion\Ironcros.pud	harvest	30000	f5cf639b53992080	2d5b82cb900eadd8	213
 Maps\Classic\Expansion\Ironcros.pud	ai	0	dba5cb51c6b2a336	6f95162f028f0038	135
 Maps\Classic\Expansion\Ironcros.pud	ai	2500	f33129869bc003d9	716db18a77ab8dca	186
-Maps\Classic\Expansion\Ironcros.pud	ai	5000	d9700d9a60f3e363	955b87d16223a124	237
+Maps\Classic\Expansion\Ironcros.pud	ai	5000	219d44e77dc96bb1	bebab258d9334d8b	237
 Maps\Classic\Expansion\Ironcros.pud	ai	7500	ada2bc1b3b87907f	dde58575b4e29a0a	280
 Maps\Classic\Expansion\Ironcros.pud	ai	10000	1b593b2dadea6cde	7f84cd4bc8c00113	292
 Maps\Classic\Expansion\Ironcros.pud	ai	12500	d373379d15f6bdf8	e771d5a8bf7e620e	292
@@ -5144,7 +5144,7 @@ Maps\Classic\Expansion\Scenario\Midland.pud	ai	12500	46076ec5496360fc	e7d637130b
 Maps\Classic\Expansion\Scenario\Midland.pud	ai	15000	f2d792047e170711	fe3d7ceb2836e276	42
 Maps\Classic\Expansion\Scenario\Midland.pud	ai	17500	96bdd4ff06a385e8	fcfddee6e33a20a1	38
 Maps\Classic\Expansion\Scenario\Midland.pud	ai	20000	65a7cf3e26e3b9ca	fb37e197d8c11c5f	41
-Maps\Classic\Expansion\Scenario\Midland.pud	ai	22500	06b30158b9fc9177	9d9046a767edb9ef	46
+Maps\Classic\Expansion\Scenario\Midland.pud	ai	22500	12bef5653f1bd36b	e485f43953a38367	46
 Maps\Classic\Expansion\Scenario\Midland.pud	ai	25000	89bbdf9e3797ba81	785eb43ece798945	45
 Maps\Classic\Expansion\Scenario\Midland.pud	ai	27500	2a8e212d1f03cc4a	5b1ee284559d3ee1	46
 Maps\Classic\Expansion\Scenario\Midland.pud	ai	30000	8b8174d4b715844e	15011e836febd228	43
@@ -6924,11 +6924,11 @@ Maps\Classic\Opposing city-states.pud	move	10000	004cfc1a7851d778	d2403504f8eb5e
 Maps\Classic\Opposing city-states.pud	move	12500	3d9276549c44d79f	5199cdc180b1cfc3	62
 Maps\Classic\Opposing city-states.pud	move	15000	ee8b47d77fcd5142	6955a6cf8ffc7a74	66
 Maps\Classic\Opposing city-states.pud	move	17500	f9438908eb27be58	083add9f8e06c535	71
-Maps\Classic\Opposing city-states.pud	move	20000	e41217fc7d82bcb7	c791f42e93b722b1	72
-Maps\Classic\Opposing city-states.pud	move	22500	46a50b84f0ebebab	573e570090bb4339	74
-Maps\Classic\Opposing city-states.pud	move	25000	85a63fe408304f27	7951935b921681c4	82
-Maps\Classic\Opposing city-states.pud	move	27500	2a2b6486d3a2169d	e55602d9d0861127	86
-Maps\Classic\Opposing city-states.pud	move	30000	098cea7ecdc67b7f	c16f302a43484e59	87
+Maps\Classic\Opposing city-states.pud	move	20000	7c3855c004ec186a	6c4691c2af6b98b3	72
+Maps\Classic\Opposing city-states.pud	move	22500	0e05fc21fdb05d82	ff14f5a2b9e6af78	75
+Maps\Classic\Opposing city-states.pud	move	25000	fb265a2b67d3aa83	2170f0419aefc238	79
+Maps\Classic\Opposing city-states.pud	move	27500	3caefa61631386d6	f639b93149aeeee0	81
+Maps\Classic\Opposing city-states.pud	move	30000	156504c80d06660c	d7ff28df48e5daa0	81
 Maps\Classic\Opposing city-states.pud	fight	0	57729b4bbfd74295	1796bbfb9d3e7afc	55
 Maps\Classic\Opposing city-states.pud	fight	2500	769c88c143dce3d8	da9ecdad7c55324f	55
 Maps\Classic\Opposing city-states.pud	fight	5000	000f16863e15b575	4cf37a44c9f3b336	55
@@ -6950,11 +6950,11 @@ Maps\Classic\Opposing city-states.pud	harvest	10000	95c408c9ffc80f30	6f0bf8f43b0
 Maps\Classic\Opposing city-states.pud	harvest	12500	13c8019db1cad245	681b678e56a67c66	62
 Maps\Classic\Opposing city-states.pud	harvest	15000	2cb582e13c422409	9ecec7564a636c85	65
 Maps\Classic\Opposing city-states.pud	harvest	17500	52923663a282f3c0	8c79f7fb9b094366	70
-Maps\Classic\Opposing city-states.pud	harvest	20000	a4020f11ec2c68fa	2fa60fd90017cb33	70
-Maps\Classic\Opposing city-states.pud	harvest	22500	45013d2ae8823f29	c7f9ba49c47c57a9	75
-Maps\Classic\Opposing city-states.pud	harvest	25000	1220461864eb7202	ed1451040369ea91	78
-Maps\Classic\Opposing city-states.pud	harvest	27500	94e5a571b16174bd	68b87ba1704a70da	83
-Maps\Classic\Opposing city-states.pud	harvest	30000	13d2b9be677b3849	94cf213a90e29380	84
+Maps\Classic\Opposing city-states.pud	harvest	20000	3801b4135ce911e9	a6ea43c89a6d1ed8	70
+Maps\Classic\Opposing city-states.pud	harvest	22500	e136d8c1f51e5644	dedcde0cb142ca6c	75
+Maps\Classic\Opposing city-states.pud	harvest	25000	8d6d0ad095e9f3e4	fe7edbf71d737c3e	77
+Maps\Classic\Opposing city-states.pud	harvest	27500	c000b476fee9e201	bcfaca9cdd091ba0	80
+Maps\Classic\Opposing city-states.pud	harvest	30000	a38dc240bd3c7cc6	8ddc3c05cf7300bb	81
 Maps\Classic\Opposing city-states.pud	ai	0	9b042ffdddc35e90	02e1b1e5783b06de	99
 Maps\Classic\Opposing city-states.pud	ai	2500	9e474d49481ab957	0790d63d1eaccad9	99
 Maps\Classic\Opposing city-states.pud	ai	5000	bc6271ea147c304d	79d2070b6658828f	102
@@ -6964,10 +6964,10 @@ Maps\Classic\Opposing city-states.pud	ai	12500	f3d049daa4c668d8	103675c5b092e375
 Maps\Classic\Opposing city-states.pud	ai	15000	05c99a67182594bd	747ae41595c8abb3	136
 Maps\Classic\Opposing city-states.pud	ai	17500	2ffcc2e598288c8c	5c47314f89af2d64	146
 Maps\Classic\Opposing city-states.pud	ai	20000	7d20316c4f4e62b0	e03eb1eb83a4b309	153
-Maps\Classic\Opposing city-states.pud	ai	22500	6c40c2fd69b8ab51	63bf792ffc185e9f	164
-Maps\Classic\Opposing city-states.pud	ai	25000	a517530c09f6c65e	d20ca8b364c2e0c1	172
-Maps\Classic\Opposing city-states.pud	ai	27500	415dc6c58ad5bc37	d4bb08c6cba77dde	175
-Maps\Classic\Opposing city-states.pud	ai	30000	5f7829721b9accc2	a13efc33a5abbe7a	179
+Maps\Classic\Opposing city-states.pud	ai	22500	4a5096608d440667	a1d79dcc0fc19052	163
+Maps\Classic\Opposing city-states.pud	ai	25000	b7db4bfe00ef7df7	650b84bed0312772	170
+Maps\Classic\Opposing city-states.pud	ai	27500	886e8e808e10ca52	e7e25865821adb13	174
+Maps\Classic\Opposing city-states.pud	ai	30000	b745bc2040e4154c	9b16213eef980b94	179
 Maps\Classic\Plains of snow.pud	move	0	7be904e7ae042f60	975955ececb9f6f3	17
 Maps\Classic\Plains of snow.pud	move	2500	bbe43e606c00d8a3	5459c0f7242401e2	18
 Maps\Classic\Plains of snow.pud	move	5000	bc97f2f2fdbeb964	96ce1a9801ece5c4	19
