@@ -35,6 +35,10 @@
   the same update, so the transport docks at once (traced, PI9a); other units unchanged. The attacker the rows read is
   the one left after the walk step's forget of an undetected attacker (`orders/orders.md`, "Walking orders", step 1;
   PI14d, PI14e).
+- **Changes:** 2026-10-23, round 108 (`ERRATA-round108-sweep.md` TG1 and RG1; reviewed by a spec-review session,
+  2026-10-23): "Arriving": the ordered tile is the goal the command stored after its pull-back, for a transport its
+  target tile (TG1a, TG1b). Row G's pending stand still for a land unit is traced (RG1a); its open question is
+  closed. No rule changed.
 
 ## Behaviour
 
@@ -152,7 +156,10 @@ moves; for attack orders the radius is the attacker's attack range (see the comb
   its reach to that tile (traced: `orc9-orc09-shore-build-3000` n = 343);
 - for **boarding** (order 34), the transport's tile if the transport stands in the unit's region, otherwise the
   tile the transport is heading for (`orders/transports.md`);
-- otherwise, the ordered tile.
+- otherwise, the ordered tile: the goal the command stored, after its pull-back (`pathfinding.md`, "Goal pulled
+  back"). For a **transport** that is its **target tile**, not its destination, so a sailing transport arrives within
+  one tile of a pulled-back target tile (`orders/transports.md`, "Sailing aims at the target tile"; traced, round 108:
+  TG1a, TG1b).
 
 **The +1.** The radius from the order table is increased by 1 in exactly these cases:
 
@@ -224,7 +231,7 @@ applies.
 | D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
 | E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
 | F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, is not inside anything and is not **frozen** (a held worker: `orders/orders.md`, "Holding and releasing workers"; it happens in single player whenever the player picks a building to place with workers selected; a frozen walker keeps showing its move animation, so the animation alone would see it walking; static study, round 101, V39, V40). It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
-| G | The unit has an attacker, and it is within 1 tile of its goal (the stored goal, after any pull-back) on both axes (land units) or within 2 tiles (sea and air units) | Stops: "stand still" becomes its **pending** order, so the resume rules of `orders/orders.md` apply (static study only). A transport **landing** (order 30) is the exception: the pending order takes over in the same update, so an idle transport docks at once (order 32, wait 3; `orders/orders.md`, "Taking over"; traced, round 107: `win-human10-input-groups-30450-30456`, PI9a) | kept (unused) | 1 cycle |
+| G | The unit has an attacker, and it is within 1 tile of its goal (the stored goal, after any pull-back) on both axes (land units) or within 2 tiles (sea and air units) | Stops: "stand still" becomes its **pending** order, so the resume rules of `orders/orders.md` apply; it takes over at the next step done, one cycle later (traced for a land unit, round 108: RG1a). A transport **landing** (order 30) is the exception: the pending order takes over in the same update, so an idle transport docks at once (order 32, wait 3; `orders/orders.md`, "Taking over"; traced, round 107: `win-human10-input-groups-30450-30456`, PI9a) | kept (unused) | 1 cycle |
 | H | The unit has an attacker, is a sea or air unit, and is within 2 tiles of its goal on x but farther on y | Keeps its order | dropped | 1 cycle |
 | I | Anything else | Keeps its order | dropped (it searches again) | 1 cycle |
 
@@ -327,7 +334,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V21 | `xhuman10-spells-700` (oracle trace), n = 89: grunt 1497 had been blocked twice, then acquired a target (a command); grunt 1490 (owner 2) at (78, 87) is blocked by it | 1497's counter is 0, so row F applies: 1490 steps to (79, 87), animation 3 | Trace (`xhuman10-spells-700`) |
 | V22 | Computer grunt on a move order (not invisible, no attacker) blocked by a wall tile carrying bit 0x04 | pending order 11 on that wall tile; acts again next cycle | Example |
 | V23 | As V22, but a passive computer player's grunt | row A doesn't apply (not a computer player); falls through to the rows below | Example |
-| V24 | Grunt with an attacker, blocked 1 tile from its goal (static study only) | Order unchanged in that update, idle pending, wait 1; it becomes idle (stand still) next cycle | Static study |
+| V24 | Grunt with an attacker, blocked 1 tile from its goal (traced for a footman: RG1a) | Order unchanged in that update, idle pending, wait 1; it becomes idle (stand still) next cycle | Example (RG1a traces it) |
 | V25 | Gryphon rider with an attacker, blocked 2 tiles from its goal on both axes | becomes idle | Example |
 | V33 | `xhuman8-25000` (oracle trace, Enhanced), n = 11284: troll destroyer 1441 (owner 7) on patrol, 15th block, resume countdown 0 | Row C: still animation, wait 1, patrol pending; not wait 15 | Trace (`xhuman8-25000`) |
 | V35 | `orc10-10000` (oracle trace), n = 3505: tanker 1533 (owner 1) in order 24 gives up (row C), nothing to resume | Animation 3, wait 15 (the move animation restarted when blocked, kept) | Trace (`orc10-10000`) |
@@ -335,6 +342,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V37 | Computer grunt with an attacker, on a move order, blocked again and again by a tile carrying bit 0x04, counter 15 before the block | Row B: counter 0 (wrapped), order kept, path dropped, acts again next cycle; no row C. If it is then blocked, with no attacker any more, by an enemy unit standing still (no bit 0x04, so rows A and B don't apply), the counter goes to 1 and row I applies, not row C | Static study |
 | V39 | `human1-human01-r101-hold-workers-goals-700` (oracle trace, Enhanced), n = 67 to 162: peasant 1596 frozen at (352, 288) px (tile (11, 9)) in order 3 with animation 3 (move), frame 0, wait 1 (`orders/orders.md`, HW1) | Its stored animation stays the move animation the whole time: a blocker test that reads the animation alone sees it walking, so row F must also check that it isn't frozen | Trace (the state); static study (the test) |
 | V40 | A friendly footman on a move order, blocked by peasant 1596 frozen on (11, 9) as in V39, its next cached step not onto the footman's tile | Row F doesn't apply (frozen): the footman doesn't wait for 1596, and the later rows decide. Its path search counts (11, 9) as occupied (`pathfinding.md`) | Example |
+| RG1a | `mp-r108-rowg-mp-r108-rowg-fixed-game-goals-400` (oracle trace, Enhanced, generated map `R108-rowg.pud`, scenario `oracle/scenarios/mp-r108-rowg.txt`, extras `game`, `goals`): footman 1599 (player 0), hit by troll axe thrower 1597 (in order 16 on it), in order 3 to (26, 20), blocked at (25, 20) by peasant 1598 standing on its goal | n = 113: order 3, pending 2, animation 3, wait 1. n = 114: order 2, still animation, wait 3. n = 117: order 12 on 1597, wait 3 (the idle reaction) | Trace |
 | PI9a | `win-human10-input-groups-30450-30456` (oracle window of the round 107 person-input sweep, Enhanced campaign): transport 1470 (player 1) landing (order 30, animation 6) at (24, 7), blocked at row G by docked transport 1476 at (23, 8) | n = 30454: order 32, animation 2, wait 3 (the stand still took over in the same update and the transport docked) | Trace window |
 
 ## Open questions
@@ -359,10 +367,9 @@ Carried over:
   1587 stepping at n = 940 after its attacker 1573 became remains at n = 890) fits it, but also fits a later end,
   because the call for help and the route search ignore a dying attacker anyway. One case is settled: the unit's
   next command forgets it ("Blocked rules"); the moment without a command is still open.
-- **Row G's pending idle** rests on the static study: no trace separates a pending from an immediate idle there, because
-  the traced case that once did no longer reaches row G once commands forget a dying attacker. Round 107 traced row G
-  on a landing transport only (PI9a: the pending order takes over in the same update); making that the rule for every
-  unit broke committed traces, so it stays scoped to order 30. Trace request: row G on a land unit with an attacker.
+- **Row G's pending idle:** **closed in round 108** (traced, RG1a). For a land unit the stand still is a pending
+  order that takes over at the next step done, as the static study said; a landing transport (order 30) is the
+  exception (PI9a).
 Closed in round 75:
 
 - **A tanker on order 28 at an oil patch with an even top-left tile** (T12). Its goal, the patch's top-left plus
@@ -423,3 +430,4 @@ round are kept with the research-side specs.
 | 103 | The original can't play a map ship on an odd tile (OS1); Tidewater aligns map ships (design choice) and keeps odd map flyers | "Open questions" |
 | 104 | V32 narrowed to a transport that has been sailing; the far no-route landing is in `orders/transports.md` (SW6) | V32 |
 | 107 | Row G on a landing transport takes over in the same update and docks (traced, PI9a); the rows see no undetected attacker after the walk's forget (PI14) | "Blocked rules", row G and the attacker paragraph; PI9a; "Open questions" |
+| 108 | The ordered tile is the stored goal after its pull-back, a transport's target tile (TG1a, TG1b); row G's pending stand still traced for a land unit (RG1a); no rule changed | "Arriving"; "Blocked rules", row G; "Open questions"; RG1a |

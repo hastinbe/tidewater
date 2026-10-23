@@ -85,6 +85,11 @@
 - **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PL1; reviewed by a spec-review
   session, 2026-10-23): "Enemy search": the kind check makes an oil platform a sea target (`orders/orders.md`, "Checks
   on an attack command"), so a land-only unit's post choice skips it (vectors PL1a, PL1b). No rule here changed.
+- **Changes:** 2026-10-23, round 108 (`ERRATA-round108-sweep.md` CH1 and PL2; reviewed by a spec-review session,
+  2026-10-23): "Call for help", step 6: the units tested are the vertical-list entries the halving search returns for
+  the box's rows, each tested on its column only, with no row test (traced, CH1a, CH1b). "Enemy search": the platform
+  clause belongs to the searches' kind check, not the attack order's (`orders/orders.md`, PL2); for a finished platform
+  it is a labelled default.
 
 ## Behaviour
 
@@ -530,8 +535,9 @@ Used by the post choice and the attack goal. Over players 0 to 7 in order, skipp
 counts as allied (the alliance table; a player counts as allied with itself), and over each such player's units in list
 order, a unit is a candidate if all of these hold:
 
-- u can attack its kind (the attack order's kind check, `orders/orders.md`, "Checks on an attack command"; an oil
-  platform, finished or not, needs sea, so a land-only unit never takes one: PL1a, PL1b);
+- u can attack its kind (the searches' kind check, `orders/orders.md`, "Checks on an attack command"; an oil
+  platform needs sea, so a land-only unit never takes one: traced for a platform under construction, PL1a and PL1b;
+  for a finished platform a labelled default, PL2);
 - it isn't dying, gone or inside anything.
 
 There is **no** fog test, no detection test, no air-against-air test and no minimum-range test, and no score. The result
@@ -556,12 +562,17 @@ When a unit V is notified that it was attacked by A (`combat/damage.md`, "Applyi
    target, and its order 4 ends once V is dying (`orders/orders.md`, "Commands"); a computer player's command 4 keeps
    its remembered patrol ("Resuming patrol and attack-move").
 6. **Neighbours:** the help radius R is 13 for a computer player's V; for others, 4 if V is a sea unit, else 2. The box
-   runs from V's tile − R to V's far edge (x + width − 1 + R, y + height − 1 + R), clamped to the map. A unit S of V's
-   owner is in the box when its **top-left tile's** column is within the box's columns and its top-left tile's row is
-   from **3 rows above** the box's top row (at least 0) to the box's bottom row. Only the top-left tile is tested: a
-   unit or building whose footprint overlaps the box but whose top-left tile is outside isn't in it. (The 3 extra rows
-   come from the acquisition search's vertical-order lookup, which starts 3 rows higher; `orders/orders.md`, "Vertical
-   order".) Each S in the box answers if all hold:
+   runs from V's tile − R to V's far edge (x + width − 1 + R, y + height − 1 + R), clamped to the map. The units
+   tested are found the way the acquisition search finds its candidates (traced, round 108: CH1a, CH1b): the
+   **halving search** over the vertical list (`orders/orders.md`, "Vertical order" and "The halving search") with its
+   top row **3 rows above** the box's top row (at least 0) and its bottom row the box's bottom row, which gives a first
+   and a last entry. A unit S between them, in list order, is in the box when it belongs to V's owner and its
+   **top-left tile's** column is within the box's columns. There is **no row test**: an entry the halving search
+   returns from outside the rows is in the box if its column is, and a unit whose top-left row is within the rows but
+   that the search doesn't return isn't. The list is only nearly sorted by tile row, so this differs from an exact row
+   test where it isn't sorted: after a load, which puts every unit into the list again ("Vertical order"), or after
+   units have walked past one another. Only the top-left tile is tested: a unit or building whose footprint overlaps the box but whose top-left
+   tile is outside isn't in it. Each S in the box answers if all hold:
    - S is not dying or dead, and its order is 2 (idle) or 7 (follow and guard) with no order waiting to follow it;
    - S's type is not a worker or tanker, has neither flag bit 25 nor 26, can attack (bit 19), and is not a tower
      (bit 20);
@@ -755,6 +766,15 @@ Windows of the round 107 person-input sweep (Enhanced campaign, `oracle/traces/`
 | --- | --- |
 | **PL1a.** `win-human4-input-groups-22150-22200`: computer grunt 1509 (player 0) chooses its post while an enemy oil platform (1488) is under construction at (45, 65) | n = 22187: post (67, 69); the platform isn't a candidate of the enemy search |
 | **PL1b.** `win-orc4-input-groups-22185-22192`: the same for computer unit 1555 (player 1) | n = 22190: goal (26, 34) |
+
+### Round-108 vectors (call for help by the halving search, traced)
+
+Enhanced campaign traces (`"rules": "enhanced"`).
+
+| Input | Expected |
+| --- | --- |
+| **CH1a.** The human4 save/load sweep trace, game 1 (after the first load), n = 16282 (kept outside the repository: a trace that spans loads can't be cut into a window; reproducible with `oracle/sweep.py sl-capture`): farm 1585 (type 58, player 1, the local human player, 2 × 2 at (23, 28)) is hit by grunt 1528 (player 0). R = 2, so the box's columns are 21 to 26 and the search's rows 23 (the box's top row 26, less 3) to 31. Archer 1592 (player 1, idle) stands at (26, 22), one row above them | 1592 is returned by the halving search and answers: target 1528. An exact row test leaves it out (target null) |
+| **CH1b.** `oracle/traces/win-orc5-input-groups-6880-6890` (extra `groups`): computer peasant 1507 (type 2, player 1, repairing) at (113, 40) is hit by 1583 (player 5) at n = 6884; R = 13, so the box's columns are 100 to 126 and the search's rows 24 (27, less 3) to 53. Footman 1566 (type 0, player 1, idle) stands at (105, 54), one row below | n = 6884: 1566 answers: target 1583. An exact row test gives no answer |
 
 ## Open questions
 

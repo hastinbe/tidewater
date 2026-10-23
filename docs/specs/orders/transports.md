@@ -52,6 +52,12 @@
   "Landing (order 30)", "No route farther out": a retry that makes a transport in the move animation a one-tile mover
   switches it to animation 6 (traced, SW10a, SW10c); SW10b is a second instance of V58. The open question's untraced
   half (a one-tile mover's later far run with tile and goal even) stays open.
+- **Changes:** 2026-10-23 (round 108, `ERRATA-round108-sweep.md` TG1 and PD1; reviewed by a spec-review session,
+  2026-10-23): a sailing transport walks to and arrives at its pulled-back target tile, not its destination
+  ("Sailing aims at the target tile"; traced, TG1a, TG1b; the walk already used the stored goal, so this is made
+  explicit, and Tidewater's walk toward the destination is the bug). A sinking transport's passengers die from the
+  last place to the first ("Passengers and the transport's death"; traced in part, PD1a; the exact order a labelled
+  default).
 
 ## Behaviour
 
@@ -173,6 +179,17 @@ stands on, and "usable" uses the mask of the movement class it has at that momen
 Passengers play no part: one passenger, six and none give the same tile (V46 to V48). The order the stage table
 then picks is unchanged (order 31 for a docked transport), and the push-off then aims its ring search at the
 pulled-back tile.
+
+**Sailing aims at the target tile** (traced, round 108: TG1a, TG1b). A transport sailing in order 3 with no target
+unit walks to its **target tile**, the pulled-back tile, never to its destination, and its arrival test
+(`movement/movement.md`, "Arriving": order 3's radius 0, plus 1 for a sea unit) measures to that tile. So a transport
+whose target tile was pulled back stops within one tile of the pulled-back tile and arrives there as any order 3 does
+(`orders/orders.md`, "Arriving and losing the target": the pending idle takes over at that step done, still animation,
+wait 3, no idle logic in that update), even when its destination is still far off or can't be reached. This shows
+when a push-off ends: the smart move to the destination is given from open water ("Pushing off (order 31)", step 1),
+and its pull-back walks back along the line from the destination to the first usable tile of the transport's sea
+region, so land or a building on that line leaves the target tile well short of the destination (TG1a). The
+destination is still kept for the rules that read it (`ai/attack-ai.md`, "Ferry (3)").
 
 The three things are recorded **once per command**, when it is given (static study, round 71, `ERRATA-round71.md`,
 Q3 and Q4). The smart-move stage that picks the order (the table below) works from the target tile the command
@@ -456,7 +473,12 @@ Each time the order's logic runs (order 34's logic doesn't start with the attack
 
 - A passenger has order 36, which does nothing. A unit inside something never receives a pending order
   (`orders/orders.md`), so it stays aboard until it is unloaded.
-- When a transport dies, every passenger inside it dies too.
+- When a transport dies, every passenger inside it dies too, one at a time, from the **last** passenger place to the
+  first (place 6 first, place 1 last), the order the unload uses ("Data", "Unload order"). The order shows wherever
+  each death runs a per-kill rule in turn, such as the control-group tidy at every kill
+  (`ui/selecting-and-commanding.md`, "The tidy at every kill"), whose removals depend on the order of the kills.
+  Traced in part (round 108, PD1a): the original's order isn't place 1 first, and last place first fits; so does
+  lowest unit slot first, which the trace doesn't rule out. Last place first is the labelled default.
 - In **Enhanced mode** only, a passenger that dies while aboard is also removed from its slot. In Classic mode the
   slot keeps pointing at the dead unit (open question below).
 
@@ -523,6 +545,8 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | --- | --- | --- | --- |
 | V19 | Transport docked at (21, 20) (odd x, one-tile mover, landing class) on shore water, smart move to an open-water tile G = (40, 20); open water (no sea-mask bit) is every tile with x ≥ 22 | Order 31, target tile G. Run 1: odd tile, so the ring search runs from (21, 20) aimed at (40, 20): start corner (22, 19), first tile tested (22, 20) passes. The target tile becomes (22, 20) (the destination stays (40, 20)); one-tile step east to (22, 20). Run 2: (22, 20) is an even open-water tile: sea class, two-tile mover, idle, then a smart move to (40, 20): order 3 | Example |
 | V20 | Transport docked at (20, 20) (even) on shore water, smart move to G = (40, 20); open water is every tile with x ≥ 24 | Run 1: even tile but not open water. The ring search aimed at (40, 20) finds (24, 18) after 53 tests (counting repeated tiles); it becomes the target tile; two-tile mover, move animation, first step toward (24, 18). Each later run repeats the search aimed at (24, 18) before stepping. On reaching (24, 18): sea class, idle, smart move to (40, 20) | Example |
+| TG1a | `win-orc3-input-goals-41055-41260` (oracle window of the round 107 person-input script, Enhanced campaign, extra `goals`) and `win-orc3-input-groups-41250-41258`: orc transport 1519 (type 0x1D, player 0), docked at (29, 28), is given a smart move to (51, 5), a tile of enemy shipyard 1596 (turn record n = 41025); it holds no target unit while it sails. It pushes off and takes order 3 at n = 41062: target tile (42, 15) after the pull-back (the line to (51, 5) crosses land from (42, 14)), destination (51, 5) | Steps from (30, 28) to (42, 16) by n = 41225. n = 41257, within one tile of (42, 15): order 2, still animation, wait 3; it stays there. Aimed at the destination it would sail on to (44, 16) in order 3 | Trace window |
+| TG1b | The orc9 save/load sweep trace, game 2 (after the second load), n = 10091 (kept outside the repository; reproducible with `oracle/sweep.py sl-capture`; no `goals` extra, so the target tile is the replay's): computer transport 1453 (type 0x1C, player 0, ferrying) in order 3 at (40, 16); destination (40, 14), target tile (41, 15) | n = 10091: order 2, wait 3, no look-around draw (7 draws in the cycle). Aimed at the destination it finds no route and goes idle at once with the idle logic's look-around draw (8 draws) | Trace (outside the repository) |
 
 ### Unloading and passengers
 
@@ -537,6 +561,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V39 | `human12-unload-then-move-900` (oracle trace, Enhanced; scenario `oracle/scenarios/human12-unload-then-move.txt`): as `human12-transport`, transport 1428 with four squads aboard told at n = 300 (scenario line; turn record n = 302) to unload at the land tile (18, 118) (order 30 from n = 306), then at n = 400 (turn record n = 402) given a smart move to the same tile | n = 405: order 31 (push off); n = 408: order 30; n = 427 at (21, 120), shore water, landing with no route: order 32, still animation, wait 1, passengers aboard (the mark was cleared by the second command; a kept mark would give order 29) | Trace (`human12-unload-then-move-900`) |
 | V40 | `human12-unload-then-refused-goals-900` (oracle trace, Enhanced; scenario `oracle/scenarios/human12-unload-then-refused.txt`): as V39, but at n = 400 (turn record n = 402) the transport is given an attack-move (command 4) to the same land tile instead of a smart move | The command is refused: nothing about 1428 changes at n = 402. It lands on (16, 120) as told: order 29 at n = 533 (the mark kept), and at n = 534 the four squads are put ashore and it docks (order 32) | Trace (`human12-unload-then-refused-goals-900`) |
 | V41 | `human12-unload-then-patrol-900` (oracle trace, Enhanced; scenario `oracle/scenarios/human12-unload-then-patrol.txt`): as V40, but the command in the turn record n = 402 is a patrol (command 5) to the same land tile | The same as V40: no field of 1428 changes at n = 402, and every record equals V40's trace once V40's `goals` extras (the `goal`, `pending` and `transport_dest` fields) are left out, except for the command itself in the turn record n = 402 (command 5, not 4); the transport lands with the mark kept (order 29 at n = 533, order 32 at n = 534) | Trace |
+| PD1a | `win-xorc8-input-groups-8190-8200` (oracle window of the round 107 person-input sweep, Enhanced campaign, extra `groups`): orc transport 1409 (type 0x1D, player 5, the local player) sinks at (117, 117) with five passengers, boarded in the order 1399, 1401, 1405, 1406, 1397 (places 1 to 5, as the replay, which matches every record up to the sinking, boards them). All five are in player 5's group 1, `[1397, 1398, 1399, 1401, 1405, 1406, 1422, 1418]` | n = 8195: group 1 is `[1418, 1398, 1422]` (place 5 first: 1397, 1406, 1405, 1401, 1399). Place 1 first gives `[1422, 1398, 1418]`. Of the 120 possible orders of the five deaths, 60 give the traced group, lowest slot first among them | Trace window (one transport) |
 
 ### Boarding and waiting
 
@@ -642,6 +667,15 @@ Found by the round-75 spec review (2026-10-15; the rules above are unchanged):
   so a transport gets plain order 4 ("Command 4 to a transport", V55). This replaces the round-75 default (a smart
   move). Still untraced: no trace has a computer player giving a transport command 4.
 
+Found by round 108 (reviewed 2026-10-23):
+
+- **The passengers' death order** (PD1). PD1a rules out place 1 first and fits last place first, the labelled default
+  ("Passengers and the transport's death"), but it also fits lowest unit slot first. Trace request: a transport
+  sinking with passengers whose place order and slot order disagree, all in one control group.
+- **Sailing toward a target unit.** "Sailing aims at the target tile" is traced for order 3 with no target unit. A
+  transport following a unit (order 6) heads for the unit as any walk with a target unit does
+  (`movement/pathfinding.md`, "Step 1"); no trace has one whose target tile was pulled back.
+
 ## History
 
 Erratum rounds that shaped this spec and the sections where their content now lives. The erratum notes for each
@@ -677,3 +711,4 @@ round are kept with the research-side specs.
 | 103 | The push-off pick's pull-back traced (V50 to V52); the unload command keeps its target unit; command 4 gives a transport plain order 4 (the round-75 default reversed); the boarder's call is a full command (static study, `ERRATA-round103-traces.md`, reviewed) | "Commands given to a transport"; "Pushing off (order 31)", step 2; "Boarding"; "Open questions"; V50 to V56 |
 | 104 | Order 30 with no route farther than 3 tiles out runs the landing logic in full, step 2's step size included, and the class and step size it leaves stay for the later far runs; the far walk changes neither (traced, V57, V58; `ERRATA-round104-sweep.md` SW6, reviewed; partly reverses round 36's "farther out, ordinary two-tile steps") | "Landing (order 30)"; "Moving near the shore"; "Open questions"; V57, V58 |
 | 105 | A far no-route retry that makes a transport in the move animation a one-tile mover switches it to animation 6 (traced, SW10a, SW10c; `ERRATA-round105-sweep.md` SW10, reviewed); SW10b is a second instance of V58; the far run of a one-tile mover on even tiles is still untraced | "Landing (order 30)"; "Moving near the shore"; "Open questions"; SW10a to SW10c |
+| 108 | A sailing transport aims at and arrives at its target tile, not its destination (traced, TG1a, TG1b); a sinking transport's passengers die from the last place to the first (traced in part, PD1a; last place first is the labelled default); `ERRATA-round108-sweep.md`, reviewed | "Sailing aims at the target tile"; "Passengers and the transport's death"; TG1a, TG1b, PD1a |
