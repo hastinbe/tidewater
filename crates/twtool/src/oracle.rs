@@ -2005,7 +2005,7 @@ fn group_cells(w: &World) -> Groups {
                 .iter()
                 .enumerate()
                 .map(|(n, g)| (n as u32, g.iter().filter_map(|&id| slot(id)).collect::<Vec<_>>()));
-            let selection = w.selection(p).into_iter().filter_map(slot).collect();
+            let selection = w.selected_slots(p).into_iter().map(u64::from).collect();
             Groups::texts(groups, selection)
         })
         .collect();
@@ -2792,7 +2792,7 @@ mod tests {
         let b = w.spawn(0, 0, (5, 3), 0).unwrap();
         w.turn(&[tidewater_sim::Command::Select {
             player: 0,
-            units: vec![b, a],
+            units: w.slots_of(&[b, a]),
         }]);
         let at = |kind| {
             replay::sim_command(

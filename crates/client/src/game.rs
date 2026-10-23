@@ -203,7 +203,7 @@ impl Selection {
         }
         sim.pending.push(Command::Select {
             player: sim.human,
-            units: units.clone(),
+            units: sim.world.slots_of(&units),
         });
         self.groups.forget();
         self.units = units;
@@ -820,7 +820,7 @@ pub(crate) fn setup(c: &mut Core) {
     } else {
         vec![Command::Select {
             player: scene.human,
-            units: sel.units.clone(),
+            units: scene.world.slots_of(&sel.units),
         }]
     };
     let counter = {

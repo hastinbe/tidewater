@@ -1126,7 +1126,7 @@ mod tests {
         let refused = [
             crate::Command::Select {
                 player,
-                units: units.clone(),
+                units: w.slots_of(&units),
             },
             crate::Command::Issue {
                 player,

@@ -913,7 +913,7 @@ mod tests {
         let footman = put(&mut w, FOOTMAN, 0, (12, 10));
         w.apply(&Command::Select {
             player: 0,
-            units: vec![worker, footman],
+            units: w.slots_of(&[worker, footman]),
         });
         (w, worker, footman)
     }
@@ -972,7 +972,7 @@ mod tests {
         );
         w.apply(&Command::Select {
             player: 0,
-            units: vec![worker],
+            units: w.slots_of(&[worker]),
         });
         assert_eq!(
             u(&w, worker).freeze,
@@ -989,7 +989,7 @@ mod tests {
         freeze_worker(&mut w);
         w.apply(&Command::Select {
             player: 0,
-            units: vec![footman],
+            units: w.slots_of(&[footman]),
         });
         w.apply(&Command::Stop {
             player: 0,
@@ -998,7 +998,7 @@ mod tests {
         assert_eq!(u(&w, worker).freeze, Freeze::Frozen, "not selected: not released");
         w.apply(&Command::Select {
             player: 1,
-            units: vec![worker],
+            units: w.slots_of(&[worker]),
         });
         w.apply(&Command::Stop {
             player: 1,
@@ -1008,7 +1008,7 @@ mod tests {
         // A build command releases all the selected workers, even when the build fails.
         w.apply(&Command::Select {
             player: 0,
-            units: vec![worker],
+            units: w.slots_of(&[worker]),
         });
         w.apply(&Command::Build {
             player: 0,

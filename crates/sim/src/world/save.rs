@@ -271,6 +271,7 @@ impl World {
         // groups").
         for sel in &mut self.selections {
             sel.places = Default::default();
+            sel.lost = Default::default();
         }
         self.starts_afresh();
         // A load runs the mission start again from the saved rule, after the generator is seeded (G24).

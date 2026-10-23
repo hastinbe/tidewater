@@ -416,24 +416,32 @@ pub fn cheat_flags(names: &[String]) -> u32 {
     names.iter().filter_map(|n| cheat_flag(n)).fold(0, |a, f| a | f)
 }
 
+/// The unit id that stands for a target slot holding no unit: ids are creation numbers, and no game creates this many.
+const NO_UNIT: tidewater_sim::UnitId = tidewater_sim::UnitId(u32::MAX);
+
 /// The player command our simulation runs for a trace command, as the world stands when it runs; `None` when the
 /// command does nothing there (no first selected unit, a builder that is neither a worker nor a tanker, a kind we can't express).
 pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
     let player = e.player;
     let live = |slot: u16| w.unit_in_slot(slot);
-    let first = || w.selection(player).first().copied();
+    let first = || w.first_selected(player);
     Some(match &e.kind {
         Kind::Select { units } => Command::Select {
             player,
-            units: units.iter().filter_map(|&s| live(s)).map(|u| u.id).collect(),
+            // The synced selection holds the slots as sent, empty ones included (round 107, PI1).
+            units: units.clone(),
         },
         &Kind::Command { command, tile, target } => {
             let t = target.and_then(live);
             Command::Issue {
                 player,
                 command,
-                target: t.map(|u| u.id),
-                tile: tile.or(t.map(|u| u.tile))?,
+                // A target slot that holds no unit is still the command's target and fails its check (round 107,
+                // PI11a): an id no unit has ever had stands for it.
+                target: target.map(|_| t.map_or(NO_UNIT, |u| u.id)),
+                // The tracer writes a tile for every command; a reader takes a missing one as [0, 0], the tile the
+                // game sends for a command with no tile and no target (trace format, "Commands").
+                tile: tile.or(t.map(|u| u.tile)).unwrap_or((0, 0)),
             }
         }
         &Kind::Build { kind, tile } => {

@@ -82,7 +82,7 @@ local player gave to `Session::submit`, then asks `Session::ready_commands(tick)
 
 ## The replay format
 
-A `.twrep` file (`crates/replay`) is: the magic `TWREPLAY`, a `u16` format version (`tidewater_replay::format::VERSION`, currently 5), the body length as `u64`, the
+A `.twrep` file (`crates/replay`) is: the magic `TWREPLAY`, a `u16` format version (`tidewater_replay::format::VERSION`, currently 6), the body length as `u64`, the
 body, and an FNV-64 checksum of everything before it (all little-endian). The body is a `postcard` encoding of
 `Replay`: a header (sim build, map file name, FNV-64 of the map bytes, seed, setup, lobby, rules, start cheats, local
 slot), the commands by cycle, the checkpoints (`state_hash` after every 100th cycle) and notes about out-of-band

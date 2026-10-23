@@ -72,22 +72,30 @@ pub const MOBILE: u32 = flags::LAND | flags::AIR | flags::EXPLODE_WHEN_KILLED | 
 /// One player's synced selection and control groups.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PlayerSelection {
-    /// Under Classic rules a lost unit leaves its place empty; under Enhanced rules the rest close up.
-    pub places: [Option<UnitId>; PLACES],
+    /// The unit slots the last select named, as sent, whether or not a slot holds a unit ("What the synced selection
+    /// holds", round 107). Under Classic rules a lost unit leaves its place empty (`None`); under Enhanced rules the
+    /// rest close up.
+    pub places: [Option<u16>; PLACES],
+    /// Per place: the unit in the slot was already lost (dying, inside something) when the select named it. The loss
+    /// is an event, so such a unit stays selected (PI2a, PI10a) until it stays again and is lost anew. Not saved: a
+    /// load starts with an empty selection.
+    #[serde(skip)]
+    pub lost: [bool; PLACES],
     pub groups: [Vec<UnitId>; GROUPS],
 }
 
-impl PlayerSelection {
-    /// The selected units in place order.
-    pub fn units(&self) -> impl Iterator<Item = UnitId> + '_ {
-        self.places.iter().flatten().copied()
-    }
+/// What a player's selection hashed as before round 107, when it held unit ids: the state hash keeps that shape, so
+/// the hashes of games that never name an empty slot did not move.
+#[derive(Hash)]
+struct HashedSelection {
+    places: [Option<UnitId>; PLACES],
+    groups: [Vec<UnitId>; GROUPS],
+}
 
-    fn set(&mut self, units: impl IntoIterator<Item = UnitId>) {
-        self.places = [None; PLACES];
-        for (p, id) in self.places.iter_mut().zip(units) {
-            *p = Some(id);
-        }
+impl PlayerSelection {
+    /// The selected slots in place order.
+    pub fn slots(&self) -> impl Iterator<Item = u16> + '_ {
+        self.places.iter().flatten().copied()
     }
 }
 
@@ -150,30 +158,89 @@ impl World {
         owner == slots::NEUTRAL || self.allied(player, owner)
     }
 
-    /// The player's synced selection: the units of the nine places in order, then (option `selection-limit`) the ones
-    /// beyond them that the larger limit allows.
-    pub fn selection(&self, player: u8) -> Vec<UnitId> {
+    /// Hashes every player's selection and groups for the state hash. A place hashes as the unit in its slot (none for
+    /// an empty slot), and the marks of units named while already lost join only when one is set.
+    pub(crate) fn hash_selections(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        let all: [HashedSelection; PLAYERS] = std::array::from_fn(|p| {
+            let s = &self.selections[p];
+            HashedSelection {
+                places: s
+                    .places
+                    .map(|slot| slot.and_then(|s| self.unit_in_slot(s)).map(|u| u.id)),
+                groups: s.groups.clone(),
+            }
+        });
+        all.hash(h);
+        if self.selections.iter().any(|s| s.lost.contains(&true)) {
+            self.selections.iter().map(|s| s.lost).collect::<Vec<_>>().hash(h);
+        }
+    }
+
+    /// The unit slots of the player's synced selection in order, empty ones included: the nine places, then (option
+    /// `selection-limit`) the units beyond them that the larger limit allows.
+    pub fn selected_slots(&self, player: u8) -> Vec<u16> {
         self.selections.get(player as usize).map_or_else(Vec::new, |s| {
-            s.units()
-                .chain(self.ext.more[player as usize].iter().copied())
+            s.slots()
+                .chain(
+                    self.ext.more[player as usize]
+                        .iter()
+                        .filter_map(|&id| self.unit(id).map(|u| u.slot)),
+                )
                 .collect()
         })
     }
 
-    /// Replaces the player's synced selection with `units`: the first nine take the places, and with the option
-    /// `selection-limit` on up to the limit in all are kept after them. At the original limit of nine nothing but
-    /// the places is touched.
-    pub(crate) fn set_selection(&mut self, player: u8, units: &[UnitId]) {
+    /// The player's synced selection: the units in the selected slots, in order. A slot that holds no unit takes no
+    /// part ("What the synced selection holds").
+    pub fn selection(&self, player: u8) -> Vec<UnitId> {
+        self.selected_slots(player)
+            .into_iter()
+            .filter_map(|s| self.unit_in_slot(s).map(|u| u.id))
+            .collect()
+    }
+
+    /// The slots of units, for a [`Command::Select`] (the interface knows the units it picked).
+    pub fn slots_of(&self, units: &[UnitId]) -> Vec<u16> {
+        units.iter().filter_map(|&id| self.unit(id).map(|u| u.slot)).collect()
+    }
+
+    /// The unit in the selection's first place, the one the "first unit of the selection" commands (build, job, cancel)
+    /// use: none if that slot holds no unit.
+    pub fn first_selected(&self, player: u8) -> Option<UnitId> {
+        let slot = self.selected_slots(player).first().copied()?;
+        self.unit_in_slot(slot).map(|u| u.id)
+    }
+
+    /// Replaces the player's synced selection with the slots `slots`, kept as sent: the first nine take the places,
+    /// and with the option `selection-limit` on up to the limit in all are kept after them. At the original limit of
+    /// nine nothing but the places is touched.
+    pub(crate) fn set_selection(&mut self, player: u8, slots: &[u16]) {
         let cap = self.rules.extras.selection_cap();
-        let Some(s) = self.selections.get_mut(player as usize) else {
+        if player as usize >= PLAYERS {
             return;
-        };
-        s.set(units.iter().copied());
-        self.ext.more[player as usize] = if cap > PLACES {
-            units.iter().copied().skip(PLACES).take(cap - PLACES).collect()
+        }
+        let lost = |w: &World, s: u16| w.unit_in_slot(s).is_some_and(|u| !u.stays_selected());
+        let mut places = [None; PLACES];
+        let mut flags = [false; PLACES];
+        for (n, &s) in slots.iter().take(PLACES).enumerate() {
+            places[n] = Some(s);
+            flags[n] = lost(self, s);
+        }
+        let more = if cap > PLACES {
+            slots
+                .iter()
+                .skip(PLACES)
+                .take(cap - PLACES)
+                .filter_map(|&s| self.unit_in_slot(s).map(|u| u.id))
+                .collect()
         } else {
             Vec::new()
         };
+        let sel = &mut self.selections[player as usize];
+        sel.places = places;
+        sel.lost = flags;
+        self.ext.more[player as usize] = more;
     }
 
     /// Applies the commands of this module; `false` for any other command.
@@ -238,6 +305,9 @@ impl World {
     /// platform or depot ([`Unit::stays_selected`]) leaves every player's synced selection. Under Enhanced rules the
     /// rest close up; under Classic rules its place stays empty. Run at the end of the cycle: no command reads the
     /// selection between order 25 being given and then.
+    ///
+    /// The loss is an event, not a standing test (round 107, PI2, PI10): a unit that was already lost when a select
+    /// named it stays selected (`lost` marks it) until it stays again; a slot that holds no unit stays selected.
     pub(crate) fn prune_selections(&mut self) {
         let enhanced = self.rules.enhanced;
         for p in 0..PLAYERS {
@@ -247,30 +317,56 @@ impl World {
                 more.retain(|&id| self.unit(id).is_some_and(|u| u.stays_selected()));
                 self.ext.more[p] = more;
             }
-            let places = self.selections[p].places;
-            let keep: Vec<bool> = places
-                .iter()
-                .map(|id| id.is_none_or(|id| self.unit(id).is_some_and(|u| u.stays_selected())))
-                .collect();
-            if keep.iter().all(|&k| k) {
+            let sel = self.selections[p].clone();
+            let mut lost = sel.lost;
+            let mut gone = [false; PLACES];
+            for (n, slot) in sel.places.iter().enumerate() {
+                let Some(u) = slot.and_then(|s| self.unit_in_slot(s)) else {
+                    continue;
+                };
+                if u.stays_selected() {
+                    lost[n] = false;
+                } else {
+                    gone[n] = !lost[n];
+                }
+            }
+            if !gone.contains(&true) {
+                self.selections[p].lost = lost;
                 continue;
             }
             if enhanced {
                 // The rest close up, and the units beyond the places move up into the room.
-                let mut all: Vec<UnitId> = places
-                    .iter()
-                    .zip(&keep)
-                    .filter(|(_, k)| **k)
-                    .filter_map(|(id, _)| *id)
+                let mut all: Vec<(u16, bool)> = (0..PLACES)
+                    .filter(|&n| !gone[n])
+                    .filter_map(|n| sel.places[n].map(|s| (s, lost[n])))
                     .collect();
-                all.extend(std::mem::take(&mut self.ext.more[p]));
-                self.set_selection(p as u8, &all);
+                let more = std::mem::take(&mut self.ext.more[p]);
+                let cap = self.rules.extras.selection_cap();
+                let mut rest: Vec<UnitId> = Vec::new();
+                for id in more {
+                    let Some(u) = self.unit(id) else { continue };
+                    if all.len() < PLACES {
+                        all.push((u.slot, false));
+                    } else if all.len() + rest.len() < cap {
+                        rest.push(id);
+                    }
+                }
+                let s = &mut self.selections[p];
+                s.places = [None; PLACES];
+                s.lost = [false; PLACES];
+                for (n, (slot, l)) in all.into_iter().enumerate() {
+                    s.places[n] = Some(slot);
+                    s.lost[n] = l;
+                }
+                self.ext.more[p] = rest;
                 continue;
             }
             let s = &mut self.selections[p];
-            for (n, k) in keep.iter().enumerate() {
-                if !k {
+            s.lost = lost;
+            for (n, g) in gone.iter().enumerate() {
+                if *g {
                     s.places[n] = None;
+                    s.lost[n] = false;
                 }
             }
         }
@@ -579,12 +675,13 @@ impl World {
         if group as usize >= GROUPS || player as usize >= PLAYERS {
             return;
         }
+        // An empty slot counts as not the player's own and ends the set (PI1d); a dying own unit is taken (PI17a).
         let mut g = Vec::new();
-        for id in self.selection(player) {
-            if self.unit(id).is_none_or(|u| u.owner != player || u.slot == 0) {
-                break;
+        for slot in self.selected_slots(player) {
+            match self.unit_in_slot(slot) {
+                Some(u) if u.owner == player && u.slot != 0 => g.push(u.id),
+                _ => break,
             }
-            g.push(id);
         }
         self.selections[player as usize].groups[group as usize] = g;
     }
@@ -595,12 +692,18 @@ impl World {
         if group as usize >= GROUPS || player as usize >= PLAYERS {
             return;
         }
+        // A group that is empty before its tidy changes nothing (PI3a); one the tidy empties empties the selection
+        // (PI17b).
+        if self.selections[player as usize].groups[group as usize].is_empty() {
+            return;
+        }
         self.tidy_group(player, group, true);
         let g = self.selections[player as usize].groups[group as usize].clone();
-        let picked: Vec<UnitId> = g
+        let picked: Vec<u16> = g
             .iter()
-            .copied()
-            .filter(|&id| self.unit(id).is_some_and(|u| !u.inside && !busy(u.order)))
+            .filter_map(|&id| self.unit(id))
+            .filter(|u| !u.inside && !busy(u.order))
+            .map(|u| u.slot)
             .collect();
         self.set_selection(player, &picked);
     }
@@ -728,10 +831,14 @@ mod tests {
         w.spawn(kind, owner, tile, 0).unwrap()
     }
 
+    fn slot(w: &World, id: UnitId) -> u16 {
+        w.unit(id).unwrap().slot
+    }
+
     fn select(w: &mut World, units: &[UnitId]) {
         w.step(&[Command::Select {
             player: 0,
-            units: units.to_vec(),
+            units: w.slots_of(units),
         }]);
     }
 
@@ -991,7 +1098,7 @@ mod tests {
                 let cmds = match step {
                     0 => vec![Command::Select {
                         player: 0,
-                        units: men.clone(),
+                        units: w.slots_of(&men),
                     }],
                     1 => vec![Command::RightClick {
                         player: 0,
@@ -1263,6 +1370,100 @@ mod tests {
         assert_eq!(c.selections[0].groups[1], v);
     }
 
+    /// Round 107, PI1a and PI1b: a select names slots as sent; an empty one stays, and a unit created in it later is
+    /// selected with nothing sent.
+    #[test]
+    fn an_empty_slot_stays_selected_and_a_new_unit_fills_it() {
+        let mut w = map();
+        let a = spawn(&mut w, FOOTMAN, 0, (1, 1));
+        let sa = slot(&w, a);
+        let gone = spawn(&mut w, FOOTMAN, 0, (5, 5));
+        let sg = slot(&w, gone);
+        let i = w.index(gone).unwrap();
+        w.kill(i);
+        for _ in 0..5000 {
+            w.step(&[]);
+        }
+        assert!(w.unit(gone).is_none(), "released");
+        w.step(&[Command::Select {
+            player: 0,
+            units: vec![sg],
+        }]);
+        assert_eq!(w.selected_slots(0), vec![sg]);
+        assert!(w.selection(0).is_empty());
+        w.step(&[]);
+        assert_eq!(w.selected_slots(0), vec![sg]);
+        let b = spawn(&mut w, FOOTMAN, 0, (3, 1));
+        assert_eq!(slot(&w, b), sg, "the released slot is reused first");
+        w.step(&[]);
+        assert_eq!(w.selection(0), vec![b]);
+        // The first slot empty: the first-unit commands have no unit, and a group set is empty (PI1d).
+        w.step(&[Command::Select {
+            player: 0,
+            units: vec![sg + 50, sa],
+        }]);
+        assert_eq!(w.first_selected(0), None);
+        w.step(&[Command::SetGroup { player: 0, group: 1 }]);
+        assert!(w.selections[0].groups[1].is_empty());
+    }
+
+    /// Round 107, PI2a, PI10a: the loss is an event. A select naming a unit that is already dying keeps it, also past
+    /// the release of its slot; a unit lost after it was named leaves.
+    #[test]
+    fn a_dying_unit_named_by_a_select_stays_selected() {
+        for enhanced in [true, false] {
+            let mut w = map();
+            w.rules.enhanced = enhanced;
+            let a = spawn(&mut w, FOOTMAN, 0, (1, 1));
+            let b = spawn(&mut w, FOOTMAN, 0, (2, 1));
+            let i = w.index(a).unwrap();
+            w.kill(i);
+            select(&mut w, &[a, b]);
+            assert_eq!(w.selection(0), vec![a, b]);
+            for _ in 0..3 {
+                w.step(&[]);
+            }
+            assert_eq!(w.selection(0), vec![a, b], "the select named a unit already lost");
+            let j = w.index(b).unwrap();
+            w.kill(j);
+            w.step(&[]);
+            assert_eq!(w.selection(0), vec![a], "a unit lost after the select leaves");
+            for _ in 0..5000 {
+                w.step(&[]);
+            }
+            assert!(w.unit(a).is_none(), "released");
+            assert_eq!(
+                w.selected_slots(0).len(),
+                1,
+                "the slot stays selected after the release"
+            );
+        }
+    }
+
+    /// Round 107, PI3a, PI17a, PI17b: a set takes a dying own unit and stops at a unit that isn't the player's own; a
+    /// recall of a group empty before its tidy changes nothing, and a tidy that empties the group empties the
+    /// selection.
+    #[test]
+    fn groups_take_dying_units_and_recall_by_the_empty_rules() {
+        let mut w = map();
+        let a = spawn(&mut w, FOOTMAN, 0, (1, 1));
+        let e = spawn(&mut w, FOOTMAN, 1, (2, 1));
+        let c = spawn(&mut w, FOOTMAN, 0, (3, 1));
+        let i = w.index(a).unwrap();
+        w.kill(i);
+        select(&mut w, &[a, e, c]);
+        w.step(&[Command::SetGroup { player: 0, group: 1 }]);
+        assert_eq!(w.selections[0].groups[1], vec![a]);
+        // Recall: the tidy removes the dying unit and the selection is empty.
+        w.step(&[Command::RecallGroup { player: 0, group: 1 }]);
+        assert!(w.selections[0].groups[1].is_empty());
+        assert!(w.selected_slots(0).is_empty());
+        // An empty group: nothing changes.
+        select(&mut w, &[c]);
+        w.step(&[Command::RecallGroup { player: 0, group: 2 }]);
+        assert_eq!(w.selection(0), vec![c]);
+    }
+
     /// V-G2: after a removal the kill's pass goes on to the next entry; the recall's tidy checks the moved one.
     #[test]
     fn the_kill_tidy_does_not_recheck_the_moved_entry() {
@@ -1293,9 +1494,15 @@ mod tests {
             w.step(&[]);
             let places = w.selections[0].places;
             if enhanced {
-                assert_eq!(&places[..3], &[Some(units[1]), Some(units[2]), None]);
+                assert_eq!(
+                    &places[..3],
+                    &[Some(slot(&w, units[1])), Some(slot(&w, units[2])), None]
+                );
             } else {
-                assert_eq!(&places[..3], &[None, Some(units[1]), Some(units[2])]);
+                assert_eq!(
+                    &places[..3],
+                    &[None, Some(slot(&w, units[1])), Some(slot(&w, units[2]))]
+                );
             }
         }
     }
@@ -1322,9 +1529,9 @@ mod tests {
                     assert!(!stepped && !u.inside, "still outside");
                     let places = w.selections[0].places;
                     if enhanced {
-                        assert_eq!(&places[..2], &[Some(f), None]);
+                        assert_eq!(&places[..2], &[Some(slot(&w, f)), None]);
                     } else {
-                        assert_eq!(&places[..2], &[None, Some(f)]);
+                        assert_eq!(&places[..2], &[None, Some(slot(&w, f))]);
                     }
                     entered = true;
                     break;
@@ -1393,7 +1600,7 @@ mod tests {
                 let cmds = match step {
                     0 => vec![Command::Select {
                         player: 0,
-                        units: vec![f],
+                        units: w.slots_of(&[f]),
                     }],
                     1..=6 => vec![set_speed(w.speed + 1)],
                     7 => vec![Command::RightClick {

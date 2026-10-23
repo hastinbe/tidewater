@@ -207,7 +207,7 @@ A game never reads sim options from the local settings unless it is a new local 
 A replay uses the recording's; a loaded game keeps the ones it was saved with.
 
 **Versions.** Sim options are part of the file formats and the protocol, so changing them bumps all three: the saved game
-(`savefile::VERSION`, 23), the replay (`tidewater_replay::format::VERSION`, 5) and the network protocol
+(`savefile::VERSION`, 24), the replay (`tidewater_replay::format::VERSION`, 6) and the network protocol
 (`net::proto::PROTOCOL`, 6). With every extra off the option data is empty or skipped, so nothing else in a file or the
 hash differs.
 

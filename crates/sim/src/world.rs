@@ -756,7 +756,8 @@ pub enum Command {
     /// up to the limit of the optional `selection-limit` improvement.
     Select {
         player: u8,
-        units: Vec<UnitId>,
+        /// Unit slots as the player's interface names them, whether or not a slot holds a unit (round 107).
+        units: Vec<u16>,
     },
     /// The right-click command for the player's synced selection: each unit picks a command by its type's right-click
     /// action ("What a right-click command does").
@@ -2005,7 +2006,7 @@ impl World {
         self.ai.hash(&mut h);
         self.army.hash(&mut h);
         self.victory.hash(&mut h);
-        self.selections.hash(&mut h);
+        self.hash_selections(&mut h);
         self.speed.hash(&mut h);
         self.paused.hash(&mut h);
         // The pause counts are game state only where they are spent.
