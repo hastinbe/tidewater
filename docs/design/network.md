@@ -289,6 +289,12 @@ interface of its own.
 
 ## Spec gaps and choices
 
+- **C+L options are not forced.** The lobby carries the host's simulation options (`tidewater_sim::Extras`) but not the
+  client-only options that give an edge (health bars, smart attack-move, widescreen), so `NetSession` keeps
+  `Session::lobby_client_extras` at `None` and each player uses their own setting. Forcing them needs a lobby field and
+  a protocol version bump (`docs/design/extras.md`, "Multiplayer (C+L)"). Smart attack-move changes the commands a player
+  sends, but the commands still travel as ordinary commands, so peers stay in step.
+
 - **The host leaving.** The original's players each hold every connection and have no host to lose. A joiner that loses
   the host drops every other player where it stands and plays on alone. The other joiners may do the same at slightly
   different turns, so they can drop one another through the sync check. Host migration is not built.
