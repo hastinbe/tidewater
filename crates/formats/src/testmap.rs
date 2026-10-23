@@ -348,6 +348,72 @@ const R106_SW6: Spec = Spec {
     lakes: &[],
 };
 
+/// `R108-plat.pud` (round 108, `oracle/maps/R108-plat.json`): a sea of 20 rows with a finished orc oil platform on open
+/// water, a footman sent against it and two bystanders (`orders/orders.md`, PL2a, PL2b).
+const R108_PLAT: Spec = Spec {
+    size: 64,
+    id_tag: 0x721A,
+    description: "tidewater r108 finished platform",
+    players: &[(0, 0, 0, 0, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (2, 2, HUMAN_START, 0, 0),
+        (60, 2, ORC_START, 1, 0),
+        (30, 46, 0x57, 1, 10),
+        (31, 42, 0x00, 0, 0),
+        (34, 42, 0x08, 0, 0),
+        (20, 40, 0x00, 0, 0),
+        (2, 30, 0x3A, 0, 0),
+        (58, 6, 0x3B, 1, 0),
+    ],
+    sea: 20,
+    shore: 1,
+    lakes: &[],
+};
+
+/// `R108-rowg.pud` (round 108, `oracle/maps/R108-rowg.json`): a footman blocked beside its goal by a peasant while a
+/// troll axe thrower hits it, for row G's pending stand still (`movement/movement.md`, RG1a).
+const R108_ROWG: Spec = Spec {
+    size: 64,
+    id_tag: 0x7218,
+    description: "tidewater r108 row g land",
+    players: &[(0, 0, 0, 0, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (2, 2, HUMAN_START, 0, 0),
+        (60, 60, ORC_START, 1, 0),
+        (20, 20, 0x00, 0, 0),
+        (28, 20, 0x02, 0, 0),
+        (22, 24, 0x09, 1, 0),
+        (20, 45, 0x00, 0, 0),
+        (28, 45, 0x02, 0, 0),
+        (2, 56, 0x3A, 0, 0),
+        (58, 2, 0x3B, 1, 0),
+    ],
+    sea: 0,
+    shore: 1,
+    lakes: &[],
+};
+
+/// `R108-inside.pud` (round 108, `oracle/maps/R108-inside.json`): a peasant that goes inside a gold mine, for the
+/// recall of a group whose units are all inside (`ui/selecting-and-commanding.md`, GI1a).
+const R108_INSIDE: Spec = Spec {
+    size: 64,
+    id_tag: 0x7219,
+    description: "tidewater r108 group inside",
+    players: &[(0, 0, 0, 0, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (2, 2, HUMAN_START, 0, 0),
+        (60, 60, ORC_START, 1, 0),
+        (10, 10, 0x58, 0, 0),
+        (22, 10, 0x5C, 15, 20),
+        (16, 11, 0x02, 0, 0),
+        (16, 16, 0x02, 0, 0),
+        (58, 2, 0x3B, 1, 0),
+    ],
+    sea: 0,
+    shore: 1,
+    lakes: &[],
+};
+
 /// Whether a trace header's map name is a generated test map's: `R<round>-<name>.pud`, a capital R, the round
 /// number, a hyphen, a name.
 pub fn is_generated_name(name: &str) -> bool {
@@ -372,6 +438,9 @@ pub fn generated(name: &str) -> Option<Vec<u8>> {
         "R106-sw58.pud" => Some(build(&R106_SW58)),
         "R106-sw8b.pud" => Some(build(&R106_SW8B)),
         "R106-sw6.pud" => Some(build(&R106_SW6)),
+        "R108-plat.pud" => Some(build(&R108_PLAT)),
+        "R108-rowg.pud" => Some(build(&R108_ROWG)),
+        "R108-inside.pud" => Some(build(&R108_INSIDE)),
         _ => None,
     }
 }
@@ -422,9 +491,9 @@ fn build(s: &Spec) -> Vec<u8> {
     let mut ty = b"WAR2 MAP\0\0\x0a\xff".to_vec();
     ty.extend(s.id_tag.to_le_bytes());
     let mut desc = [0u8; 32];
-    // The field holds 32 bytes: a longer description is cut off, without a terminator.
+    // The field holds 32 bytes and ends in a zero byte: a longer description is cut off at 31 characters.
     let d = s.description.as_bytes();
-    let d = &d[..d.len().min(32)];
+    let d = &d[..d.len().min(31)];
     desc[..d.len()].copy_from_slice(d);
     let mut udta = vec![0u8; 5696];
     udta[..2].copy_from_slice(&1u16.to_le_bytes());
@@ -517,6 +586,32 @@ mod tests {
             sha256(&b),
             "9253e1a905ccda488791723269ea1a766cd549d71acd1300ee7e11559a1faf61"
         );
+    }
+
+    /// The round 108 maps (`oracle/maps/R108-*.json`): the sizes and SHA-256 of the files the oracle harness wrote.
+    #[test]
+    fn the_round_108_maps_match_the_harness_hashes() {
+        for (name, len, hash) in [
+            (
+                "R108-plat.pud",
+                35_950,
+                "32f775c2e9e9acd3938c4f56ff4548fa5aebd38aac241bedd95ef23f6cc57019",
+            ),
+            (
+                "R108-rowg.pud",
+                35_958,
+                "86fbc64e18daf0c011b506aad26da8f3dd63044ee8c9b39c8f618d49fbe3c761",
+            ),
+            (
+                "R108-inside.pud",
+                35_942,
+                "caf275c4f43ee93e5a92b4d7f02845b565cb7cda97e7af13a9738c2eb3fcb652",
+            ),
+        ] {
+            let b = generated(name).expect("known map");
+            assert_eq!(b.len(), len, "{name}");
+            assert_eq!(sha256(&b), hash, "{name}");
+        }
     }
 
     /// The round 106 maps (`oracle/maps/R106-*.json`): the sizes and SHA-256 of the files the oracle harness wrote.
