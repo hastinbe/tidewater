@@ -40,8 +40,4 @@ repository is private that answers 404, so no update is ever offered (the failur
 to see it). Once the repository is public it starts working with no change. Release downloads need the repository to be
 public for the same reason.
 
-## The landing page
-
-`site/` is a static page deployed by `.github/workflows/pages.yml` on pushes to `main` that touch `site/`. It links to the
-releases and holds no downloads. In the repository settings, set Pages to build from **GitHub Actions**. GitHub Pages
-on a private repository needs a paid plan; on a free plan it works once the repository is public.
+There is no landing page: the README and the GitHub releases page are where players start.
