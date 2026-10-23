@@ -194,7 +194,8 @@ enum State {
     Idle,
     Offer(Release),
     Busy,
-    /// The app can't update itself where it is (see [`needs_move`]); nothing else is going on.
+    /// The app can't update itself where it is (see [`needs_move`]); nothing else is going on. macOS only.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     MoveHint,
     /// The update is installed (or its installer started): the program should end.
     Finished,
@@ -451,6 +452,7 @@ mod net {
     }
 
     /// Whether the running `.app` can't be replaced where it is (`super::needs_move`). False when not in a bundle.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(super) fn bundle_blocks_update() -> bool {
         let Some(bundle) = running_bundle() else { return false };
         let probe = bundle
