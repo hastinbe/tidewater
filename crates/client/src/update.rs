@@ -7,9 +7,9 @@
 //! including the 404 an unpublished repository gives, is logged at debug level (shown with `TIDEWATER_DEBUG=1`) and otherwise ignored.
 //!
 //! "Update now" per platform: Windows downloads the Inno Setup installer and starts it silently; macOS downloads the
-//! disk image and swaps the running `.app` bundle; Linux replaces the running AppImage (`$APPIMAGE`). Where none of that
-//! applies (a bundle in a read-only place, a plain Linux binary, a build run from a source tree) the release page opens
-//! in the browser. A download's size is checked against the size the release lists; there is no other signing.
+//! disk image and swaps the running `.app` bundle; Linux has no download to install (the release is a tar.gz
+//! to unpack by hand), so it opens the release page. The page opens in the browser wherever the above doesn't apply too
+//! (a bundle in a read-only place, a build run from a source tree). A download's size is checked against the size the release lists; there is no other signing.
 //!
 //! **Testing without a release.** `TIDEWATER_UPDATE_FEED` replaces GitHub's `releases/latest` answer with a feed of the
 //! same shape: an `http(s)://` address or a path to a JSON file. With it set, the download and release-page address
@@ -75,30 +75,26 @@ pub fn enabled(version: Option<&str>, no_flag: bool, setting: bool, scripted: bo
 pub enum Platform {
     Windows,
     MacOs,
-    Linux,
 }
 
 impl Platform {
-    /// This build's system, if it has downloads (x64 Windows and Linux, any Mac).
+    /// This build's system, if it has downloads (x64 Windows, any Mac).
     pub fn current() -> Option<Self> {
         if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
             Some(Self::Windows)
         } else if cfg!(target_os = "macos") {
             Some(Self::MacOs)
-        } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-            Some(Self::Linux)
         } else {
             None
         }
     }
 
-    /// The end of the asset name this system installs from (`tidewater-<version>-<this>`). Linux updates itself only
-    /// as an AppImage; the plain archive is for the user to unpack.
+    /// The end of the asset name this system installs from (`tidewater-<version>-<this>`). Linux has none:
+    /// its release is a tar.gz for the user to unpack, so Linux builds open the release page.
     fn suffix(self) -> &'static str {
         match self {
             Self::Windows => "-windows-x64-setup.exe",
             Self::MacOs => "-macos.dmg",
-            Self::Linux => "-linux-x64.AppImage",
         }
     }
 }
@@ -408,7 +404,6 @@ mod net {
                 Ok(true)
             }
             Platform::MacOs => install_mac(&asset.url, asset.size, &asset.name),
-            Platform::Linux => install_appimage(&asset.url, asset.size),
         }
     }
 
@@ -520,26 +515,6 @@ mod net {
         Ok(true)
     }
 
-    /// Replaces the running AppImage and starts the new one; `Ok(false)` when not running from one.
-    fn install_appimage(url: &str, size: u64) -> Result<bool> {
-        let Some(path) = std::env::var_os("APPIMAGE").map(PathBuf::from) else {
-            return Ok(false);
-        };
-        let new = path.with_extension("update");
-        download(url, size, &new)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&new, std::fs::Permissions::from_mode(0o755))?;
-        }
-        std::fs::rename(&new, &path)?;
-        std::process::Command::new("sh")
-            .args(["-c", "sleep 1; exec \"$0\""])
-            .arg(&path)
-            .spawn()?;
-        Ok(true)
-    }
-
     /// Opens a web page in the browser (only ever the release page, whose address was checked).
     pub(super) fn open_page(url: &str) {
         if !allowed(url) {
@@ -603,12 +578,10 @@ mod tests {
         assert_eq!((a.name.as_str(), a.size), ("tidewater-1.4.0-windows-x64-setup.exe", 33));
         let m = parse_latest(SAMPLE, REPO, "1.3.0", Some(Platform::MacOs)).unwrap();
         assert_eq!(m.asset.unwrap().size, 22);
-        // Linux self-updates only as an AppImage, which this release doesn't have: the page is all there is.
-        let l = parse_latest(SAMPLE, REPO, "1.3.0", Some(Platform::Linux)).unwrap();
-        assert_eq!(l.asset, None);
-        assert_eq!(l.page, "https://github.com/owner/tidewater/releases/tag/v1.4.0");
+        // Linux (and any other system) has no download to install: the release page is all there is.
         let none = parse_latest(SAMPLE, REPO, "1.3.0", None).unwrap();
         assert_eq!(none.asset, None);
+        assert_eq!(none.page, "https://github.com/owner/tidewater/releases/tag/v1.4.0");
     }
 
     #[test]
