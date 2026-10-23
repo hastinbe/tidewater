@@ -240,6 +240,10 @@
 //! (bodies, SW8f to SW8h), mp-r106-sw6-mp-r106-sw6-fixed-game-goals-1600 and
 //! mp-r106-sw58-mp-r106-sw5-ruin-polymorph-fixed-game-goals-vision-5400 (a polymorph victim gives no refresh sight,
 //! SW12a, and a covered ruin, SW5).
+//!
+//! Round 107 (the person-input sweep): 35 windows `win-<mission>-input-groups-<from>-<to>` of campaign missions with the human
+//! side scripted (selection and groups PI1 to PI3, PI10, PI17; attack orders PI4, PI5, PI8, PI11, PI13, PI14, PI16, PI20;
+//! conversions PI7, PI18; PI6, PI9, PI15, PI19, PI21; PL1). Each one is compared from its first record to its end.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -619,6 +623,43 @@ traces! {
     win_human13_game_goals_37700_37780: ("win-human13-game-goals-37700-37780.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
     win_xhuman8_goals_aigoals_35480_35600: ("win-xhuman8-goals-aigoals-35480-35600.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], None),
     win_human10_goals_30820_31130: ("win-human10-goals-30820-31130.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
+    // Round 107 windowed traces (the person-input sweep: selection and groups, acquisition and attack orders, conversions,
+    // walls). Three more windows are left out as open differences: orc3 41250-41258, orc5 6880-6890, xorc8 2093-2100.
+    win_human10_input_groups_30450_30456: ("win-human10-input-groups-30450-30456.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
+    win_human10_input_groups_47320_47326: ("win-human10-input-groups-47320-47326.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
+    win_human10_input_groups_59005_59024: ("win-human10-input-groups-59005-59024.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
+    win_human12_input_groups_12370_12376: ("win-human12-input-groups-12370-12376.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    win_human13_input_groups_1080_1090: ("win-human13-input-groups-1080-1090.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
+    win_human3_input_groups_12000_12040: ("win-human3-input-groups-12000-12040.jsonl.gz", "Campaign\\Human\\Human03.pud", 4, &[], None),
+    win_human3_input_groups_6990_7500: ("win-human3-input-groups-6990-7500.jsonl.gz", "Campaign\\Human\\Human03.pud", 4, &[], None),
+    win_human4_input_groups_22150_22200: ("win-human4-input-groups-22150-22200.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
+    win_human4_input_groups_32000_32015: ("win-human4-input-groups-32000-32015.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
+    win_human4_input_groups_33025_33045: ("win-human4-input-groups-33025-33045.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
+    win_human4_input_groups_51845_51860: ("win-human4-input-groups-51845-51860.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
+    win_human6_input_groups_30045_30051: ("win-human6-input-groups-30045-30051.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    win_human6_input_groups_57985_57991: ("win-human6-input-groups-57985-57991.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    win_human8_input_groups_15848_15858: ("win-human8-input-groups-15848-15858.jsonl.gz", "Campaign\\Human\\Human08.pud", 14, &[], None),
+    win_human8_input_groups_41676_41682: ("win-human8-input-groups-41676-41682.jsonl.gz", "Campaign\\Human\\Human08.pud", 14, &[], None),
+    win_human9_input_groups_6515_6520: ("win-human9-input-groups-6515-6520.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
+    win_orc11_input_groups_15065_15072: ("win-orc11-input-groups-15065-15072.jsonl.gz", "Campaign\\Orc\\Orc11.pud", 21, &[], None),
+    win_orc11_input_groups_30013_30020: ("win-orc11-input-groups-30013-30020.jsonl.gz", "Campaign\\Orc\\Orc11.pud", 21, &[], None),
+    win_orc14_input_groups_5440_5447: ("win-orc14-input-groups-5440-5447.jsonl.gz", "Campaign\\Orc\\Orc14.pud", 27, &[], None),
+    win_orc3_input_groups_38215_38223: ("win-orc3-input-groups-38215-38223.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    win_orc3_input_groups_39485_39495: ("win-orc3-input-groups-39485-39495.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    win_orc3_input_groups_39790_39800: ("win-orc3-input-groups-39790-39800.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    win_orc4_input_groups_22185_22192: ("win-orc4-input-groups-22185-22192.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
+    win_orc4_input_groups_35530_35537: ("win-orc4-input-groups-35530-35537.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
+    win_orc4_input_groups_35740_35748: ("win-orc4-input-groups-35740-35748.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
+    win_orc9_input_groups_13260_13266: ("win-orc9-input-groups-13260-13266.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    win_orc9_input_groups_37305_37312: ("win-orc9-input-groups-37305-37312.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    win_orc9_input_groups_6755_6760: ("win-orc9-input-groups-6755-6760.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    win_xhuman12_input_groups_40983_40990: ("win-xhuman12-input-groups-40983-40990.jsonl.gz", "Campaign\\XHuman\\2XHum12.pud", 50, &[], None),
+    win_xhuman2_input_groups_8100_8108: ("win-xhuman2-input-groups-8100-8108.jsonl.gz", "Campaign\\XHuman\\2XHum02.pud", 30, &[], None),
+    win_xhuman3_input_groups_6533_6614: ("win-xhuman3-input-groups-6533-6614.jsonl.gz", "Campaign\\XHuman\\2XHum03.pud", 32, &[], None),
+    win_xhuman4_input_groups_3465_3472: ("win-xhuman4-input-groups-3465-3472.jsonl.gz", "Campaign\\XHuman\\2XHum04.pud", 34, &[], None),
+    win_xorc3_input_groups_14550_14558: ("win-xorc3-input-groups-14550-14558.jsonl.gz", "Campaign\\XOrc\\2XOrc03.pud", 33, &[], None),
+    win_xorc7_input_groups_6619_6626: ("win-xorc7-input-groups-6619-6626.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], None),
+    win_xorc8_input_groups_2047_2055: ("win-xorc8-input-groups-2047-2055.jsonl.gz", "Campaign\\XOrc\\2XOrc08.pud", 43, &[], None),
 }
 
 /// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load) matches in full
