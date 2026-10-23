@@ -153,12 +153,12 @@ jobs:
         run: |
           choco install innosetup --no-progress -y
           mkdir -p dist
-          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
-            "//DAppVersion=${TIDEWATER_VERSION}" \
-            "//DAppUrl=https://github.com/${TIDEWATER_REPO}" \
-            "//DSourceExe=$(pwd -W)\\target\\release\\tidewater.exe" \
-            "//DOutDir=$(pwd -W)\\dist" \
-            "//DOutName=tidewater-${TIDEWATER_VERSION}-windows-x64-setup" \
+          MSYS_NO_PATHCONV=1 "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+            "/DAppVersion=${TIDEWATER_VERSION}" \
+            "/DAppUrl=https://github.com/${TIDEWATER_REPO}" \
+            "/DSourceExe=$(pwd -W)\\target\\release\\tidewater.exe" \
+            "/DOutDir=$(pwd -W)\\dist" \
+            "/DOutName=tidewater-${TIDEWATER_VERSION}-windows-x64-setup" \
             packaging/windows/tidewater.iss
       - uses: actions/upload-artifact@v7
         with:
