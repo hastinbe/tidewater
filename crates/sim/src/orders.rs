@@ -1199,9 +1199,9 @@ impl World {
             return s.can_target & 3 != 0;
         }
         // Round 107 (PL1a, PL1b): an oil platform, finished or not, needs sea wherever it stands, so a land-only unit
-        // never takes one: in the target searches only (round 108, PL2).
-        if platform_clause && tf & flags::OIL_SOURCE != 0 {
-            return s.can_target & 2 != 0;
+        // never takes one: in the target searches only. The attack order keeps it for land or sea (round 108, PL2).
+        if tf & flags::OIL_SOURCE != 0 {
+            return s.can_target & if platform_clause { 2 } else { 3 } != 0;
         }
         if t.layer == Layer::Sea {
             return s.can_target & 2 != 0;
