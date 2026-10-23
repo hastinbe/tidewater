@@ -123,6 +123,7 @@ impl World {
         bytes.extend(postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"));
         bytes.extend(postcard::to_allocvec(&self.extras_saved()).expect("encoding to memory"));
         bytes.extend(postcard::to_allocvec(&self.army_surplus).expect("encoding to memory"));
+        bytes.extend(postcard::to_allocvec(&self.walk_on).expect("encoding to memory"));
         // The players left out of their own shared-vision sets (`game/diplomacy.md`, DP11); the sets and the
         // allied-victory settings themselves are in the stored `players`.
         bytes.push(self.vision_outsiders);
@@ -178,6 +179,10 @@ impl World {
                 &postcard::to_allocvec(&self.army_surplus).expect("encoding to memory"),
             );
         }
+        // The same for the walk-on marks of order-12 units.
+        if !self.walk_on.is_empty() {
+            h = fnv(h, &postcard::to_allocvec(&self.walk_on).expect("encoding to memory"));
+        }
         // The same for the optional improvements: they count once one is on.
         if !self.rules.extras.is_default() || !self.ext.is_empty() {
             h = fnv(
@@ -207,6 +212,8 @@ impl World {
         let (extras, rest): (crate::extras::Saved, _) =
             postcard::take_from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
         let (army_surplus, rest): ([[u32; 3]; SCRIPT_PLAYERS], _) =
+            postcard::take_from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
+        let (walk_on, rest): (std::collections::BTreeMap<UnitId, crate::world::WalkOn>, _) =
             postcard::take_from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
         let [outsiders] = *rest else {
             return Err(RestoreError::Decode("the stored world ends wrongly".into()));
@@ -240,6 +247,7 @@ impl World {
         self.group_surplus = surplus;
         self.vision_outsiders = outsiders;
         self.army_surplus = army_surplus;
+        self.walk_on = walk_on;
         self.rules.extras = extras.extras;
         self.ext = extras.state;
         self.rng = Rng::new(seed);

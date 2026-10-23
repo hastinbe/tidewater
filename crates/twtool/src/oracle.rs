@@ -1744,7 +1744,7 @@ fn target_cell(w: &World, u: &Unit) -> Cell {
     }
     // A command's target replaces the old one at once, even with none (`xorc01-death-knight`, n = 82: a move given to
     // a caster that was in order 54 on a unit shows no target).
-    Cell::opt(u.recorded_target().and_then(|id| w.unit(id)).map(|t| t.slot))
+    Cell::opt(w.recorded_target_of(u).and_then(|id| w.unit(id)).map(|t| t.slot))
 }
 
 fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {

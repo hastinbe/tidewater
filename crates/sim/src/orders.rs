@@ -768,6 +768,30 @@ impl World {
             // before the target check, so a unit still cooling down restarts its attack animation with the cooldown
             // left as its wait, its pending order cleared, and keeps its order until the cooldown runs out
             // (`xorc01-death-knight` ogre 1488, n = 907 to 930).
+            // Round 106 (SW13a to SW13d): order 12 out of reach of the target it lost, and not the killer, shows no
+            // target and, once the cooldown has run out, walks on to the strike goal it had; the target is lost on
+            // arrival or with no route. A unit in reach and the killer lose it at their first run after the cooldown.
+            let id = self.units[i].id;
+            let marked = self.walk_on.get(&id).copied().filter(|w| w.order == o);
+            if marked.is_none()
+                && !forgot
+                && let Order::Chase { target } = o
+                && self.still_cooling(&self.units[i])
+                && let Some(t) = self.unit(target)
+                && !self.in_range(&self.units[i], t)
+            {
+                let g = self.strike_goal(&self.units[i], t);
+                self.walk_on.insert(
+                    id,
+                    crate::world::WalkOn {
+                        order: o,
+                        tile: g.tile,
+                        radius: g.radius,
+                        zone: g.zone,
+                    },
+                );
+            }
+            let marked = self.walk_on.get(&id).copied().filter(|w| w.order == o);
             if self.cooling_down(i) {
                 let u = &mut self.units[i];
                 u.pending = None;
@@ -776,6 +800,20 @@ impl World {
                     u.forgot = Some(o);
                 }
                 return true;
+            }
+            if let Some(w) = marked {
+                let g = Goal {
+                    range: true,
+                    zone: w.zone,
+                    ..Goal::tile(w.tile, w.radius)
+                };
+                // The walk with no route is not the plain rule here: the target is lost as on arrival.
+                match self.move_toward(i, g) {
+                    Walk::Stepping | Walk::Blocked => return true,
+                    Walk::Arrived | Walk::NoPath => {
+                        self.walk_on.remove(&id);
+                    }
+                }
             }
             self.lose_target(i);
             return true;
@@ -3343,6 +3381,65 @@ mod tests {
             u.script.wait = 1;
             assert!(w.run_order(i));
             assert_eq!(w.units[i].order, lost);
+        }
+    }
+
+    /// Round 106, "Losing the target while cooling down" (SW13a to SW13d, V165): an order-12 unit that loses its target
+    /// out of reach, and isn't the killer, shows no target and walks on to its strike goal once the cooldown has run
+    /// out, losing the target on arrival; in reach it keeps showing the target and the killer goes idle without
+    /// walking; not cooling down, it goes idle at once.
+    #[test]
+    fn order_12_out_of_reach_walks_on_after_a_cooldown_loss() {
+        // (distance to the target, killer, cooling down at the lost run)
+        for (far, killer, cooling) in [(true, false, true), (false, false, true), (true, true, true), (true, false, false)] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, if far { 14 } else { 6 }), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let gi = at(&w, g);
+            w.kill(gi);
+            let i = at(&w, f);
+            let order = Order::Chase { target: g };
+            let u = &mut w.units[i];
+            u.order = order;
+            u.pending = None;
+            u.cooldown = if cooling { 15 } else { 0 };
+            u.script.wait = 1;
+            if killer {
+                u.forgot = Some(order);
+            }
+            let tag = format!("far {far}, killer {killer}, cooling {cooling}");
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            if !cooling {
+                assert_eq!(u.order, Order::Idle, "{tag}: lost at once");
+                continue;
+            }
+            assert_eq!((u.order, u.script.anim, u.script.wait), (order, anim::ATTACK, 15), "{tag}");
+            let walks_on = far && !killer;
+            assert_eq!(w.walk_on.contains_key(&u.id), walks_on, "{tag}");
+            // The target is shown through the cooldown only by a unit in reach.
+            assert_eq!(w.recorded_target_of(u).is_some(), !far && !killer, "{tag}");
+            let u = &mut w.units[i];
+            u.cooldown = 0;
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            if walks_on {
+                assert_eq!((u.order, u.script.anim), (order, anim::MOVE), "{tag}: walks on");
+                // Arrived within the attack range of the old goal: the target is lost as usual.
+                let goal = w.walk_on[&u.id].tile;
+                let u = &mut w.units[i];
+                u.tile = goal;
+                u.script.wait = 1;
+                assert!(w.run_order(i));
+                assert_eq!(w.units[i].order, Order::Idle, "{tag}: lost on arrival");
+                assert!(w.walk_on.is_empty(), "{tag}");
+            } else {
+                assert_eq!(u.order, Order::Idle, "{tag}: lost without walking");
+                assert_eq!(u.tile, (5, 5), "{tag}");
+            }
         }
     }
 

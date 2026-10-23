@@ -234,6 +234,16 @@ impl std::hash::Hash for Serial {
     fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
 }
 
+/// The strike goal an order-12 unit goes on walking to after it loses its target out of reach ([`World::walk_on`]): the
+/// order it belongs to, the goal tile, the arrival radius (the attack range) and the path search's goal zone.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct WalkOn {
+    pub order: Order,
+    pub tile: (i32, i32),
+    pub radius: i32,
+    pub zone: Option<(i32, i32, i32, i32)>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Unit {
     pub id: UnitId,
@@ -967,6 +977,12 @@ pub struct World {
     /// include units no training group counts. Stored after the group surplus (save version 23) and left out of
     /// [`World::fingerprint`] while it is all zero.
     pub(crate) army_surplus: [[u32; 3]; SCRIPT_PLAYERS],
+    /// Order-12 units out of reach of a target they lost while cooling down, and not the killer (orders spec, "Losing
+    /// the target while cooling down", SW13a): while the unit's order is still the marked one it shows no target, and
+    /// once the cooldown has run out it walks on to the marked strike goal. Kept apart from [`Unit::forgot`], which
+    /// marks the killer, who doesn't walk on, and outside the units so that a game that never has one is stored,
+    /// hashed and fingerprinted as before: left out of both while empty.
+    pub(crate) walk_on: BTreeMap<UnitId, WalkOn>,
     /// The computer players' army: threat map, base boxes, pass counter (attack-ai spec).
     pub army: crate::attack_ai::Army,
     /// Upgrade data: the defaults, or the map's UGRD section (tech-tree spec, "Default upgrade data").
@@ -1158,6 +1174,7 @@ impl World {
             ai: Default::default(),
             group_surplus: Default::default(),
             army_surplus: Default::default(),
+            walk_on: BTreeMap::new(),
             army,
             upgrade_data: crate::tech::default_upgrades(),
             ai_file: None,
@@ -1961,6 +1978,15 @@ impl World {
         self.order(i, fx);
     }
 
+    /// [`Unit::recorded_target`] with the walk-on mark applied: a unit marked by [`World::walk_on`] whose order is
+    /// still the marked one records no target.
+    pub fn recorded_target_of(&self, u: &Unit) -> Option<UnitId> {
+        if u.pending.is_none() && self.walk_on.get(&u.id).is_some_and(|m| m.order == u.order) {
+            return None;
+        }
+        u.recorded_target()
+    }
+
     /// FNV-1a over everything that defines the game state. Equal hashes on two machines mean they are in sync.
     pub fn state_hash(&self) -> u64 {
         use std::hash::{Hash, Hasher};
@@ -2000,6 +2026,10 @@ impl World {
         // command). The sets and the allied-victory settings themselves are in `players`.
         if self.vision_outsiders != 0 {
             self.vision_outsiders.hash(&mut h);
+        }
+        // The walk-on marks join the hash only while there are some (`World::walk_on`).
+        if !self.walk_on.is_empty() {
+            self.walk_on.hash(&mut h);
         }
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);

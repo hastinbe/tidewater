@@ -782,7 +782,8 @@ impl World {
         self.release_tree(ti);
         // Unit-slots spec ("Death"; `xhuman12-10000` grunt 1504, n = 4851): the unit keeps the target
         // recorded at this moment, so a killer that forgot its target dies with none.
-        let target = self.units[ti].recorded_target();
+        let target = self.recorded_target_of(&self.units[ti]);
+        self.walk_on.remove(&self.units[ti].id);
         let slot = target.and_then(|t| self.unit(t)).map(|t| t.slot);
         let u = &mut self.units[ti];
         u.dying_target = slot;
