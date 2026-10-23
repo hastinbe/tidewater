@@ -61,6 +61,10 @@
 - **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101"; reviewed by a spec-review session,
   2026-10-22): the frozen worker marks cleared by a load are set by the Hold workers command, which the placement
   interface sends in single player too (was: only a multiplayer network command). No rule change here.
+- **Changes:** 2026-10-22, round 106 (save/load sweep, `ERRATA-round106-sweep.md` SL1; reviewed by a spec-review
+  session, 2026-10-22, see its "Review"): the land, sea and air army counts of the script conditions double at a load
+  as the training group counts do (SL34 to SL37, traced for the land and sea armies; the air army a labelled gap-fill,
+  untraced; `ai/ai-scripts.md`, "After a load").
 
 ## Behaviour
 
@@ -237,6 +241,12 @@ lists, including:
   again. The worker and tanker counts are worked out afresh and come back right (SL13 to SL15). Traced, round 94: the
   flying machine, transport, battleship and submarine counts double the same way (SL21), so every group from footmen
   to submarines is traced; held map-placed ships are never counted, in the saved count or again at the load;
+- each player's **army counts**, the land, sea and air army counts that the script conditions 4 to 6 compare
+  (`ai/ai-scripts.md`, "Conditions" and "After a load"), behave the same way: restored as saved, then every loaded
+  unit the count includes is counted again, so each is twice the saved value when that was right, and the surplus
+  stays. Traced, round 106, for the sea army (SL34) and the land army (SL35, SL36; SL37 needs both); the air army by
+  the same rule, a labelled gap-fill, untraced. Without the surplus a computer player waiting on an army condition
+  goes on waiting where the original's goes ahead;
 - each player's resources, upgrades, spells and allowances;
 - alliances (Enhanced only);
 - each player's allied-victory setting (both rule sets), and the shared-vision sets of players 0 to 7 (Enhanced only;
@@ -450,6 +460,10 @@ stays in the running game.
 | **SL31.** `xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000` (oracle trace, Enhanced, saved after n = 1564; records n = 0 to 1564 identical to `xorc10-xorc10-farm-repair-1700`, extras aside). Computer player 6 at the save: repairers 2 (peasants 1423 and 1448, repair job with gold mode, order 27 on farm 1437) | Loaded setup record: repairers 0, both keep the repair job. n = 634: 1448's repair ends, repairers 0 → 65535, and it gets a gold job. n = 653: 1423 the same, repairers 65534, unchanged to n = 6000 |
 | **SL32.** Same trace, player 6: one scout tower (0x40) in progress at the save (site 1422, built by 1454 with a build-list job, order 22) | Loaded setup record: nothing in progress, 1454 keeps its build-list job. n = 678: the tower is done, its count in progress 0 → 65535, unchanged to n = 6000. No later choice reads it: both 0x40 entries the scan reaches (1 and 3) are marked done, and the next build-list job (n = 4960, entry 2, 0x4C) is chosen as usual |
 | **SL33.** `xorc11-xorc11-r96-targets-saveload-game-goals-300` (oracle trace, Enhanced, extras `game` and `goals`; the SL28 scenario, saved after n = 880; records n = 0 to 880 identical to SL28's trace, extras aside). At the save the six dead bodies (type 0x69) have goals 1493 (14, 40), 1506 (16, 38), 1519 (10, 40), 1521 (12, 32), 1525 (4, 30), 1531 (10, 40) | Loaded setup record (195 units): each of the six has `goal` (0, 0) and `target` `null`, its order kept (1 or 0 as saved). The other 189 units' `goal` and `pending` match the saved state |
+| **SL34.** `sweep-orc12-sl-orc12-aigoals-aigroups-aijobs-airesearch-aiworkers-game-vision-19940` (save/load sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py sl-capture orc12`): orc 12, no input; saved after n = 20004 and loaded 30 cycles later. Computer player 1 at the save: 3 destroyers and 3 battleships it trained (group counts 3 and 3), no transports. Loaded game: group counts 6 and 6; by n = 16838 3 destroyers and 1 battleship have been lost (3 and 5) | n = 16838 of the loaded game: player 1's shipyard 1500 (type 0x49) starts a transport (gold 38200 → 37600, lumber 26200 → 26000, oil 17650 → 17150, job progress 1), a script step after a "wait until" on the sea army. The game without the load pays for its first transport at n = 36844 of its plain sweep trace (gold 36800 → 36200). With a sea army that isn't doubled, player 1 trains no transport to the end of the trace |
+| **SL35.** `sweep-human13-sl-human13-aigoals-aigroups-aijobs-airesearch-aiworkers-game-vision-19940` (save/load sweep trace, Enhanced, kept outside the repository; `oracle/sweep.py sl-capture human13`): human 13, no input; saved after n = 20004 and loaded. Computer player 0 at the save: archers 2, knights 4, mages 2 (group counts), build-list limit 7. Loaded game: 4, 8, 4; by n = 14906 3, 5, 4 | n = 14907 of the loaded game: player 0's build-list limit 7 → **12**, a script set that follows a "wait until" on the land army. With a land army that isn't doubled the limit stays 7 |
+| **SL36.** `sweep-xorc6-sl-xorc6-aigoals-aigroups-aijobs-airesearch-aiworkers-game-vision-52340` (save/load sweep trace, Enhanced, kept outside the repository; `oracle/sweep.py sl-capture xorc6`): Beyond the Dark Portal orc 6, no input; saved after n = 3802 and loaded. Computer player 1: footmen group count 2 at the save, 4 in the loaded game's setup record, 6 by n = 347 | n = 348 of the first loaded game: player 1's build-list limit 3 → **4**. With a land army that isn't doubled the limit stays 3. The land army's surplus alone is enough for this trace |
+| **SL37.** `sweep-xhuman5-sl-xhuman5-aigoals-aigroups-aijobs-airesearch-aiworkers-game-vision-39740` (save/load sweep trace, Enhanced, kept outside the repository; `oracle/sweep.py sl-capture xhuman5`): Beyond the Dark Portal human 5, no input; saved after n = 10102 and loaded. Computer player 2: footmen group count 3 at the save, 6 after the load; computer player 7: transports 1 and destroyers 1 at the save, 2 and 2 after it | n = 51 of the first loaded game: player 2's grunts 1474 and 1480 (type 0x01) take attack goals (goal kind 1 → 2; 1474's goal (9, 22) → (10, 4)), a land-army step. With the land surplus but not the sea surplus the next difference is player 7's gold at n = 7580 of the same game. With both (and `orders/orders.md` SW13a for the second loaded game) the trace matches to its end |
 
 ## Open questions
 

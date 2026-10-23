@@ -20,6 +20,10 @@
 - **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW5 and SW8; reviewed by a spec-review
   session, 2026-10-22): "The used mark": a building created during play marks the dying units it overlaps or touches
   (SW8a to SW8e); every unit with the mark is hidden from everyone (`vision/fog.md`).
+- **Changes:** 2026-10-22, round 106 (oracle traces, `ERRATA-round106-sweep.md` SW8; reviewed by a spec-review
+  session, 2026-10-22, see its "Review"): a site that only touches a ruin, and one with a free tile between it and a
+  dead body, mark it, and a body marked so gives raise dead no skeleton: all three traced (SW8f to SW8h, replacing the
+  two static vectors). A used-mark unit applies no sight at a fog refresh (`vision/fog.md`, SW12a). No rule changed.
 
 ## Behaviour
 
@@ -67,8 +71,9 @@ uses for the unit) has the shore-water flag (0x02) in the tile flags of `movemen
   counts one tile larger on every side. "A building" is a construction site or any other created unit of types 0x3A to
   0x68 except the oil patch (0x5D) and type 0x64; nothing is marked while a saved game is being loaded. The marked
   unit keeps its death animation and timers, and a body marked this way can't be raised. Traced for 3 × 3 ruins
-  overlapped by new 3 × 3 sites (SW8a to SW8d); a site that only touches, the bodies' wider area and the other building
-  types are static study only. A ruin two tiles from a new site isn't marked (traced: `sweep-mp-gold-rush-bne-o2`
+  overlapped by new 3 × 3 sites (SW8a to SW8d), a 2 × 2 ruin that a 2 × 2 site only touches (SW8f), a body with one
+  free tile between it and a new 2 × 2 site (the body's wider area, SW8g) and raise dead skipping that body (SW8h); the
+  other building types are static study only. A ruin two tiles from a new site isn't marked (traced: `sweep-mp-gold-rush-bne-o2`
   n = 5550, SW8e).
 
 Every unit with the used mark is hidden from everyone (`vision/fog.md`, "Unit visibility (phase 5)", rule 1), so from
@@ -213,8 +218,9 @@ Cycle numbers count updates of the unit: update 1 is its first update after it i
 | SW8c: same trace, n = 18377: ruin 1533 at (18, 49); site 1498 (type 0x53, owner 3) at (17, 49) | Ruin 1533: 255 from n = 18377 |
 | SW8d: same trace, n = 19225: ruin 1592 at (18, 9); site 1533 (type 0x3C, owner 0) at (17, 11) | Ruin 1592: 255 from n = 19225 |
 | SW8e: same trace, n = 5550: a 2 × 2 site (type 0x3B) at (7, 47) is started; ruin 1547 (type 0x6C, 3 × 3) at (6, 43), hidden-from set 246, ends at row 45, so row 46 lies between them | Ruin 1547 isn't marked: hidden-from set still 246 |
-| A 2 × 2 site placed so that its left column is the column just right of a dying 3 × 3 ruin's area, rows overlapping (static study) | The ruin gets the used mark (touching counts) |
-| A 2 × 2 site placed with one free tile between it and a dead body (type 0x69), then raise dead aimed at the body (static study) | The body gets the used mark at the site's creation (a body counts one tile larger); raise dead raises no skeleton from it |
+| SW8f: `mp-r106-sw58-mp-r106-sw5-ruin-polymorph-fixed-game-goals-vision-5400` (oracle trace, Enhanced, generated map `R106-sw58.pud`, `EXTRAS=game,goals,vision`): farm ruin 1589 (type 0x6B, 2 × 2) at (16, 44) from n = 471, neutral from n = 672, hidden-from set 254 from n = 701. At n = 735 the local player's farm site 1583 (type 0x3A) appears at (18, 44), touching the ruin with no tile between | Ruin 1589: hidden-from set **255** from n = 735 (touching counts); removed (order 0) at n = 872 on its normal timetable |
+| SW8g: `mp-r106-sw8b-mp-r106-sw8-bodies-fixed-game-goals-vision-1500` (oracle trace, Enhanced, generated map `R106-sw8b.pud`, orc local player, `EXTRAS=game,goals,vision`): footman bodies (type 0x69) 1594 at (36, 30) from n = 339 and 1593 at (36, 40) from n = 390, hidden-from set 252. At n = 521 a pig farm site 1588 (type 0x3B, 2 × 2) appears at (38, 30), one free tile (column 37) from 1594; at n = 529 site 1587 at (39, 40), two free tiles from 1593 | Body 1594: hidden-from set **255** from n = 521 (a body counts one tile larger). Body 1593: not marked (252; neutral from n = 590, 254 from n = 601) |
+| SW8h: same trace: death knight 1599 (mana 109) casts raise dead at (36, 35) (command at n = 700); both bodies are at squared distance 25 | n = 983: one skeleton (1586, type 0x37) at (36, 40) from body 1593, which gets the used mark (hidden-from set 255); mana 109 → 59. Body 1594 gives none, although the mana left (59) would pay for a second (`spells/spells.md`, raise dead's scan) |
 
 ## Open questions
 

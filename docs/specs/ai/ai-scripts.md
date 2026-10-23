@@ -17,6 +17,11 @@
   opening's "wait until" is tested with every count at 0 and, when it passes in the second start-up cycle, the next
   instructions run at trace record 4 (static study; traced, AS-V1, AS-V2). The "Script 0" vector is corrected (AS-V3)
   and the open question on the opening's counts is closed.
+- **Changes:** 2026-10-22, round 106 (save/load sweep, `ERRATA-round106-sweep.md` SL1; reviewed by a spec-review
+  session, 2026-10-22, see its "Review"): after a load the land, sea and air army counts that conditions 4 to 6 read
+  are the saved counts plus the loaded units counted again, as the training group counts are, so they double (traced
+  for the land and sea armies, `game/save-load.md` SL34 to SL37; the air army by the same rule, a labelled gap-fill,
+  untraced).
 
 ## Behaviour
 
@@ -116,7 +121,8 @@ conditions; no other value is defined (static study, round 82; see Open question
 
 ### Conditions
 
-*p* is the player running the script. "Counts" are the player's live unit counts (`game/victory.md`, "Unit counts").
+*p* is the player running the script. "Counts" are the player's live unit counts (`game/victory.md`, "Unit counts"),
+except that after a load the three army counts carry a surplus ("After a load", below).
 
 | Condition | True when |
 | --- | --- |
@@ -160,6 +166,23 @@ Workers (peon flag), tankers, transports, flying machines, zeppelins, critters, 
 army and also count as workers.
 
 A held unit is taken out of the army counts when the map is loaded. The worker count still includes it.
+
+**After a load** the three army counts behave like the training group counts (`game/save-load.md`, "What a saved
+game keeps"). Each is restored as saved, and then the load counts every loaded unit again that the army count
+includes (complete, not held, not dying), so it is the saved value plus those units: twice the saved value when the
+saved count was right. Nothing corrects the surplus: the count rises and falls with the units from there, and a
+further save and load adds the loaded units again. The worker count of condition 3 is worked out afresh and comes back
+right. So a computer player that loads with a sea army of 6 counts 12, and a "wait until" on condition 5 can then be
+true where the same game without the load would still wait.
+
+- **Traced** for the sea army (condition 5: `game/save-load.md` SL34) and the land army (condition 4: SL35, SL36;
+  SL37 needs both). Without the surplus each of these traces differs between 51 and 16838 cycles after the load; with it
+  (and, for SL37's trace, `orders/orders.md` SW13a) each matches to the end of its three games, through two loads.
+- **The air army** (condition 6) follows the same rule by default: a labelled gap-fill, untraced (no traced load had
+  a computer player waiting on condition 6 with flyers alive).
+- **What was traced is the surplus of units that a training group also counts** (`ai/training-research.md`,
+  "Training buildings"). A unit in an army that no training group counts (a demolition squad or sapper, a hero, a
+  skeleton, a daemon) is counted again by the same rule: a gap-fill, untraced.
 
 ### Slots
 
@@ -243,3 +266,8 @@ condition 0 never does. Wait counts range from 300 to 65535.
 - **An opcode above 3 or a condition above 7** has no defined behaviour (static study, round 82). No shipped script
   has one. Default: treat a script file with one as invalid and refuse it.
 - Whether anything clears the held mark after map load. None was found. Default: the mark stays for the unit's life.
+- **The air army after a load** (round 106, SL1). Untraced: no traced load had a computer player waiting on condition
+  6 with flyers alive. **Default:** doubled like the land and sea armies ("After a load").
+- **Army units outside the training groups after a load** (round 106, SL1). The traced surplus is the units the
+  training groups also count; whether a unit in an army but in no group (a demolition squad, a hero, a skeleton, a
+  daemon) is counted again is untraced. **Default:** it is, like every unit the army count includes.

@@ -58,6 +58,11 @@
 - **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW5; reviewed by a spec-review session,
   2026-10-22): "Unit visibility (phase 5)", rule 1: a unit with the used mark is hidden from everyone, dying or not
   (traced for the oil patch, SW5a, and a covered ruin, SW8a; static study for the other cases).
+- **Changes:** 2026-10-22, round 106 (oracle traces, `ERRATA-round106-sweep.md` SW12 and SW5; reviewed by a
+  spec-review session, 2026-10-22, see its "Review"): "When sight is applied", rule 1: a unit with the used mark that
+  isn't inside something applies no sight at a fog refresh (traced for a polymorph victim, SW12a; the inside rules,
+  the gold-mine exception included, are unchanged). "Unit visibility (phase 5)", rule 1: the polymorph victim and the
+  body raised by raise dead are now traced (SW12a; `core/corpses.md` SW8h).
 
 ## Behaviour
 
@@ -246,7 +251,13 @@ player 0 to 7 (X5).
 1. **Fog refresh cycles.** In phase 4 of a refresh cycle, each human player's unit whose slot is in use applies its
    sight, when it is updated and before its order runs. That includes a unit in its **death animation** (order 1;
    traced: `xorc4-30000` n = 19507, F25 and F26 below) and bodies, ruins and units being removed (order 0), until
-   the slot is released (`core/corpses.md`; static study). A unit inside something doesn't, with one exception: a
+   the slot is released (`core/corpses.md`; static study). **A unit that carries the used mark** (`core/corpses.md`,
+   "The used mark") and isn't inside something applies **no** sight, dying or not: so a polymorph victim in its death
+   animation stops showing its owner the ground around it at the first refresh after the cast (traced: SW12a). Other
+   such units (a marked body or ruin while a player still owns it, an oil platform killed with oil left) are by the
+   same rule a labelled gap-fill, untraced. The inside mark is the same mark, but a unit inside something follows the
+   inside rules that come next, so the gold-mine exception stands (X7; the traced polymorph case says nothing about
+   inside units, and every committed trace matches with the inside rules kept). A unit inside something doesn't, with one exception: a
    worker inside a **gold mine** reveals with the gold mine's sight (3 in the default data), centred on the gold
    mine's centre tile (X7). A tanker inside an oil platform, a passenger in a transport and a worker inside any
    other building reveal nothing. The test is on the kinds, not on "worker": any **land** unit inside a unit of the
@@ -412,8 +423,9 @@ Rules, first match wins:
    the inside mark is that same mark) is hidden from everyone, **even with the reveal-map cheat on** (X3; the old text
    said both this and "with the cheat, nothing is hidden", and this order settles it). So a unit given the used mark
    while dying is hidden from that cycle on: an oil patch under a new oil platform (traced: `sweep-xhuman5`, SW5a), a
-   ruin or body a new building covers (traced: SW8a in `core/corpses.md`), and by static study a polymorph victim, a
-   body raised by raise dead and an oil platform killed with oil left. A dying unit without the used mark is not
+   ruin or body a new building covers (traced: SW8a in `core/corpses.md`), a polymorph victim (traced: SW12a, hidden
+   from everyone in the cycle of the cast) and a body raised by raise dead (traced: `core/corpses.md` SW8h), and by
+   static study an oil platform killed with oil left. A dying unit without the used mark is not
    covered by this rule. No target search depends on the order: the search skip list leaves out dying, dead
    and inside units by itself (`orders/orders.md`, "A candidate is skipped if").
 2. With the reveal-map cheat on, nothing else is hidden from anyone.
@@ -633,6 +645,12 @@ have it (F40).
 | ID | Input | Expected |
 | --- | --- | --- |
 | SW5a | `sweep-xhuman5` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`), n = 27632: tanker 1542 (owner 7, in a slot above the patch's) starts oil platform 1594 on oil patch 1530 at (75, 107); the patch's hidden-from set was 99 | Patch 1530: order 1, death animation, wait 1, and hidden-from set **255** from n = 27632 on; order 0 (remove) from n = 27633, still 255 |
+
+### Round-106 vectors
+
+| ID | Input | Expected |
+| --- | --- | --- |
+| SW12a | `mp-r106-sw58-mp-r106-sw5-ruin-polymorph-fixed-game-goals-vision-5400` (oracle trace, Enhanced, generated map `R106-sw58.pud`, `EXTRAS=game,goals,vision`): grunt 1584 (owner 1, the second human player) idle at (26, 8), hidden-from set 253 (player 1 sees it); the local player's mage casts polymorph on it (command at n = 4700) | n = 4781: 1584 order 1, animation 1, hidden-from set **255** (the used mark); a sheep (slot 1593, type 0x39, owner 15) at (26, 8), hidden-from set 253. n = 4801, a fog refresh: the sheep's hidden-from set is **255**, as player 1 no longer sees the tile (the dying grunt gave it no sight); still 255 to the trace's end (n = 4826) |
 
 ## Open questions
 

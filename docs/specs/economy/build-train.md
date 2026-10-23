@@ -65,6 +65,11 @@
 - **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW8; reviewed by a spec-review session,
   2026-10-22): creating the building under construction marks the dying units it overlaps or touches (step 3; the
   rule is in `core/corpses.md`).
+- **Changes:** 2026-10-22, round 106 (Classic sweep, `ERRATA-round106-sweep.md` C1; reviewed by a spec-review session,
+  2026-10-22, see its "Review"): **Classic mode only.** "Completion": a Classic-mode builder in lumber or gold mode
+  gets a load delivered at completion even with empty hands, by the Classic delivery rule (traced, C1a and C1b; the
+  gold-mode case by the same rule, untraced). The open question "Classic-mode builder's delivery" is closed as its
+  default said. No Enhanced rule changed.
 
 ## Behaviour
 
@@ -347,7 +352,11 @@ for repair on every run. With the build-speed cheat on, P's last value is wherev
   delivered if the building is a depot for them; if the building stores gold or wood but doesn't accept the load (a
   peasant carrying gold that builds a lumber mill), the load is **lost** and the builder comes out empty-handed, as
   that table says (traced: `human06-carry-build-1000`, V68); a building that stores neither leaves the load as it is
-  (static study; the same loss on entering is traced, `economy/harvest.md` V66). A builder of a town hall, keep or
+  (static study; the same loss on entering is traced, `economy/harvest.md` V66). **Classic mode only:** delivery
+  goes by the builder's gather mode, as for a Classic delivery on entering (`economy/harvest.md`, "Delivering
+  goods"), so a builder in lumber mode gets a load delivered when its building, a lumber store, is completed even
+  if it carries nothing (traced, Classic sweep: C1a, C1b; gold mode by the same rule, untraced). Enhanced mode
+  delivers only a carried load (V68); this never changes an Enhanced rule. A builder of a town hall, keep or
   castle gets the **hall-sized exit mark**, carrying or not (`economy/harvest.md`, "Coming out", step 6). Being let
   out here neither uses nor clears the mark. Then:
   - a **tanker** (the builder of an oil platform) gets order 25 as an **immediate order** (`orders/orders.md`, "Pending
@@ -615,6 +624,8 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V31 | `orc09-naval` (oracle trace), n = 468: oil platform 1468 completed with tanker 1473 inside | Tanker: order 25, animation 3, wait 1, target 1468, facing kept (2) | Trace |
 | V32 | Same, n = 469 | Tanker: order 26, still animation, wait 150 | Trace |
 | V68 | `human06-carry-build-1000` (oracle trace, Enhanced): peasant 1586 comes out of the mine carrying gold at n = 333 and builds lumber mill 1519 (created at n = 559, gold 1000 to 400) | The mill completes at n = 709 and the peasant comes out carrying nothing: a return-goods command at n = 720 does nothing (order stays 2), it walks at the empty pace (16 cycles a tile, against 22 on the way in), and gold stays 400 | Trace |
+| C1a | **Classic mode** (research use only). `sweep-mp-dark-peninsula-bne-classic-o2-…-20000` (Classic sweep trace, kept outside the repository; `SWEEP_RULES=classic oracle/sweep.py capture mp:dark-peninsula`): computer peasant 550 (type 0x02, owner 3) chops wood, returns its load, comes out empty at n = 15845 and builds lumber mill 545 (type 0x4C), inside from n = 15921 | n = 17732: 545 completes and 550 comes out (order 2); player 3 lumber 50 → **175** (100 delivered, plus 25 for the new lumber mill) | Trace (Classic, outside the repository) |
+| C1b | **Classic mode.** `sweep-mp-crosshair-bne-classic-o4-…-20000` (Classic sweep trace, outside the repository): the same case on Crosshair, player 3 | n = 12895: player 3 lumber 100 → **225** | Trace (Classic, outside the repository) |
 | V71 | `human06-build-stats-1800`, with a break on the latest-event-location call: barracks 1588 (top-left (88, 5)) finishes a footman, placed at (87, 5), n = 643 | The event location is (88, 5), the building's top-left tile | Trace (break log) |
 | V72 | `orc9-orc09-r97-built-farm-repair-goals-2400` (oracle trace, Enhanced, `goals` extra): pig farm 1473 (type 0x3B, T = 100), placed at n = 138 and damaged while being built | Stored goal x (P) 1 at n = 138, counting up by 1 per cycle; the farm completes at n = 1361 with 367 of 400 HP, P = 1,224, and P stays 1,224 until the farm is repaired (n = 1574) | Trace |
 | V73 | `mp-r100-tests-mp-r100-tests-fixed-goals-3000` (oracle trace, Enhanced, `goals` extra; generated map `R100-tests.pud`): farm site 1583 (type 0x3A, T = 100, M = 400) created at n = 111, repaired by peasant 1586 with runs at n = 156, 181, …, 931 (`economy/repair.md` RP10) | P (the stored goal x) goes up by 1 every cycle except in the 32 run cycles, where it stays; the steps come at P = 12, 24, … as usual. n = 931: 400 HP (by the run), P = 789. n = 934: the step at P = 792 finds the hit points at M and sets P to 1,212. n = 946: completed at P = 1,224 with 400 HP, builder 1587 out | Trace |
@@ -680,9 +691,9 @@ round 77 (`specs/ERRATA-round77.md`). Trace requests AB1 to AB5 are listed in `s
   halls under way at once: when one completes, the other's T would go back to the full build time on its next pass,
   so its hit points stop rising until floor(k × D / T) passes the value already given, and its shown progress drops.
   Default: as stated (T fixed at creation). Trace request AB3 (multiplayer launch, Enhanced).
-- **Classic-mode builder's delivery.** Whether a builder in gold or lumber mode with empty hands gets a load delivered
-  when its building is completed in Classic mode (the static reading says yes, as for a Classic delivery on entering)
-  isn't separated by any trace. Default (Classic mode, static study): it does.
+- **Classic-mode builder's delivery** (Classic mode only): **closed in round 106, as its default said.** In Classic
+  mode a builder in lumber mode with empty hands gets a load delivered when its lumber mill is completed (traced,
+  C1a, C1b); gold mode follows the same rule (untraced). Enhanced mode is unchanged (V68).
 - **Classic mode: refund on collapse.** In Classic mode the static reading gives the 75 % gold and lumber refund
   whenever a building is taken down, so an exhausted oil platform's collapse would refund 75 % of the platform's
   gold and lumber. Enhanced mode refunds only on the cancel command. Default for Classic mode: the static reading.
@@ -721,3 +732,4 @@ round are kept with the research-side specs.
 | 101 | Oracle trace (`ERRATA-round101-traces.md`): the shown progress uses the hit points before the clamp, kept in a byte (open question closed); a player's build command releases the sender's selected workers first | "The construction pass", step 5; "Carrying out a player's build command"; "Open questions"; vector V74 |
 | 102 | The build's release of every selected worker traced (`orders/orders.md` HW7c; `ERRATA-round102-traces.md`) | "Carrying out a player's build command" |
 | 104 | Creating a site marks the dying units it covers with the used mark (`ERRATA-round104-sweep.md` SW8; traced for overlapped ruins, `core/corpses.md` SW8a to SW8d) | "Carrying out a player's build command", step 3 |
+| 106 | **Classic mode only:** a builder delivers by its gather mode at completion, empty-handed too (traced, C1); open question closed | "Completion"; "Open questions"; vectors C1a, C1b |

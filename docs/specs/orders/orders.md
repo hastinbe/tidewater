@@ -86,6 +86,13 @@
   "Resulting order": reach and strike reach of the old target are defined as the reach test of "How an update runs",
   step 2, which decides whether the order's search or the walk's search runs (explains SW1's cooling case; V109, V193
   and SW1a unchanged). New open question: the range test of a two-tile attacker whose walk ended out of reach.
+- **Changes:** 2026-10-22, round 106 (save/load sweep and oracle traces, `ERRATA-round106-sweep.md` SW13 and SW11;
+  reviewed by a spec-review session, 2026-10-22, see its "Review"): "Losing the target while cooling down": an order-12
+  unit out of reach of a target it loses while cooling down shows no target and, when the cooldown has run out, walks
+  on to its strike goal before it loses the target (traced, SW13a); a unit in reach keeps showing the target through
+  the cooldown (SW13b), and the killer goes idle without walking, out of reach too (V165, SW13c). The old text's "with
+  no target" held only for the killer. The open question "The range test of a two-tile attacker out of reach" is
+  closed as its default said (own-tile measure; traced, SW11b to SW11e). No other rule changed.
 
 ## Behaviour
 
@@ -828,13 +835,34 @@ if there is one, instead of going idle.
 **Losing the target while cooling down.** In orders 12, 15 and 16 each run is, in this order: the target search, the
 cooldown test of the strike decision (below), then the target check. A unit whose target has died or been lost while it
 is still cooling down stops at the cooldown test as usual: its attack animation restarts with the cooldown left as its
-wait, and its pending order is cleared. It stays in its order, with no target, until the cooldown runs out; the target
-is found lost at the first run after that, and the unit goes idle (or resumes, in Enhanced mode) then (traced:
-`xorc01-death-knight-2100`, vector V165).
+wait, and its pending order is cleared. It stays in its order until the cooldown runs out. What it shows meanwhile, and
+what it does then, depends on the case (round 106; "in reach" is the reach test of "How an update runs", step 2, from
+the unit's own tile):
+
+- **In reach of the target:** the target check comes after the cooldown test, so the unit keeps showing the target
+  through the cooldown. The target is found lost at the first run after the cooldown has run out, and the unit goes
+  idle (or resumes, in Enhanced mode) then (traced: `xhuman5-30000`, SW13b).
+- **The killer** forgets its victim at the blow (below), so it shows no target through the cooldown, and it goes idle
+  (or resumes) at the first run after the cooldown, without walking, even when the victim had stepped out of its reach
+  before the blow landed (traced: `xorc01-death-knight-2100`, V165; SW13c).
+- **Order 12, out of reach of the target, not the killer:** from the run that finds the target lost the unit shows no
+  target. At its first run after the cooldown has run out it does **not** go idle: it walks on, still in order 12,
+  toward the strike goal it was walking to (its old target's tile, with its attack range as the radius), by the normal
+  walk and blocked rules. On arrival there, or with no route, the target is lost as usual: the pending order, or idle
+  with the Enhanced resume, takes over (still animation, wait 3). Traced once (SW13a). This fits "Walking orders":
+  out of reach the walk runs, its step 2 drops the lost target and the order's logic then runs with no target and
+  stops at the cooldown test; afterwards the walk, with no target, heads for the stored goal (a reading of the stated
+  steps; no rule changed by it).
+- **Out of reach and not cooling down:** the target is lost in that run, and the unit goes idle at once (traced:
+  SW13d).
+
+**Gap-fill (untraced):** an order-12 unit out of reach whose old target's slot is released before its cooldown runs
+out walks on to the goal it had, as above.
 
 A target that dies keeps its HP and its own target through its death animation (`combat/damage.md`, "Applying
 damage"). The unit that killed it forgets it at once, in the step that applies the blow, without changing its order.
-Every other unit attacking it keeps it as its target until its own next logic run, where the target is lost as above.
+Every other unit attacking it keeps it as its target until its own next logic run, where the target is lost as above
+(for a unit still cooling down, by the cases of "Losing the target while cooling down").
 
 **A dying attacker in orders 9, 11 and 17.** Each time the logic of order 9 (attack a unit), 11 (attack a wall tile) or
 17 (attack the ground) runs, the unit first checks its recorded attacker: if the attacker is dying or no longer in play,
@@ -1689,6 +1717,10 @@ listed; the units' updates that follow are in cycle record n + 1 on.
 | V137 | As V136 (`orc09-naval-1500`), destroyer 1497, n = 513 | Order 16 on 1511, animation 4, wait 3 (not order 12) | Trace (`orc09-naval-1500`) |
 | V138 | A unit in order 9 whose recorded attacker is alive and whose target is valid | Attacker kept | Example |
 | V165 | `xorc01-death-knight-2100` (oracle trace): ogre 1488 (type 0x07, owner 5) in order 12 kills its target at n = 907 (target null) while cooling down | n = 915: order 12, animation 4, frame 0, wait 15, target null. n = 930: order 10 (the resumed attack-move), still animation, wait 3 | Trace (`xorc01-death-knight-2100`) |
+| SW13a | `sweep-xhuman5-sl-xhuman5-aigoals-aigroups-aijobs-airesearch-aiworkers-game-vision-39740` (save/load sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py sl-capture xhuman5`), the second loaded game: computer grunt 1587 (type 0x01, owner 7) in order 12 on peasant 1592 (type 0x02, owner 1) at (0, 0); 1587 at (0, 2), two tiles away (range 1), its way blocked by grunt 1581 at (0, 1); attack animation restarted at n = 8748 (wait 3), still cooling down. Ogre 1445 (type 0x07, owner 7, a lower slot) kills 1592 at n = 8751 | n = 8751: 1587 order 12, animation 4, wait 4, target **null**. n = 8755: order 12, animation **3** (move), wait 15, target null; steps to (1, 2) at n = 8771, (2, 1) at 8787, (1, 0) at 8803; n = 8819: order 2, animation 2, wait 3 | Trace (outside the repository) |
+| SW13b | `xhuman5-30000` (oracle trace, Enhanced): ballista 1594 (type 0x08, owner 1) at (8, 7) in order 12 on axe thrower 1438 (type 0x09, owner 7) at (9, 11), in reach; 1438 starts dying at n = 23964; 1594 isn't its killer | n = 23965: 1594 order 12, animation 4, wait 63, target **1438** (still shown while it cools down) | Trace |
+| SW13c | As SW13a, the second loaded game: ogre 1449 (type 0x07, owner 7) at (1, 4) strikes peasant 1595, which has stepped to (0, 6) (two tiles away, out of reach), and kills it at n = 8750 | n = 8750: 1449 target null at once (the killer's rule), animation 4, wait 5; animation-4 frames to n = 8767; n = 8768: order 2, animation 2, wait 3 at (1, 4), no walk | Trace (outside the repository) |
+| SW13d | As SW13a, the first loaded game: knight 1588 (type 0x06, owner 1) walking in order 12 (move animation), out of reach and not cooling down, loses its target 1480 | n = 461: order 2, animation 2, wait 3 at (8, 9); no walk on | Trace (outside the repository) |
 
 ### Follow
 
@@ -1747,6 +1779,10 @@ listed; the units' updates that follow are in cycle record n + 1 on.
 | V270 | `orc9-orc09-hold-resume-hits-goals-1600` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-hold-resume.txt`): catapult 1494 (type 0x05, owner 5, the human player) on an attack-move to (8, 87) (order 10 from n = 24); its walking search picks footman 1485 (owner 0), which fights grunts of player 5 near (5, 86) | n = 957: order 12, attack animation, wait 3, target 1485, goal (5, 86). n = 960: fire held: order 10, still animation, wait 3, target none, goal (8, 87) (the attack-move given again). n = 963: order 10, move animation, wait 1, a step to (12, 89); the walking search pends 12 on 1485 again. The same repeats at n = 995/998, 1033/1036 and 1071/1074 | Trace (`orc9-orc09-hold-resume-hits-goals-1600`) |
 | V271 | As V270 (`orc9-orc09-hold-resume-hits-goals-1600`), catapult 1494 at (9, 87), 1 tile from (8, 87) | n = 1109: order 12, wait 3, target 1485. n = 1112: fire held: order 2, still animation, wait 3, target none, goal (5, 86) (the attack-move is complete, so it is forgotten). From n = 1115 its idle logic picks 1485 (order 16, wait 3) and holds again at n = 1118: orders 16 and 2 alternate every 3 cycles | Trace (`orc9-orc09-hold-resume-hits-goals-1600`) |
 | SW11a | `sweep-human13` (oracle sweep trace, Enhanced, kept outside the repository) and the committed window `win-human13-game-goals-37700-37780` (`EXTRAS=game,goals`): battleship 1426 (type 0x20, owner 1, the human player; no input) at (42, 94), range 6. n = 37737: order 12 on axe thrower 1388 (owner 4) at (49, 96): 7 tiles by its own tile, 6 by its footprint, so out of reach; animation 4, wait 3. Ogre 1421 (owner 4) at (50, 96) attacks player 1's shipyard 1427 (type 0x48) at (48, 93), whose footprint covers (49, 95) and (50, 95), inside 1421's 3 × 3 | n = 37740: order 12 on **1421** (pending 12, goal (50, 96)), a step east to (44, 94): animation 3, wait 1, facing 2; it walks on east (pixel x 1346 at n = 37741 … 1392 at n = 37780). No hold (holding would give order 2 at (42, 94), still animation, wait 3) | Trace (`win-human13-game-goals-37700-37780`) |
+| SW11b | `mp-r106-sw11-mp-r106-sw11-fixed-game-goals-1500` (oracle trace, Enhanced, generated map `R106-sw11.pud`, `EXTRAS=game,goals`): human battleships (type 0x20, range 6) A at (10, 10), C at (40, 10) and D at (40, 30), each in a lake its own size (no route), idle; orc farms at own-tile distance 7 and footprint gap 6, east, south and diagonal | No ship takes its farm and no farm loses hit points to n = 1500 | Trace |
+| SW11c | Same trace: control battleship B at (10, 30), farm at (16, 30): own 6, gap 5 | B takes order 16 at start-up and strikes about every 230 cycles: farm 400 → 306 hit points at n = 25, then 243, 149, 76; destroyed at n = 945 | Trace |
+| SW11d | Same trace: battleship E at (10, 50), farm at (17, 50): own 7, gap 6; attack command at n = 38 | Order 9 (attack animation) from n = 39, then idle at n = 42 with goal (17, 50); no strike | Trace |
+| SW11e | `mp-r106-sw11b-mp-r106-sw11b-fixed-game-goals-1500` (oracle trace, Enhanced, generated map `R106-sw11b.pud`): battleships in two-tile channels whose near end leaves them at own 7, gap 6 from a farm: F patrols, G and I attack-move, H attacks | F takes the farm at n = 258 (goal (17, 10)) and goes idle in the same update; G and I arrive and go idle; H walks to (10, 50) and goes idle at n = 305. No farm loses hit points to n = 1500 | Trace |
 
 ### Boarding moves
 
@@ -2052,14 +2088,11 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   Round 75 (static study) adds the same for the Enhanced demolition unit: one with no remembered order runs no search,
   but the reaction it goes on to still forgets a dying attacker, and so does the flee from an attacker it can't
   attack. Default: a skipped search doesn't skip the dying-attacker forget.
-- **The range test of a two-tile attacker out of reach** (round 105, static study only). The reach test that decides
-  between the order's logic and the walk measures from the attacker's own tile (traced, SW11a). Whether the range
-  test inside the order's logic (step 5 of "Attack orders"), which matters only when the logic runs with the target
-  out of reach (the walk ended by no route, for example), uses the same own-tile measure or the gap between the two
-  footprints is not traced; they differ only for two-tile attackers (ships; two-tile flyers). Default: the own-tile
-  measure, as "Attacking without moving" and `movement/movement.md`, "Arriving", state. Trace request: a battleship
-  or juggernaught 7 tiles from its target by its own tile and 6 by its footprint (range 6), with no route toward it,
-  on a generated map: does it strike or not?
+- **The range test of a two-tile attacker out of reach** (round 105): **closed in round 106, as its default said.** The
+  range test inside order 12's logic uses the own-tile measure, like the reach test that chooses between the logic and
+  the walk. A battleship 7 tiles from a farm by its own tile and 6 by the gap between the footprints (range 6) never
+  strikes, whether idle, given an attack, a patrol or an attack-move, including a patrol that takes the farm as its
+  target where its walk ended (traced: SW11b to SW11e).
 - **Friendly fire before the lost-target check.** "Friendly-fire check (orders 12, 15 and 16)" puts the check after
   the cooldown test and the target check. If "the target check" there means the lost-target check, the static study
   disagrees: it finds the check after the kind check but before the lost-target and range checks, made on the target's
@@ -2195,3 +2228,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 103 | Command 4's smart-move step: workers, tankers, demolition units and casters only; transports get plain order 4 (static study, CB2) | "Commands" (table); "Boarding moves" |
 | 104 | A cooling unit switching out of reach stands only within strike reach of its old target; otherwise the command case and its step (traced, SW1); V109's cause is a blocked step; order 30's far walk keeps class and step size (SW6) | "Resulting order"; "Order 30's radius"; vector SW1a |
 | 105 | Order 12 makes the friendly-fire check only within reach of its target, by the own-tile reach test; out of reach it walks (traced for a battleship, SW11); reach and strike reach of the old target defined as that test, which explains SW1's cooling case | "Friendly-fire check (orders 12, 15 and 16)"; "Resulting order"; "Open questions"; vector SW11a |
+| 106 | Losing the target while cooling down: in reach the target is still shown, the killer goes idle without walking, and order 12 out of reach walks on to its strike goal before losing it (traced, SW13); the two-tile range-test question closed (own-tile measure, SW11b to SW11e) | "Losing the target while cooling down"; "Open questions"; vectors SW11b to SW11e, SW13a to SW13d |

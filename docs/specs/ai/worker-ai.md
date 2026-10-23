@@ -92,6 +92,10 @@
 - **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW7; reviewed by a spec-review session,
   2026-10-22): "Done marks": a new game's game-start marks come before the mission start, so what it grants marks
   nothing (traced outcome, SW7a; the place in the setup is static study).
+- **Changes:** 2026-10-22, round 106 (oracle trace, `ERRATA-round106-sweep.md` SW7; reviewed by a spec-review
+  session, 2026-10-22, see its "Review"): the spells a map's `ALOW` section gives a computer player are marked done at
+  the game start (traced, SW7b). `ALOW` is a header section, read before the marks, so the open question "Game-start
+  marks and the map's own sections" rested on a misplaced example and is closed. No rule changed.
 
 ## Behaviour
 
@@ -298,7 +302,9 @@ stopping at an 0xFF entry. For each entry:
   marks are made **before the mission start** of `game/victory.md` (traced: `sweep-xorc9`, SW7a), so the spells,
   research and upgrade levels the mission start grants mark nothing: those entries stay open until the research or
   upgrade starts, or until a load makes the game-start marks again. By static study they are made when the player
-  slots are chosen (`game/setup.md`, "Order of the steps", step 4), before the map's units are created. The codes: 0x80, 0x81
+  slots are chosen (`game/setup.md`, "Order of the steps", step 4), before the map's units are created. The map's
+  header sections, `ALOW` among them, are read before that (step 2), so the spells an `ALOW`
+  section makes known to a player are marked (traced: SW7b). The codes: 0x80, 0x81
   and 0x86 to 0x8F when the upgrade line has already reached the level the code asks for; codes 0x82 to 0x85 when
   the item is already researched; and codes 0x90 to 0x97 when the player already knows the human or the orc item of
   the code (its spells-known bit; Data, "Spell bits for done marks at game start").
@@ -703,12 +709,18 @@ An entry is marked done at the start of a game when either bit of its code is se
 | --- | --- |
 | **SW7a.** `sweep-xorc9` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`; Beyond the Dark Portal orc 9, mode Q; the map has no `ALOW` section), the setup record: player 1, a computer player, whose build list has entries 21, 22 and 23 with codes 0x90, 0x91 and 0x92; after the mission start it knows spell bits 1, 3 and 20 | Player 1's done marks: none (still none at n = 3000). With the research fields left out, the trace's other fields match a build that marks 21, 22 and 23 up to n = 60000 |
 
+### Round-106 vectors
+
+| Input | Expected |
+| --- | --- |
+| **SW7b.** `mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400` (oracle trace, Enhanced, committed in round 99; generated map `R99-tests.pud`): the map's `ALOW` section grants computer player 2 invisibility (spells-known word 128); player 2's build list has entry 32 with code 0x95 (invisibility). Computer player 3 has the same list and no grant | Setup record: player 2's done marks 0, 14 and **32**; player 3's none |
+
 ## Open questions
 
-- **Game-start marks and the map's own sections** (round 104, SW7). By static study the game-start marks come before
-  the map's body sections are read (`game/setup.md`, steps 4 and 6), so what those sections give a player (an
-  `ALOW` section's spells, for example) would mark nothing either. Untraced: SW7a's map has no `ALOW` section.
-  **Default:** as stated (marks before the body sections).
+- **Game-start marks and the map's own sections** (round 104, SW7): **closed in round 106.** `ALOW` is a header
+  section (`game/setup.md`, step 2), read before the game-start marks of step 4, so its spells are marked (traced:
+  SW7b). The body sections read after the marks (`game/setup.md`, step 6: the tile, movement, oil and region maps
+  and `UNIT`) give a player no spell, research or level, so nothing is left open.
 
 - **Worker or tanker choice** (round 85; held, erratum 6). Static study reads the job-choice dispatch as
   testing the **worker** flag first: any worker takes the worker's job choice (a sea worker only gets the oil-depot
