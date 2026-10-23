@@ -1,6 +1,6 @@
 # Tidewater documentation
 
-**Start with the [project README](../README.md)** to build and run Tidewater. This page indexes the design documents and the behaviour specifications behind the code.
+**Start with the [project README](../README.md)** to install, import your game files and play. This page indexes the design documents and the behaviour specifications behind the code.
 
 ## Design documents
 
@@ -8,11 +8,15 @@ Design documents explain how the code is organised and why. They live in [`desig
 
 | Document | What it covers |
 |---|---|
-| [Game-file import](design/import.md) | How `--import` finds, checks and copies your *Warcraft II* files into Tidewater's data directory, the exit codes, and what later phases (CD images, the GOG installer) add. |
-| [An engine-neutral client core](design/client-core.md) | How the client is a plain-Rust core that a shell calls once per frame, the SDL 3 shell, the frame and audio snapshot tests, and the record of the move from Bevy to SDL 3. |
-| [Network play](design/network.md) | Lockstep over TCP: running a host and joiners (`--host`, `--join`), the turn engine, the sync check, leaving and dropping, protocol, and the spec gaps. |
+| [Game-file import](design/import.md) | How `--import` finds, checks and copies your *Warcraft II* files into Tidewater's data directory: game folders, the GOG installer and CD images, the first-run screen and the exit codes. |
+| [An engine-neutral client core](design/client-core.md) | How the client is a plain-Rust core that a shell calls once per frame, the SDL 3 shell, the platform and storage seams, widescreen, and the frame and audio snapshot tests. |
+| [Network play](design/network.md) | Lockstep over TCP: the menus, running a host and joiners (`--host`, `--join`), the turn engine, the sync check, leaving and dropping, protocol, and the spec gaps. |
+| [Multiplayer determinism](design/multiplayer-determinism.md) | What keeps the simulation identical on every machine in a lockstep game, the rules new sim code must follow, and which local-player reads are still open questions. Also the session layer and the `.twrep` replay format. |
+| [Optional improvements](design/extras.md) | The registry of optional extras, how the settings file, flags and lobby carry them, and how to add one. |
+| [Touch input](design/touch.md) | Gestures, the on-screen controls, scaling, and desktop touch emulation. |
 | [Tidewater on iOS](design/ios.md) | Building the iPhone and iPad app, signing through an xcconfig, importing game files on a phone, background pause and resume, and the limits. |
-| [Multiplayer determinism](design/multiplayer-determinism.md) | What keeps the simulation identical on every machine in a lockstep game, the rules new sim code must follow, and which local-player reads are still open questions for network play. Also the session layer and the `.twrep` replay format. |
+| [Tidewater on Android](design/android.md) | Building the Android app, importing game files with the system picker, landscape and background pause, and the limits. |
+| [Cutting a release](release.md) | The develop and main branches, how the version is chosen, what gets published, and how self-update works. |
 
 ## Specifications
 
@@ -21,7 +25,7 @@ Specifications describe **what** the original game does, never how its code does
 | Area | What it specifies |
 |---|---|
 | [`specs/core`](specs/core/) | Timing and random numbers, unit slots and creation order, unit animation scripts, corpses and wrecks. |
-| [`specs/game`](specs/game/) | The life of a game, setup from a map, victory and defeat, rescue, cheat codes, campaign flow (briefings and end screens), saving and loading. |
+| [`specs/game`](specs/game/) | The life of a game, setup from a map, victory and defeat, rescue, cheat codes, campaign flow (briefings and end screens), saving and loading, diplomacy. |
 | [`specs/orders`](specs/orders/) | The order list, commands, pending orders and target acquisition; transports (boarding, landing, unloading). |
 | [`specs/movement`](specs/movement/) | Tile steps and arrival, path search, occupancy and passability, placing a unit on a free tile. |
 | [`specs/combat`](specs/combat/) | Damage, armour, attack timing and missiles; attack-ground and demolish. |
@@ -29,7 +33,8 @@ Specifications describe **what** the original game does, never how its code does
 | [`specs/economy`](specs/economy/) | Harvesting, construction, training, research and food, the tech tree, repair, walls. |
 | [`specs/vision`](specs/vision/) | Fog of war, sight and detection. |
 | [`specs/ai`](specs/ai/) | The computer player: its model, scripts, workers, training and research, army and attacks, spell casting. |
-| [`specs/ui`](specs/ui/) | Screen layout and pointers, the map view, minimap, selecting and commanding, command buttons, the information panel, building placement, messages, the game menu, sounds, music, palette effects. |
+| [`specs/ui`](specs/ui/) | Screen layout and pointers, the map view, minimap, selecting and commanding, command buttons, the information panel, building placement, messages, the game menu, the multiplayer menus, lobby and score screen, sounds, music, palette effects. |
+| [`specs/net`](specs/net/) | Lockstep turns, stalls, leaving and dropping players. |
 | [`specs/oracle`](specs/oracle/) | The per-cycle trace format used to compare the simulation with recordings of the original game (`twtool oracle`). |
 
 ## Related files

@@ -20,7 +20,7 @@ before writing any code, and follow it exactly.
 - `crates/formats`: readers for the installation's data (MPQ archives, PUD maps, tilesets, GRP sprites (compressed
   and uncompressed), PCX images, raw interface pictures and cursors (`raw`), fonts (`fnt`), Smacker video (`smk`), string tables, unit and
   upgrade tables, map restrictions).
-- `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
+- `crates/twtool`: inspection CLI (`import-check`, `disc-list`, `mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
   `strings`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
   whole-map behaviour snapshot `tests/snapshot.rs` checks, `replay`: verify a `.twrep`, `desync-diff`: find the first differing cycle and field).
 - `crates/import`: game-file import (`source`: what a path is, `validate`: key-file checks, `copy`: allowlisted copy
@@ -50,6 +50,8 @@ before writing any code, and follow it exactly.
   `touchemu.rs` the mouse as fingers (`--touch-emulation`) and `touch.rs` the core's glue (`Core::touch`).
   `session.rs` is the `Session` trait between the game screen and the sim (`LocalSession`, `ReplaySession`); `net/` is network play (`proto`: messages and identity, `tcp`, `lockstep`: `NetSession`, `lobby`: the command-line host and join, `room`: the menu lobby's host and guest ends with map transfer, `beacon`: the LAN game-list UDP packet; `docs/design/network.md`).
   `mpmenu.rs` is the multiplayer menus (Multi Player Game to the game list and Direct IP), `mpwidgets.rs` their edit boxes and pop-ups, `lobbyscreen.rs` the game setup lobby; `chat.rs` is the in-game chat line, sent as `Msg::Chat` outside the turns.
+  `extras.rs` is the optional improvements' registry, settings and flags (`docs/design/extras.md`); `update.rs` is the desktop self-update
+  (the release check, "Update now"; `docs/release.md`).
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
   The window shows one picture composed on the CPU, 640 × 480 or wider in a game with the `widescreen` option (`compose.rs`, `widescreen.rs`; `core.rs` places the layers, the shell
@@ -74,8 +76,10 @@ before writing any code, and follow it exactly.
 - The toolchain is pinned in `rust-toolchain.toml`; dependencies track their newest releases.
 - Building needs CMake and a C compiler besides Rust (SDL 3 is built from source). GitHub Actions
   (`.github/workflows/ci.yml`) runs fmt, clippy and the tests without game data, plus release builds on Linux, macOS
-  and Windows; the full check with game data and oracle traces is still run locally.
-- `cargo fmt`, `cargo clippy --all-targets` (no warnings) and `cargo test` before every commit.
+  and Windows and the iOS Simulator and Android libraries; the full check with game data and oracle traces is still
+  run locally. `.github/workflows/release.yml` builds the downloads (`docs/release.md`).
+- Before every commit run `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`.
 - Conventional commits (`feat:`, `fix:`, `docs:`, ...): they decide the release version. Work lands on `develop`; merging
   it into `main` cuts a release (`docs/release.md`).
 - Cite the public source for every format detail in the module doc of the code that uses it.
+- Rules modes: Enhanced is the default and the target; Classic is opt-in and multiplayer only. Say so in any doc that mentions rules.
