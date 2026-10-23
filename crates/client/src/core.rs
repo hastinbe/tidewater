@@ -263,6 +263,8 @@ impl Core {
             self.stored.0.update_check,
             self.script.is_some(),
         );
+        let on = !self.opts.no_update_check && self.stored.0.update_check && self.script.is_none();
+        self.updater.check_location(self.stored.0.move_notice_seen, on);
     }
 
     /// Runs one frame, `elapsed` real time after the last, and returns the screen it composed.

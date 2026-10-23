@@ -168,7 +168,7 @@ pub fn launch(mut args: Args) -> Result<Launch> {
     let mut desktop = match &args.install {
         // The developer override reads the files in place.
         Some(install) => storage::Desktop::new(install, saves, settings, user),
-        None if tidewater_import::is_imported(&data) || first_run_scene => {
+        None if (tidewater_import::is_imported(&data) && !args.reimport) || first_run_scene => {
             storage::Desktop::from_data_dir(&data, saves, settings, user)
         }
         // A script or a run without a window can't use the first-run screen.

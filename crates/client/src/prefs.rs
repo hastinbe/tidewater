@@ -87,6 +87,8 @@ pub struct Prefs {
     pub mp_port: String,
     /// Whether the start-up check for a newer release runs (`update`); the `update_check` line, on by default.
     pub update_check: bool,
+    /// The "move Tidewater to Applications" notice (`update`) has been shown once; the `move_notice_seen` line.
+    pub move_notice_seen: bool,
     /// Ctrl+M's remembered music volume, while the music is off by it.
     music_before: Option<u8>,
     /// Ctrl+S's remembered digital volume.
@@ -113,6 +115,7 @@ impl Default for Prefs {
             mp_address: String::new(),
             mp_port: "6112".to_string(),
             update_check: true,
+            move_notice_seen: false,
             music_before: None,
             digital_before: None,
         }
@@ -185,6 +188,7 @@ impl Prefs {
                 "mp_method" => p.mp_method = text.parse::<u8>().ok().filter(|&m| m <= 2).unwrap_or(p.mp_method),
                 "mp_answer" => p.mp_answer = text == "1",
                 "update_check" => p.update_check = text != "0",
+                "move_notice_seen" => p.move_notice_seen = text == "1",
                 _ => {}
             }
             let Ok(n) = value.trim().parse::<u32>() else {
@@ -209,7 +213,7 @@ impl Prefs {
     /// The text form of everything stored, ending with the `[extras]` section.
     pub fn to_text(&self) -> String {
         format!(
-            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\nmp_name={}\nmp_method={}\nmp_answer={}\nmp_address={}\nmp_port={}\nupdate_check={}\n{}{}",
+            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\nmp_name={}\nmp_method={}\nmp_answer={}\nmp_address={}\nmp_port={}\nupdate_check={}\nmove_notice_seen={}\n{}{}",
             self.game_speed,
             self.mouse_scroll,
             self.key_scroll,
@@ -223,6 +227,7 @@ impl Prefs {
             self.mp_address,
             self.mp_port,
             u8::from(self.update_check),
+            u8::from(self.move_notice_seen),
             self.extras.section_text(),
             self.keys.section_text()
         )
@@ -312,6 +317,16 @@ mod tests {
         assert!(!p.has(bit::SUBTITLES) && !p.has(bit::SYSTEM_POINTER));
         assert!(!p.has(bit::SPEECH_RECOGNITION) && !p.has(bit::SPEAK_MESSAGES));
         assert!(p.minimap_terrain);
+    }
+
+    #[test]
+    fn the_move_notice_is_remembered() {
+        assert!(!Prefs::from_text("").move_notice_seen);
+        let seen = Prefs {
+            move_notice_seen: true,
+            ..Prefs::default()
+        };
+        assert!(Prefs::from_text(&seen.to_text()).move_notice_seen);
     }
 
     #[test]

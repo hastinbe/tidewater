@@ -11,6 +11,15 @@
 //! applies (a bundle in a read-only place, a plain Linux binary, a build run from a source tree) the release page opens
 //! in the browser. A download's size is checked against the size the release lists; there is no other signing.
 //!
+//! **Testing without a release.** `TIDEWATER_UPDATE_FEED` replaces GitHub's `releases/latest` answer with a feed of the
+//! same shape: an `http(s)://` address or a path to a JSON file. With it set, the download and release-page address
+//! checks are off (the feed is trusted), and the program says so on stderr. It needs a build that has a version, i.e.
+//! one made with `TIDEWATER_VERSION` and `TIDEWATER_REPO` set (`docs/release.md`).
+//!
+//! **Where the app can't replace itself.** On macOS an app opened from the disk image, or straight from Downloads while
+//! quarantined, runs from a read-only or randomised path (App Translocation). [`needs_move`] spots that; the main menu
+//! then shows "Move Tidewater to Applications to enable updates." once, and an update offer opens the release page.
+//!
 //! The pure parts (versions, the release JSON, asset choice, when the check runs) are tested below; the network and
 //! file steps are in [`net`] and only exist on the desktop.
 
@@ -27,6 +36,12 @@ fn repo() -> Option<&'static str> {
 fn page_prefix(repo: &str) -> String {
     format!("https://github.com/{repo}/")
 }
+
+/// The version the program reports (`--version`): the tag's number for a release build, "dev" otherwise.
+pub const VERSION: &str = match option_env!("TIDEWATER_VERSION") {
+    Some(v) if !v.is_empty() => v,
+    _ => "dev",
+};
 
 /// This build's version: the tag's number for a release build, `None` for a development build.
 pub fn build_version() -> Option<&'static str> {
@@ -128,9 +143,13 @@ struct ApiAsset {
 /// Reads `repo`'s `releases/latest` answer: the release, with the asset for `platform`, if its version is newer than
 /// `current`. `None` for anything else, including JSON that isn't one.
 pub fn parse_latest(json: &str, repo: &str, current: &str, platform: Option<Platform>) -> Option<Release> {
+    parse_feed(json, &page_prefix(repo), current, platform)
+}
+
+/// [`parse_latest`] with the address every link must start with given directly (empty: any, for a test feed).
+fn parse_feed(json: &str, prefix: &str, current: &str, platform: Option<Platform>) -> Option<Release> {
     let r: ApiRelease = serde_json::from_str(json).ok()?;
-    let prefix = page_prefix(repo);
-    if r.draft || r.prerelease || !is_newer(current, &r.tag_name) || !r.html_url.starts_with(&prefix) {
+    if r.draft || r.prerelease || !is_newer(current, &r.tag_name) || !r.html_url.starts_with(prefix) {
         return None;
     }
     let version = r.tag_name.trim_start_matches('v').to_string();
@@ -138,7 +157,7 @@ pub fn parse_latest(json: &str, repo: &str, current: &str, platform: Option<Plat
         r.assets
             .into_iter()
             .find(|a| a.name.starts_with("tidewater-") && a.name.ends_with(p.suffix()))
-            .filter(|a| a.browser_download_url.starts_with(&prefix) && a.size > 0)
+            .filter(|a| a.browser_download_url.starts_with(prefix) && a.size > 0)
             .map(|a| Asset {
                 name: a.name,
                 url: a.browser_download_url,
@@ -152,6 +171,13 @@ pub fn parse_latest(json: &str, repo: &str, current: &str, platform: Option<Plat
     })
 }
 
+/// Whether a macOS app bundle at `bundle` can't be replaced by an update: it runs from the disk image (`/Volumes`),
+/// from App Translocation's randomised read-only copy, or from a folder the program can't write to (`writable`).
+pub fn needs_move(bundle: &std::path::Path, writable: bool) -> bool {
+    let s = bundle.to_string_lossy();
+    !writable || s.contains("/AppTranslocation/") || s.starts_with("/Volumes/")
+}
+
 /// What the main menu shows about the update.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
@@ -160,12 +186,16 @@ pub enum Notice {
     Offer(String),
     /// "Update now" was chosen and the download or the swap is running.
     Busy,
+    /// macOS: the app runs from a place it can't update itself in; the line says to move it to Applications.
+    MoveToApplications,
 }
 
 enum State {
     Idle,
     Offer(Release),
     Busy,
+    /// The app can't update itself where it is (see [`needs_move`]); nothing else is going on.
+    MoveHint,
     /// The update is installed (or its installer started): the program should end.
     Finished,
 }
@@ -210,10 +240,27 @@ impl Updater {
         let _ = self;
     }
 
+    /// macOS: if the app runs from a place it can't update itself in (the disk image, App Translocation, a read-only
+    /// folder) and the player hasn't been told yet (`seen`), the menu shows the move hint until the check or the player
+    /// replaces it. Does nothing elsewhere, in a development build or when updates are off.
+    pub fn check_location(&self, seen: bool, enabled: bool) {
+        #[cfg(target_os = "macos")]
+        if enabled && !seen && build_version().is_some() && net::bundle_blocks_update() {
+            self.with(|s| {
+                if matches!(s, State::Idle) {
+                    *s = State::MoveHint;
+                }
+            });
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (seen, enabled, self);
+    }
+
     pub fn notice(&self) -> Notice {
         self.with(|s| match s {
             State::Offer(r) => Notice::Offer(r.version.clone()),
             State::Busy => Notice::Busy,
+            State::MoveHint => Notice::MoveToApplications,
             State::Idle | State::Finished => Notice::None,
         })
     }
@@ -221,7 +268,7 @@ impl Updater {
     /// "Later": hides the offer until the next start.
     pub fn dismiss(&self) {
         self.with(|s| {
-            if matches!(s, State::Offer(_)) {
+            if matches!(s, State::Offer(_) | State::MoveHint) {
                 *s = State::Idle;
             }
         });
@@ -288,12 +335,32 @@ mod net {
 
     use anyhow::{Context, Result, bail};
 
-    use super::{Platform, Release, debug, page_prefix, parse_latest, repo};
+    use super::{Platform, Release, debug, page_prefix, parse_feed, repo};
 
     const USER_AGENT: &str = concat!("tidewater/", env!("CARGO_PKG_VERSION"));
 
+    /// The test feed (`TIDEWATER_UPDATE_FEED`), if one is set. Said once on stderr so it is never in use unnoticed.
+    fn feed() -> Option<String> {
+        static FEED: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        FEED.get_or_init(|| {
+            let f = std::env::var("TIDEWATER_UPDATE_FEED").ok().filter(|f| !f.is_empty());
+            if let Some(f) = &f {
+                eprintln!("tidewater: update: using the test feed {f}; address checks are off");
+            }
+            f
+        })
+        .clone()
+    }
+
+    /// Whether `url` may be downloaded or opened: on the release's repository, or anything while a test feed is set.
+    fn allowed(url: &str) -> bool {
+        feed().is_some() || repo().is_some_and(|r| url.starts_with(&page_prefix(r)))
+    }
+
     fn agent(timeout: Duration) -> ureq::Agent {
+        // GitHub answers a release download with a redirect to its file storage; ureq follows up to 10 of them.
         ureq::Agent::config_builder()
+            .max_redirects(10)
             .timeout_global(Some(timeout))
             .user_agent(USER_AGENT)
             .build()
@@ -303,13 +370,23 @@ mod net {
     /// Asks for the latest release; `Some` if it is newer than `current`.
     pub(super) fn latest(current: &str) -> Result<Option<Release>> {
         let Some(repo) = repo() else { return Ok(None) };
-        let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-        let mut resp = agent(Duration::from_secs(10))
-            .get(&url)
-            .header("Accept", "application/vnd.github+json")
-            .call()?;
-        let body = resp.body_mut().with_config().limit(1 << 20).read_to_string()?;
-        Ok(parse_latest(&body, repo, current, Platform::current()))
+        let (url, prefix) = match feed() {
+            Some(f) => (f, String::new()),
+            None => (
+                format!("https://api.github.com/repos/{repo}/releases/latest"),
+                page_prefix(repo),
+            ),
+        };
+        let body = if url.starts_with("http://") || url.starts_with("https://") {
+            let mut resp = agent(Duration::from_secs(10))
+                .get(&url)
+                .header("Accept", "application/vnd.github+json")
+                .call()?;
+            resp.body_mut().with_config().limit(1 << 20).read_to_string()?
+        } else {
+            std::fs::read_to_string(&url).with_context(|| format!("reading the feed {url}"))?
+        };
+        Ok(parse_feed(&body, &prefix, current, Platform::current()))
     }
 
     /// Installs the release. `Ok(true)`: done, the program should end (the installer runs or the new copy starts).
@@ -343,9 +420,14 @@ mod net {
 
     /// Downloads `url` to `dest`, failing unless it is exactly `size` bytes.
     fn download(url: &str, size: u64, dest: &Path) -> Result<()> {
-        if !repo().is_some_and(|r| url.starts_with(&page_prefix(r))) {
+        if !allowed(url) {
             bail!("unexpected download address");
         }
+        fetch(url, size, dest)
+    }
+
+    /// [`download`] without the address check.
+    pub(super) fn fetch(url: &str, size: u64, dest: &Path) -> Result<()> {
         let mut resp = agent(Duration::from_secs(30 * 60)).get(url).call()?;
         let mut reader = resp.body_mut().with_config().limit(size + 1).reader();
         let mut file = std::fs::File::create(dest)?;
@@ -366,6 +448,16 @@ mod net {
             bail!("{:?} failed: {status}", cmd.get_program());
         }
         Ok(())
+    }
+
+    /// Whether the running `.app` can't be replaced where it is (`super::needs_move`). False when not in a bundle.
+    pub(super) fn bundle_blocks_update() -> bool {
+        let Some(bundle) = running_bundle() else { return false };
+        let probe = bundle
+            .parent()
+            .map(|p| p.join(format!(".tidewater-probe-{}", std::process::id())));
+        let writable = probe.is_some_and(|p| std::fs::create_dir(&p).is_ok() && std::fs::remove_dir(&p).is_ok());
+        super::needs_move(&bundle, writable)
     }
 
     /// The `.app` bundle the running program is in, if it runs from one.
@@ -448,7 +540,7 @@ mod net {
 
     /// Opens a web page in the browser (only ever the release page, whose address was checked).
     pub(super) fn open_page(url: &str) {
-        if !repo().is_some_and(|r| url.starts_with(&page_prefix(r))) {
+        if !allowed(url) {
             return;
         }
         let mut cmd = if cfg!(target_os = "windows") {
@@ -558,6 +650,94 @@ mod tests {
         let u = Updater::default();
         u.start_check(false, true, false);
         assert_eq!(u.notice(), Notice::None);
+    }
+
+    #[test]
+    fn a_feed_without_the_repository_prefix_is_read_with_an_empty_one() {
+        let local = SAMPLE.replace("https://github.com/owner/tidewater/", "http://127.0.0.1:8000/");
+        // With the repository's prefix a release page elsewhere is refused outright.
+        assert_eq!(parse_latest(&local, REPO, "1.0.0", Some(Platform::MacOs)), None);
+        let r = parse_feed(&local, "", "1.0.0", Some(Platform::MacOs)).unwrap();
+        assert_eq!(
+            r.asset.unwrap().url,
+            "http://127.0.0.1:8000/releases/download/v1.4.0/tidewater-1.4.0-macos.dmg"
+        );
+    }
+
+    #[test]
+    fn an_app_that_cannot_be_replaced_is_spotted() {
+        use std::path::Path;
+        let ok = Path::new("/Applications/Tidewater.app");
+        assert!(!needs_move(ok, true));
+        assert!(needs_move(ok, false));
+        assert!(needs_move(Path::new("/Volumes/Tidewater/Tidewater.app"), true));
+        let moved = Path::new("/private/var/folders/ab/xyz/T/AppTranslocation/1234-ABCD/d/Tidewater.app");
+        assert!(needs_move(moved, true));
+        assert!(!needs_move(
+            Path::new("/Applications/Games/Tidewater.app"),
+            true
+        ));
+    }
+
+    #[test]
+    fn a_download_follows_redirects_and_checks_the_size() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let body = vec![7u8; 5000];
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = body.clone();
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut c, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 2048];
+                let n = c.read(&mut buf).unwrap();
+                let head = String::from_utf8_lossy(&buf[..n]);
+                if head.starts_with("GET /release/file ") {
+                    let loc = format!("http://127.0.0.1:{port}/storage/file");
+                    write!(
+                        c,
+                        "HTTP/1.1 302 Found\r\nLocation: {loc}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                } else {
+                    write!(
+                        c,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        served.len()
+                    )
+                    .unwrap();
+                    c.write_all(&served).unwrap();
+                }
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f");
+        net::fetch(&format!("http://127.0.0.1:{port}/release/file"), 5000, &dest).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), body);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_download_of_the_wrong_size_fails() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut c, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = c.read(&mut buf).unwrap();
+            write!(
+                c,
+                "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789"
+            )
+            .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let err = net::fetch(&format!("http://127.0.0.1:{port}/f"), 9, &dir.path().join("f"));
+        assert!(err.is_err());
+        server.join().unwrap();
     }
 
     #[test]

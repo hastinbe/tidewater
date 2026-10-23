@@ -1,23 +1,23 @@
 # frame and sound fingerprints of the scripted scene `lobby` (hashes only)
 frames	1-1	156ed4086987e325
-frames	2-2	dea26e54b3c12c41
-frames	3-3	e2aa8138ad662af6
-frames	4-4	8917823d3bdbbdf5
-frames	5-5	1122c0f340a92357
-frames	6-6	b657c68f08b87963
-frames	7-7	4d0b3cc3af483eb5
-frames	8-8	d79a35fbfe7828b3
-frames	9-9	f1f8d777d067b04d
-frames	10-10	1c016ef4fb28060e
-frames	11-11	c75e7abf173b98fc
-frames	12-12	72478de0c5b6dca7
+frames	2-2	1441019148d7593b
+frames	3-3	584a40b5f6e700b0
+frames	4-4	0296f7ea0d62fb70
+frames	5-5	16681813b15494bf
+frames	6-6	d8e558fcedb56b72
+frames	7-7	97fca11a3ff36b77
+frames	8-8	0e907c6717da634a
+frames	9-9	70840faa2f4f2984
+frames	10-10	0c564bf75225e8a5
+frames	11-11	1c74e8b7a0380beb
+frames	12-12	38a5ca800b2a4f9b
 sound	14	d0e6afe865a35291	0.7516	Loop
-frames	13-28	53b86b219c9a69d9
-frames	29-32	7edd246c59d2edea
-frames	33-36	e439d18e4198d7bd
-frames	37-37	db2605ff3720db88
-frames	38-41	44704171115fc322
-frames	42-45	483916bc72f8b542
+frames	13-28	545fcae9c2d9b368
+frames	29-32	b6581ec9fb687a37
+frames	33-36	b760fbfe45f23f14
+frames	37-37	466cadb6252d7f99
+frames	38-41	44ed70ee0914ab6f
+frames	42-45	deaa8d4aa0823bcf
 frames	46-46	d923dc6d08fad01f
 shot	53	lobby	8bbaea8464abcd3f
 frames	47-53	8bbaea8464abcd3f

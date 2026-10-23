@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(about = "Tidewater, the Warcraft II: Battle.net Edition game client")]
+#[command(name = "tidewater", about = "Tidewater, the Warcraft II: Battle.net Edition game client", version = crate::update::VERSION)]
 pub struct Args {
     /// Development override: read the Warcraft II: Battle.net Edition files in place from this folder instead of the
     /// copy made by `--import`.
@@ -17,6 +17,10 @@ pub struct Args {
     /// incomplete files, 17 no space, 18 i/o error, 19 CD image).
     #[arg(long, value_name = "PATH")]
     pub import: Option<PathBuf>,
+    /// Open the import screen even though game files are already imported, to import again (a second import replaces
+    /// the first). Esc leaves without changing anything.
+    #[arg(long, conflicts_with_all = ["import", "install"])]
+    pub reimport: bool,
     /// Tidewater's data directory (the imported game files in `game`, saved games in `Save`, the settings file).
     /// Without it, the per-user data directory.
     #[arg(long, value_name = "DIR")]

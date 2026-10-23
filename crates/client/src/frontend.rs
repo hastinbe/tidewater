@@ -1491,10 +1491,18 @@ pub(crate) fn pointer_leaving(states: &Machine) -> bool {
         .is_some_and(|to| !menuscreen::pointer_stays(menu_screen(states.get()), menu_screen(to)))
 }
 
+/// The build's version for the version line: "v0.1.0" for a release build, "dev" for any other.
+fn version_label() -> String {
+    match crate::update::build_version() {
+        Some(v) => format!("v{v}"),
+        None => "dev".to_string(),
+    }
+}
+
 /// Our version line's text. The original shows its own name and version there; this program must not claim to be
 /// the original, so it shows our name and version instead.
 pub(crate) fn version_text() -> String {
-    format!("Tidewater v{}", env!("CARGO_PKG_VERSION"))
+    format!("Tidewater {}", version_label())
 }
 
 /// Draws the version line into the menu picture (screen spec, "Pointer and fades" and "Text colours", round 73): in
@@ -1617,6 +1625,10 @@ fn sync_update_notice(menu: &mut Menu, notice: &crate::update::Notice) {
         Notice::None => (None, false),
         Notice::Offer(v) => (Some(format!("Tidewater {v} is available")), true),
         Notice::Busy => (Some("Updating Tidewater...".to_string()), false),
+        Notice::MoveToApplications => (
+            Some("Move Tidewater to Applications to enable updates.".to_string()),
+            false,
+        ),
     };
     if menu.notice == text && (menu.items.len() > MAIN_BUTTONS) == buttons {
         return;
@@ -1751,6 +1763,7 @@ fn run_menu(c: &mut Core) {
         input,
         jukebox: music,
         updater,
+        stored,
         ..
     } = c
     else {
@@ -1772,7 +1785,12 @@ fn run_menu(c: &mut Core) {
         music.start_unless_playing(cf::TITLE_MUSIC);
     }
     // Not in our own spec: a newer release, found by the background check, is offered on the main menu (`update`).
-    sync_update_notice(menu, &updater.notice());
+    let notice = updater.notice();
+    sync_update_notice(menu, &notice);
+    // The move hint is shown once: it is remembered as seen from the frame the menu shows it.
+    if notice == crate::update::Notice::MoveToApplications {
+        stored.0.move_notice_seen = true;
+    }
     if updater.finished() {
         *exit = true;
         return;
@@ -3772,7 +3790,8 @@ mod tests {
     fn our_version_line_names_this_program() {
         // The original's version string isn't shown: this program doesn't claim to be the original.
         let t = version_text();
-        assert!(t.starts_with("Tidewater v"), "{t}");
+        // A test build carries no release version.
+        assert_eq!(t, "Tidewater dev");
         assert!(!t.contains("Warcraft") && !t.contains("BNE"), "{t}");
     }
 }
