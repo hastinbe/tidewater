@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tidewater
+Comment=A reimplementation of the Warcraft II: Battle.net Edition engine (bring your own game files)
+# Edit Exec to the full path of the tidewater program (see README.txt), then copy this file to
+# ~/.local/share/applications/
+Exec=tidewater
+Terminal=false
+Categories=Game;StrategyGame;

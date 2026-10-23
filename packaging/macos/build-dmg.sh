@@ -15,7 +15,10 @@ mkdir -p "$app/Contents/MacOS"
 cp "$binary" "$app/Contents/MacOS/tidewater"
 chmod 755 "$app/Contents/MacOS/tidewater"
 sed "s/@VERSION@/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
+# An ad-hoc signature (no certificate): not trusted by Gatekeeper, but Apple-silicon Macs refuse to run unsigned code.
+codesign --force --deep -s - "$app"
 ln -s /Applications "$work/dmg/Applications"
+cp "$here/Read me first.txt" "$work/dmg/"
 
 rm -f "$out"
 hdiutil create -quiet -volname "Tidewater" -srcfolder "$work/dmg" -ov -format UDZO "$out"

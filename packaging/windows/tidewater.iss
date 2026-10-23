@@ -38,12 +38,16 @@ UninstallDisplayIcon={app}\tidewater.exe
 CloseApplications=yes
 RestartApplications=no
 
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
+
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Tidewater"; Filename: "{app}\tidewater.exe"
 Name: "{group}\Uninstall Tidewater"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Tidewater"; Filename: "{app}\tidewater.exe"; Tasks: desktopicon
 
 ; No skipifsilent: after the in-game "Update now" (a silent run) this starts the game again.
 [Run]

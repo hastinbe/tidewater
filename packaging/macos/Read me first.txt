@@ -1,0 +1,15 @@
+Installing Tidewater
+====================
+
+1. Drag Tidewater onto the Applications folder in this window.
+2. Eject this disk image, then open Tidewater from Applications.
+
+The first time: Tidewater is not signed with an Apple developer certificate, so macOS asks before it opens it.
+- Right-click (or Control-click) Tidewater, choose Open, then Open again.
+- If macOS only offers "Done" or "Move to Bin": open System Settings > Privacy & Security, scroll down, click
+  "Open Anyway" next to Tidewater and confirm. You only need to do this once.
+
+Then Tidewater opens an import screen. It needs your own copy of Warcraft II: Battle.net Edition (for example the GOG
+release); it finds a GOG install by itself, or you can pick a folder, a GOG installer or a CD image.
+
+Move Tidewater to Applications before you play: an app run from this disk image can't update itself.
