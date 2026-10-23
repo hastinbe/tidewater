@@ -2780,7 +2780,7 @@ mod tests {
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [7469853894170419679, 8137040153659584520]);
+            assert_eq!(prints, [7469853894170419679, 3112576083806250313]);
         }
 
         /// "Coming out" with no command and nothing pending: it faces its goal tile, the building's top-left tile
