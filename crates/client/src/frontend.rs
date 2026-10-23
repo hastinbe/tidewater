@@ -1614,8 +1614,9 @@ fn menu_input(
 const MAIN_BUTTONS: usize = 5;
 /// Where the update notice line is: under the fifth button.
 const UPDATE_NOTICE: Rect = Rect::new(0, 427, 640, 18);
-/// The update offer's buttons, side by side under the notice in the 106 × 28 faces.
-const UPDATE_BUTTONS: [Rect; 2] = [Rect::new(208, 448, 106, 28), Rect::new(326, 448, 106, 28)];
+/// The update offer's buttons, side by side under the notice in the 164 × 28 faces: the 106-wide faces are narrower
+/// than the label "Update now" in `font12x`. The pair is centred on the 640-wide picture with a 12-pixel gap.
+const UPDATE_BUTTONS: [Rect; 2] = [Rect::new(150, 448, 164, 28), Rect::new(326, 448, 164, 28)];
 
 /// Makes the menu show what the updater offers (`update`): a notice line and the "Update now" and "Later" buttons, a
 /// busy line while it downloads, or nothing.
@@ -1659,8 +1660,7 @@ pub(crate) fn enter_menu(c: &mut Core) {
         ("Show Credits", Some('C')),
         ("Exit Program", Some('x')),
     ]);
-    // spec gap: Tidewater has no network play yet (milestone M3), and the spec defines no look for a button that can't
-    // be used, so Multi Player Game takes the menu buttons' disabled face (grey, no focus, hotkey inert).
+    // Multi Player Game opens the multiplayer menus (`enter_multiplayer`); all five buttons are always enabled.
     open_menu(c, &[], items, AppState::MainMenu);
 }
 
@@ -3499,6 +3499,20 @@ mod tests {
             steps: steps.iter().cloned().collect(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_update_buttons_have_faces_fit_the_screen_and_do_not_overlap() {
+        for r in UPDATE_BUTTONS {
+            assert!(menuscreen::face_set(r.w, r.h).is_some());
+            assert!(r.x >= 0 && r.x as u32 + r.w <= 640);
+        }
+        assert!(UPDATE_BUTTONS[0].x as u32 + UPDATE_BUTTONS[0].w <= UPDATE_BUTTONS[1].x as u32);
+        // Centred on the 640-wide picture.
+        assert_eq!(
+            UPDATE_BUTTONS[0].x as u32,
+            640 - (UPDATE_BUTTONS[1].x as u32 + UPDATE_BUTTONS[1].w)
+        );
     }
 
     // The screen spec's "Pointers outside a game" and its test vectors.
