@@ -1307,14 +1307,23 @@ impl World {
         let y0 = (v_tile.1 - r).clamp(0, h - 1);
         let x1 = (v_tile.0 + v_size.0 as i32 - 1 + r).clamp(0, w - 1);
         let y1 = (v_tile.1 + v_size.1 as i32 - 1 + r).clamp(0, h - 1);
-        // Round-42 errata (`orc02-assault` grunt 1568, n = 969): only S's top-left tile is tested, and the rows reach
-        // 3 above the box's top (the vertical-order lookup's start), at least row 0.
+        // "Call for help", step 6 (round 108, traced: CH1a, CH1b): the units tested are the entries the halving search
+        // returns over the vertical list for the rows from 3 above the box's top (at least row 0) to its bottom, found
+        // as the acquisition search finds its candidates. An entry is in the box by its owner and its top-left tile's
+        // column only: there is no row test, so the list's near-sorting shows.
         let top = (y0 - 3).max(0);
-        let answering: Vec<UnitId> = self
-            .ylist
+        let gone_id = |id: &UnitId| self.unit(*id).is_none_or(|t| t.dying);
+        let front = self.ylist.iter().take_while(|id| gone_id(id)).count();
+        let list = &self.ylist[front..];
+        let rows: Vec<i32> = list
+            .iter()
+            .map(|id| self.unit(*id).map_or(i32::MIN, |t| t.tile.1))
+            .collect();
+        let answering: Vec<UnitId> = crate::acquire::row_range(&rows, top, y1)
+            .map_or(&[][..], |(lo, hi)| &list[lo..=hi])
             .iter()
             .filter_map(|&id| self.unit(id))
-            .filter(|s| s.owner == v_owner && (x0..=x1).contains(&s.tile.0) && (top..=y1).contains(&s.tile.1))
+            .filter(|s| s.owner == v_owner && (x0..=x1).contains(&s.tile.0))
             .map(|s| s.id)
             .collect();
         for sid in answering {
