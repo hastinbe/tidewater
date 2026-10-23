@@ -594,3 +594,62 @@ fn a_load_keeps_the_repair_counter() {
     b.restore(&a.save_state(), 1).unwrap();
     assert_eq!((b.units[unit].goal_x, b.units[farm].goal_x), (9, 1224));
 }
+
+/// SL34 to SL37 (traced for the land and sea armies): the land, sea and air army counts of the script conditions are
+/// restored and counted again at a load, so they double and the surplus stays; a held ship and a dying unit are
+/// not counted; the worker count comes back right; a further load adds again.
+#[test]
+fn a_load_doubles_the_army_counts_the_conditions_read() {
+    use crate::ai::Counts;
+    use tidewater_formats::udta::flags;
+    let army = || {
+        let mut w = field(16, 16);
+        w.players[1].controller = crate::ai::controller::COMPUTER;
+        let atk = flags::CAN_ATTACK;
+        for k in [0usize, 6] {
+            w.stats.0[k].flags = flags::LAND | atk;
+        }
+        w.stats.0[0x1e].flags = flags::SEA | atk;
+        w.stats.0[0x16].flags = flags::AIR | atk;
+        w.stats.0[2].flags = flags::LAND | flags::PEON;
+        w
+    };
+    let mut a = army();
+    // Land: 2 footmen and a knight; sea: a destroyer and a held destroyer; air: a gryphon; a worker.
+    for (kind, tile) in [
+        (0u8, (2, 2)),
+        (0, (2, 3)),
+        (6, (4, 3)),
+        (0x1e, (6, 3)),
+        (0x1e, (6, 4)),
+        (0x16, (5, 3)),
+        (2, (8, 2)),
+    ] {
+        a.spawn(kind, 1, tile, 0).unwrap();
+    }
+    let held = a.units.iter().rposition(|u| u.kind == 0x1e).unwrap();
+    a.units[held].held = true;
+    let live = a.ai_counts(1);
+    assert_eq!((live.land, live.sea, live.air), (3, 1, 1));
+    let mut b = army();
+    b.restore(&a.save_state(), 1).unwrap();
+    let c = b.ai_counts(1);
+    assert_eq!(
+        c,
+        Counts {
+            workers: live.workers,
+            land: 6,
+            sea: 2,
+            air: 2
+        }
+    );
+    // The count goes on rising with the units, and a further load adds the loaded units again.
+    b.spawn(0, 1, (10, 6), 0).unwrap();
+    assert_eq!(b.ai_counts(1).land, 7);
+    let mut d = army();
+    d.restore(&b.save_state(), 1).unwrap();
+    assert_eq!((d.ai_counts(1).land, d.ai_counts(1).sea), (7 + 4, 2 + 1));
+    // A human player has none, and the surplus survives in the fingerprint only once there is one.
+    assert_eq!(d.army_surplus[0], [0; 3]);
+    assert_ne!(a.fingerprint(), b.fingerprint());
+}

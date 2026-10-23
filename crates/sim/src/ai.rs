@@ -276,9 +276,22 @@ impl World {
         }
     }
 
+    /// The player's counts as the script conditions read them ("Conditions"): the live counts of
+    /// [`World::ai_live_counts`] with the surplus a load left on the three army counts added
+    /// (`ai/ai-scripts.md`, "After a load"; `game/save-load.md` SL34 to SL37). The worker count has no surplus.
+    pub fn ai_counts(&self, p: usize) -> Counts {
+        let mut c = self.ai_live_counts(p);
+        if let Some(s) = self.army_surplus.get(p) {
+            c.land += s[0];
+            c.sea += s[1];
+            c.air += s[2];
+        }
+        c
+    }
+
     /// The player's live counts ("Conditions"): workers include held units; armies count complete, unheld units
     /// with a land, air, explode, sea or critter bit and the can-attack bit.
-    pub fn ai_counts(&self, p: usize) -> Counts {
+    pub fn ai_live_counts(&self, p: usize) -> Counts {
         let mut c = Counts::default();
         for u in self
             .units
@@ -500,6 +513,24 @@ mod tests {
                 ..Default::default()
             }
         );
+    }
+
+    /// SL34 to SL36: conditions 4 to 6 read the army counts with the load's surplus, so a "wait until" on the sea or
+    /// land army passes where the live count alone would not; the worker count of condition 3 has none.
+    #[test]
+    fn conditions_four_to_six_add_the_load_surplus() {
+        let mut w = computer(&wait(1000));
+        w.ai[0].slots[0x0d] = 2;
+        w.ai[0].slots[0x0e] = 2; // land: 4
+        w.ai[0].slots[0x0f] = 3;
+        w.ai[0].slots[0x10] = 1; // sea: 3
+        w.ai[0].slots[0x11] = 1;
+        w.ai[0].slots[0x12] = 1; // air: 1
+        w.ai[0].slots[0x13] = 5; // workers: 5
+        let read = |w: &World| (3..=6).map(|c| w.condition(0, c)).collect::<Vec<_>>();
+        assert_eq!(read(&w), [false, false, false, false]);
+        w.army_surplus[0] = [4, 3, 1];
+        assert_eq!(read(&w), [false, true, true, true]);
     }
 
     #[test]

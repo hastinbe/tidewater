@@ -961,6 +961,12 @@ pub struct World {
     /// SL6, SL13 to SL15): each load adds the counts at the save, and the rules add it to every later count. Stored after the rest of
     /// the world's state (save version 16: eleven groups; version 15 had four), and left out of [`World::fingerprint`] while it is all zero.
     pub(crate) group_surplus: [[u32; crate::training_ai::DOUBLED_GROUPS]; SCRIPT_PLAYERS],
+    /// Per computer player, the surplus on the land, sea and air army counts the script conditions read
+    /// (`ai/ai-scripts.md`, "After a load"; `game/save-load.md` SL34 to SL37): each load adds the live army counts
+    /// again, and the conditions add it to every later count. Kept apart from `group_surplus` because the army counts
+    /// include units no training group counts. Stored after the group surplus (save version 23) and left out of
+    /// [`World::fingerprint`] while it is all zero.
+    pub(crate) army_surplus: [[u32; 3]; SCRIPT_PLAYERS],
     /// The computer players' army: threat map, base boxes, pass counter (attack-ai spec).
     pub army: crate::attack_ai::Army,
     /// Upgrade data: the defaults, or the map's UGRD section (tech-tree spec, "Default upgrade data").
@@ -1151,6 +1157,7 @@ impl World {
             events: Vec::new(),
             ai: Default::default(),
             group_surplus: Default::default(),
+            army_surplus: Default::default(),
             army,
             upgrade_data: crate::tech::default_upgrades(),
             ai_file: None,

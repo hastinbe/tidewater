@@ -122,6 +122,7 @@ impl World {
         let mut bytes = self.core_state();
         bytes.extend(postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"));
         bytes.extend(postcard::to_allocvec(&self.extras_saved()).expect("encoding to memory"));
+        bytes.extend(postcard::to_allocvec(&self.army_surplus).expect("encoding to memory"));
         // The players left out of their own shared-vision sets (`game/diplomacy.md`, DP11); the sets and the
         // allied-victory settings themselves are in the stored `players`.
         bytes.push(self.vision_outsiders);
@@ -171,6 +172,12 @@ impl World {
                 &postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"),
             );
         }
+        if self.army_surplus != [[0u32; 3]; SCRIPT_PLAYERS] {
+            h = fnv(
+                h,
+                &postcard::to_allocvec(&self.army_surplus).expect("encoding to memory"),
+            );
+        }
         // The same for the optional improvements: they count once one is on.
         if !self.rules.extras.is_default() || !self.ext.is_empty() {
             h = fnv(
@@ -198,6 +205,8 @@ impl World {
         let ((saved, terrain, surplus), rest): ((Saved, TerrainOwned, [[u32; DOUBLED_GROUPS]; SCRIPT_PLAYERS]), _) =
             postcard::take_from_bytes(bytes).map_err(|e| RestoreError::Decode(e.to_string()))?;
         let (extras, rest): (crate::extras::Saved, _) =
+            postcard::take_from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
+        let (army_surplus, rest): ([[u32; 3]; SCRIPT_PLAYERS], _) =
             postcard::take_from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
         let [outsiders] = *rest else {
             return Err(RestoreError::Decode("the stored world ends wrongly".into()));
@@ -230,6 +239,7 @@ impl World {
         saved.put(self);
         self.group_surplus = surplus;
         self.vision_outsiders = outsiders;
+        self.army_surplus = army_surplus;
         self.rules.extras = extras.extras;
         self.ext = extras.state;
         self.rng = Rng::new(seed);
@@ -283,6 +293,8 @@ impl World {
     ///   cycle whatever phase the save was in (`game/save-load.md` SL1 to SL3; `ai/attack-ai.md`, "Timing");
     /// - the footmen-to-submarines counts of each computer player double: the surplus becomes the saved surplus plus
     ///   the counts at the save (SL4 to SL6, SL13 to SL15); the worker and tanker counts are worked out afresh;
+    /// - the land, sea and air army counts the script conditions read gain the live counts the same way (SL34 to
+    ///   SL37; `World::army_surplus`);
     /// - each player's miner, lumberjack and repairer counts, building-in-progress counts and hall cooldown are 0,
     ///   while the units keep their jobs and harvest modes (SL22 to SL25);
     /// - every research request is clear and each computer player's done marks are made again, with the load's
@@ -311,6 +323,11 @@ impl World {
             for (s, n) in s.iter_mut().zip(g.doubled()) {
                 *s += n;
             }
+            let live = self.ai_live_counts(p);
+            let a = &mut self.army_surplus[p];
+            a[0] += live.land;
+            a[1] += live.sea;
+            a[2] += live.air;
         }
         // Research requests and done marks aren't kept: every request is clear and the marks are made again
         // (`game/save-load.md` SL9 to SL12).
