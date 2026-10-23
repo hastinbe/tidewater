@@ -1440,7 +1440,13 @@ impl World {
             Fx::Shard { line, repeats, landed } => {
                 if *landed > 0 {
                     *landed -= 1;
-                    return *landed > 0 || self.gone(n);
+                    if *landed > 0 {
+                        return true;
+                    }
+                    // Round 107 (PI21a, PI21b): the removed shard touches a wall on its final tile, as the cloud does.
+                    let t = tile_of(m.pos);
+                    self.hit_wall(t, m.damage);
+                    return self.gone(n);
                 }
                 if age < 12 {
                     return true;
@@ -3728,6 +3734,27 @@ mod tests {
                 "spell {spell}, {free} free"
             );
         }
+    }
+
+    /// Round 107 (PI21a, PI21b): a shard touches a wall on its final tile when it is removed, adding 2 to the counter
+    /// (damage 10 / 4), as the landing splash does.
+    #[test]
+    fn a_removed_shard_touches_a_wall() {
+        let mut w = lab(32);
+        let px = (20 * 32 + 16, 20 * 32 + 16);
+        let n = w.terrain.at(20, 20).unwrap();
+        w.terrain.regions[n] = crate::terrain::region::WALL;
+        let fx = Fx::Shard {
+            line: Line::new(px, px),
+            repeats: 0,
+            landed: 2,
+        };
+        let slot = w.new_fx(kind::SHARD, UnitId(0), None, px, 10, fx).unwrap();
+        w.step_fx(slot);
+        assert_eq!(w.terrain.wall_damage[n], 0, "still lingering");
+        w.step_fx(slot);
+        assert_eq!(w.terrain.wall_damage[n], 2);
+        assert!(w.missiles[slot].is_none());
     }
 
     /// Spec, "Effect slots" (round 81, audit erratum 1): a landed shard whose chain finds no free slot for its next

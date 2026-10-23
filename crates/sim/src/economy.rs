@@ -23,7 +23,7 @@ use tidewater_formats::udta::{UnitStats, flags};
 use tidewater_formats::ugrd::Upgrade;
 
 use crate::tech;
-use crate::world::{SpawnError, UnitId, World};
+use crate::world::{Order, Remembered, SpawnError, UnitId, World};
 
 /// Unit types by their PUD numbers (public PUD specification).
 pub mod kind {
@@ -724,10 +724,25 @@ impl World {
         self.convert_queued(owner, from, to);
         for i in self.list_of(owner) {
             let u = &self.units[i];
-            if u.building || u.kind != from || u.dying || u.removing || u.inside {
+            // Round 107 (PI7a): a unit aboard a transport (order 36) is converted too; one inside a building, mine or
+            // platform is left out.
+            let aboard = matches!(u.order, Order::Aboard { .. });
+            if u.building || u.kind != from || u.dying || u.removing || (u.inside && !aboard) {
                 continue;
             }
             self.convert_unit(i, to);
+            // Round 107 (PI18a, PI18b): a unit on patrol takes the tile it stands on as the end it returns to, in its
+            // order and, in Enhanced mode, in its remembered patrol; the end it is heading for stays.
+            let u = &mut self.units[i];
+            let here = u.tile;
+            if let Order::Patrol { back, .. } = &mut u.order {
+                *back = here;
+            }
+            if self.rules.enhanced
+                && let Some(Remembered::Patrol { back, .. }) = &mut self.units[i].remembered
+            {
+                *back = here;
+            }
             if self.rules.enhanced && !self.units[i].held {
                 self.first_goal(i);
             }

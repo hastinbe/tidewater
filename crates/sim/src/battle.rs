@@ -663,6 +663,17 @@ impl World {
             }
             return;
         }
+        // Round 107 (PI19a): a spell order counts too: a death knight whose coil kills the victim it was set to forgets it
+        // at once, though it is still in order 51.
+        if let Order::Cast { target: Some(t), .. } = u.order
+            && self.stale(owner, t)
+        {
+            if let Order::Cast { target, .. } = &mut self.units[a].order {
+                *target = None;
+            }
+            return;
+        }
+        let u = &self.units[a];
         if let Some(t) = crate::orders::target_of(u.order)
             && self.stale(owner, t)
         {
@@ -2733,6 +2744,32 @@ mod tests {
             assert_eq!(w.forgot_other.get(&w.units[bi].id), Some(&w.units[bi].order));
             got.push(pinned(&w));
             assert_eq!(got, [9892453790001654335, 11214435385013525853]);
+        }
+
+        /// Round 107 (PI19a): a caster in a spell order whose missile kills the victim it was set to forgets it at once
+        /// and keeps its order.
+        #[test]
+        fn a_caster_forgets_the_victim_its_coil_killed() {
+            let mut w = world();
+            let caster = w.spawn(0, 1, (1, 0), 0).unwrap();
+            let victim = w.spawn(0, 1, (1, 1), 0).unwrap();
+            let ci = w.index(caster).unwrap();
+            let order = Order::Cast {
+                spell: 51,
+                target: Some(victim),
+                tile: (1, 1),
+            };
+            w.units[ci].order = order;
+            let vi = w.index(victim).unwrap();
+            w.kill_by(vi, caster);
+            assert_eq!(
+                w.units[ci].order,
+                Order::Cast {
+                    spell: 51,
+                    target: None,
+                    tile: (1, 1)
+                }
+            );
         }
 
         /// V73 to V75: a killer whose target is the victim, and one whose live target isn't, each dying afterwards.

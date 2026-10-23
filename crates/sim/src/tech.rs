@@ -677,6 +677,55 @@ mod tests {
         assert_eq!(gold(&w), g + 150);
     }
 
+    /// Round 107 (PI7a): a unit aboard a transport is converted, one inside a building is not. (PI18a, PI18b): a
+    /// patrolling unit takes the tile it stands on as the end it returns to, in its order and its remembered patrol.
+    #[test]
+    fn conversion_reaches_passengers_and_resets_a_patrols_return_end() {
+        use crate::world::{Order, Remembered};
+        let mut w = lab();
+        conversion_stats(&mut w);
+        let aboard = w.spawn(unit::ARCHER, 0, (0, 0), 0).unwrap();
+        let hidden = w.spawn(unit::ARCHER, 0, (1, 0), 0).unwrap();
+        let patrol = w.spawn(unit::ARCHER, 0, (2, 0), 0).unwrap();
+        let (a, h, p) = (
+            w.index(aboard).unwrap(),
+            w.index(hidden).unwrap(),
+            w.index(patrol).unwrap(),
+        );
+        w.units[a].inside = true;
+        w.units[a].order = Order::Aboard {
+            transport: UnitId(u32::MAX),
+        };
+        w.units[h].inside = true;
+        w.units[p].order = Order::Patrol {
+            to: (9, 9),
+            back: (5, 5),
+        };
+        w.units[p].remembered = Some(Remembered::Patrol {
+            to: (9, 9),
+            back: (5, 5),
+        });
+        w.convert(0, unit::ARCHER, unit::RANGER);
+        assert_eq!(
+            (w.units[a].kind, w.units[h].kind, w.units[p].kind),
+            (unit::RANGER, unit::ARCHER, unit::RANGER)
+        );
+        assert_eq!(
+            w.units[p].order,
+            Order::Patrol {
+                to: (9, 9),
+                back: (2, 0)
+            }
+        );
+        assert_eq!(
+            w.units[p].remembered,
+            Some(Remembered::Patrol {
+                to: (9, 9),
+                back: (2, 0)
+            })
+        );
+    }
+
     #[test]
     fn paladin_upgrade_grants_and_converts() {
         let mut w = lab();
