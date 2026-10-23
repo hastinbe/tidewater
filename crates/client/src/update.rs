@@ -673,10 +673,7 @@ mod tests {
         assert!(needs_move(Path::new("/Volumes/Tidewater/Tidewater.app"), true));
         let moved = Path::new("/private/var/folders/ab/xyz/T/AppTranslocation/1234-ABCD/d/Tidewater.app");
         assert!(needs_move(moved, true));
-        assert!(!needs_move(
-            Path::new("/Applications/Games/Tidewater.app"),
-            true
-        ));
+        assert!(!needs_move(Path::new("/Applications/Games/Tidewater.app"), true));
     }
 
     #[test]
