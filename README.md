@@ -38,12 +38,12 @@ The first time you start Tidewater with no game files, it opens an import screen
 | System | Data directory |
 |---|---|
 | macOS | `~/Library/Application Support/Tidewater` |
-| Windows | `%LOCALAPPDATA%\Tidewater\data` |
+| Windows | Game files: `%LOCALAPPDATA%\Tidewater\data`. Saved games and settings: `%APPDATA%\Tidewater\data` (it roams with your account; the game files are too big to). |
 | Linux | `~/.local/share/tidewater` (or under `$XDG_DATA_HOME`) |
 
 Imported files go in `game`, saved games in `Save`, settings in `settings.txt`. `--data-dir <dir>` moves all of it.
 
-**Import again.** Run `tidewater --reimport` to open the import screen even though files are already there, for example to use another copy of the game. A second import replaces the first, and Esc leaves it as it was. Removing the data directory removes everything Tidewater stored.
+**Import again.** Run `tidewater --reimport` to open the import screen even though files are already there, for example to use another copy of the game. A second import replaces the first, and Esc leaves it as it was. Removing the data directory (both of them on Windows) removes everything Tidewater stored.
 
 **Without a window.** `tidewater --import <path-to-game>` imports from the command line, prints a summary and exits. `twtool import-check <path-to-game>` runs the same checks and copies nothing. How the import works: [docs/design/import.md](docs/design/import.md).
 
