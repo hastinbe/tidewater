@@ -51,19 +51,27 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 
 ## Installing
 
-Download the file for your system from the [latest release](../../releases/latest). None of them contains game data; the first start opens the import screen (see [Quick start](#quick-start), step 2).
+Download the file for your system from the [latest release](../../releases/latest). None of them contains game data; the first start opens the import screen (see [Quick start](#quick-start), step 2). Each release also lists `SHA256SUMS` to check the downloads against.
 
 | System | File | How |
 |---|---|---|
-| **Windows** (x64) | `tidewater-<version>-windows-x64-setup.exe` | Run it. It installs for your user only, so it needs no administrator, and adds a Start menu entry and an uninstaller. |
-| **macOS** (Apple silicon and Intel) | `tidewater-<version>-macos.dmg` | Drag Tidewater to Applications. The app is not signed, so the first time **right-click it, choose Open and confirm**; after that it opens normally. |
-| **Linux** (x64) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. |
+| **Windows** (x64) | `tidewater-<version>-windows-x64-setup.exe` | Run it. It installs for your user only, so it needs no administrator, and adds a Start menu entry (and, if you tick it, a desktop shortcut) and an uninstaller. Windows may say "Windows protected your PC" because the installer is not signed: choose **More info**, then **Run anyway**. |
+| **macOS** (Apple silicon and Intel) | `tidewater-<version>-macos.dmg` | Open it and **drag Tidewater to Applications**, then eject the disk image. The app is not signed, so the first time **right-click it, choose Open and confirm**. If macOS offers no Open button, open System Settings, Privacy & Security and click **Open Anyway**. After that it opens normally. |
+| **Linux** (x64) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. The archive has a `tidewater.desktop` menu entry to adapt and a `README.txt`. |
+
+**Starting over.** Imported game files, saved games and settings are in your per-user data directory (see [Quick start](#quick-start)), never in the app. To import again, for example from another copy of the game, run `tidewater --reimport`; the import screen opens even though files are already there, and Esc leaves it as it was. Removing the data directory removes everything Tidewater stored.
 
 ## Updating
 
-On the desktop, Tidewater looks for a newer release in the background when it starts (one request to GitHub, nothing sent about you). If there is one, the main menu shows **Update now** and **Later**. Update now installs it on Windows (runs the installer silently and restarts the game) and macOS (replaces the app and restarts it); on Linux, or when the app's folder is not writable, it opens the release page. A failed check is ignored without a message. Development builds never check.
+On the desktop, Tidewater looks for a newer release in the background when it starts (one request to GitHub, nothing sent about you). If there is one, the main menu shows **Update now** and **Later**.
 
-Turn the check off with `update_check=0` in `settings.txt` or `--no-update-check` for one run. Cutting a release: [docs/release.md](docs/release.md).
+| System | Update now |
+|---|---|
+| **Windows** | Downloads the installer, runs it silently and restarts the game. |
+| **macOS** | Replaces the app and restarts it. This needs the app in a folder you can write to, such as Applications: run from the disk image or straight from Downloads, the main menu says "Move Tidewater to Applications to enable updates." once, and Update now opens the release page. |
+| **Linux** | Opens the release page; download the new archive and unpack it over the old one. |
+
+Downloads are checked against the size the release lists; they are not signed. A failed check is ignored without a message, and development builds never check. Turn the check off with `update_check=0` in `settings.txt` or `--no-update-check` for one run. The main menu's version line and `tidewater --version` show the release you have. Branches, versioning and cutting a release: [docs/release.md](docs/release.md).
 
 ## Features today
 

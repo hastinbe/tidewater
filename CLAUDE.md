@@ -76,5 +76,6 @@ before writing any code, and follow it exactly.
   (`.github/workflows/ci.yml`) runs fmt, clippy and the tests without game data, plus release builds on Linux, macOS
   and Windows; the full check with game data and oracle traces is still run locally.
 - `cargo fmt`, `cargo clippy --all-targets` (no warnings) and `cargo test` before every commit.
-- Conventional commits (`feat:`, `fix:`, `docs:`, ...).
+- Conventional commits (`feat:`, `fix:`, `docs:`, ...): they decide the release version. Work lands on `develop`; merging
+  it into `main` cuts a release (`docs/release.md`).
 - Cite the public source for every format detail in the module doc of the code that uses it.

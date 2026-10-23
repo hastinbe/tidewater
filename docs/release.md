@@ -1,43 +1,123 @@
-# Cutting a release
+# Releasing
 
-## Steps
+**In short:** work lands on `develop`. To release, merge `develop` into `main`. The push to `main` works out the version
+from the commit messages, builds Windows, macOS and Linux downloads, and publishes a GitHub release. Nothing else to do.
 
-1. Make sure `main` is green in CI.
-2. Tag it `vX.Y.Z` (three plain numbers) and push the tag:
+## Branches
 
-   ```sh
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
+| Branch | Job |
+|---|---|
+| `develop` | The default branch. All work lands here (pull requests target it). CI runs on every push. |
+| `main` | The release branch. It only moves by merging `develop` in; each push to it can cut a release. |
 
-3. `.github/workflows/release.yml` builds Windows x64, a universal macOS binary and Linux x64, packages them and creates
-   the GitHub release with generated notes. Check the release page when it finishes.
+Use [conventional commits](https://www.conventionalcommits.org) on `develop`: they decide the version.
 
-A tag with a suffix (`v1.2.3-rc1`) becomes a pre-release: the "latest" link and the update check ignore it.
+## How a release is cut
+
+1. Make sure `develop` is green in CI.
+2. Merge `develop` into `main` and push `main`.
+3. `.github/workflows/release.yml` runs. Check the release page when it finishes.
+
+**The version** comes from the commits since the last `v*` tag (`.github/scripts/release.py`, with tests beside it):
+
+| Commit since the last tag | Bump |
+|---|---|
+| `type!:` or a `BREAKING CHANGE:` footer | major (minor while the version is below 1.0) |
+| `feat:` | minor |
+| `fix:` or `perf:` | patch |
+| anything else (`docs:`, `chore:`, `ci:`, `test:`, `refactor:`) | no release on its own |
+
+The biggest bump wins. If nothing releasable is there, the workflow ends after its first job and publishes nothing. With no
+tag yet, the first release is `v0.1.0`.
+
+**The version lives only in the tag.** No commit bumps `Cargo.toml`, so `main` never differs from `develop`. The workflow
+passes the number to the build as `TIDEWATER_VERSION` (and `TIDEWATER_REPO`, from `github.repository`); the program reads it
+with `option_env!`. The main menu's version line and `tidewater --version` show it, or `dev` for a build without it. The
+version in `Cargo.toml` is not used.
+
+**What the workflow does, in order:**
+
+1. `plan`: runs the script's tests, computes the version and the notes.
+2. `linux`, `macos`, `windows`: build the downloads in parallel.
+3. `windows-smoke`: installs the setup program silently on a clean Windows runner, runs `tidewater --version`, uninstalls.
+4. `publish` (only when a release is due, never on a dry run): writes `SHA256SUMS`, then `gh release create` makes the tag
+   `vX.Y.Z` on the built commit and the release, with every file and notes grouped by type (breaking changes, features,
+   fixes, performance). The tag is made here because a tag made with the workflow's token would not start another workflow.
+
+## Dry run
+
+**Actions, Release, Run workflow, `dry_run` (on by default)** builds and smoke-tests everything and publishes nothing: no
+tag, no release. Run it from `develop` or `main`. If nothing is releasable it builds `0.0.0-dryrun`, a version that never
+offers updates. The run's summary shows the version and notes a real release would get. A run with `dry_run` off only
+publishes from `main`.
 
 ## What gets published
 
 | File | Made by |
 |---|---|
-| `tidewater-X.Y.Z-windows-x64-setup.exe` | Inno Setup, from `packaging/windows/tidewater.iss`. Per-user install, Start menu entry, uninstaller. |
-| `tidewater-X.Y.Z-macos.dmg` | `packaging/macos/build-dmg.sh` (`hdiutil`): `Tidewater.app` plus an Applications link. Unsigned and not notarized, so first launch is right-click, Open. The binary is the arm64 and x86_64 builds joined with `lipo`. |
-| `tidewater-X.Y.Z-linux-x64.tar.gz` | The binary, `LICENSE` and `THIRD_PARTY_NOTICES.md`. No AppImage yet. |
+| `tidewater-X.Y.Z-windows-x64-setup.exe` | Inno Setup, `packaging/windows/tidewater.iss`. Per-user install (no administrator), Start menu entry, optional desktop shortcut, uninstaller. |
+| `tidewater-X.Y.Z-macos.dmg` | `packaging/macos/build-dmg.sh`: `Tidewater.app` (ad-hoc signed), an Applications link and a "Read me first" note. The binary joins the arm64 and x86_64 builds with `lipo`. |
+| `tidewater-X.Y.Z-linux-x64.tar.gz` | `packaging/linux/build-tarball.sh`: the program, `tidewater.desktop`, `README.txt`, the licence files. No AppImage yet. |
+| `SHA256SUMS` | `sha256sum` of the three files above. |
 
-The asset names are what the update check looks for (`update.rs`), so keep them. Only the program is packaged, never
-game data.
+The asset names are what the update check looks for (`update.rs`), so keep them. Only the program is packaged, never game
+data.
 
-The tag's number is stamped into the binary through the `TIDEWATER_VERSION` environment variable at build time
-(`option_env!`). A build without it reports "dev" and never checks for updates. The version in `Cargo.toml` is not used
-for this.
+To try the packaging on your own machine: `packaging/macos/build-dmg.sh 0.0.0-test target/release/tidewater out.dmg`, or
+`packaging/linux/build-tarball.sh 0.0.0-test target/release/tidewater out.tar.gz`.
 
-To try the macOS packaging on your own machine: build, then `packaging/macos/build-dmg.sh 0.0.0-test target/release/tidewater out.dmg`.
+## Unsigned: what players see
+
+Nothing is signed with a purchased certificate, so each system warns once. The README's Installing section tells players
+what to do.
+
+| System | What happens | Way through |
+|---|---|---|
+| **macOS** | Gatekeeper refuses the first launch. The ad-hoc signature only lets Apple-silicon Macs run the code. | Right-click, Open, Open. On newer macOS: System Settings, Privacy & Security, Open Anyway. Or `xattr -dr com.apple.quarantine Tidewater.app`. |
+| **Windows** | SmartScreen says "Windows protected your PC" for the setup program. | More info, Run anyway. |
+| **Linux** | None. | `chmod +x` if the file manager dropped the executable bit. |
+
+## Self-update
+
+At start-up the program asks `https://api.github.com/repos/<TIDEWATER_REPO>/releases/latest` (no sign-in, one request). A
+newer plain version (not a pre-release or draft) puts **Update now** and **Later** on the main menu. The download is the
+asset's `browser_download_url`; GitHub answers with a redirect to its file storage, which the HTTP client follows. The
+size must match the release's listed size; there is no other signature check.
+
+| System | Update now |
+|---|---|
+| Windows | Downloads the setup program and runs it silently (`/SILENT`); it starts the game again. |
+| macOS | Downloads the disk image, copies `Tidewater.app` beside the running one, swaps them, relaunches. Files fetched this way carry no quarantine mark, so the new copy opens without the Gatekeeper prompt. |
+| Linux | Opens the release page. |
+
+**macOS: App Translocation.** An app run from the disk image, or from Downloads while still quarantined, runs from a
+read-only or randomised path (`/Volumes/...`, `.../AppTranslocation/...`) and can't replace itself. The main menu then says
+"Move Tidewater to Applications to enable updates." once (remembered as `move_notice_seen` in the settings file), and
+Update now opens the release page instead.
+
+### Testing updates without a release
+
+`TIDEWATER_UPDATE_FEED=<url or file>` replaces the GitHub answer with a file of the same shape (`tag_name`, `html_url`,
+`assets[].name/size/browser_download_url`). With it set, the address checks on downloads are off, and the program says so on
+stderr. It works in every build, but only a build that has a version does anything, so build with both variables set:
+
+```sh
+TIDEWATER_VERSION=0.1.0 TIDEWATER_REPO=test/tidewater cargo build --release -p tidewater-client   # the "old" app
+TIDEWATER_VERSION=0.2.0 TIDEWATER_REPO=test/tidewater cargo build --release -p tidewater-client   # the "new" one
+packaging/macos/build-dmg.sh 0.2.0 <new binary> feed/tidewater-0.2.0-macos.dmg
+```
+
+Put a `feed.json` in `feed/` with the new DMG's real byte size and `http://127.0.0.1:8765/...` download addresses, serve it
+with `python3 -m http.server 8765 --directory feed`, and install the old app somewhere harmless (`~/Applications/TidewaterTest/`,
+never `/Applications`). Run it with `TIDEWATER_UPDATE_FEED=http://127.0.0.1:8765/feed.json`, `--install <game folder>
+--goto menu`, and a temporary `--save-dir` and `--settings`; then press **U** (Update now) on the main menu.
+
+The relaunched copy starts with no arguments, so it uses the real per-user data folder: close it at once, and never test
+against a folder you care about. `TIDEWATER_DEBUG=1` shows the check's steps.
 
 ## The update check needs a public repository
 
-The check calls GitHub's `releases/latest` API for the repository the release was built from (`TIDEWATER_REPO`,
-set by the workflow), without signing in. While the
-repository is private that answers 404, so no update is ever offered (the failure is silent; set `TIDEWATER_DEBUG=1`
-to see it). Once the repository is public it starts working with no change. Release downloads need the repository to be
-public for the same reason.
+While the repository is private the API answers 404, so no update is offered (silently; `TIDEWATER_DEBUG=1` shows it), and
+release downloads need sign-in. Once it is public both work with no change.
 
 There is no landing page: the README and the GitHub releases page are where players start.
