@@ -233,7 +233,7 @@ packet. The client sends Hold when it enters building placement and Release when
 (Cancel, a right-click, a click off the map, the game menu, a lost selection). Placing the building sends the build
 command, and every unit command and every build releases the sender's selected held workers first, so the client sends
 no Release for those. A held worker freezes at its next animation step, which keeps it from walking into the site
-(single player and multiplayer alike). Both commands are in the replay format (version 5) and the state hash covers the
+(single player and multiplayer alike). Both commands are in the replay format (since version 5) and the state hash covers the
 frozen state, not the save (a load releases every unit).
 
 ## Pause counts and leave messages
