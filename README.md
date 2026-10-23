@@ -16,7 +16,7 @@ Download the file for your system from the [latest release](../../releases/lates
 
 | System | File | How |
 |---|---|---|
-| **Windows** (x64) | `tidewater-<version>-windows-x64-setup.exe` | Run it. It installs for your user only, so it needs no administrator, and adds a Start menu entry (and, if you tick it, a desktop shortcut) and an uninstaller. Windows may say "Windows protected your PC" because the installer is not signed: choose **More info**, then **Run anyway**. |
+| **Windows** (x64) | `tidewater-<version>-windows-x64-setup.exe` | Run it. It installs for your user only, so it needs no administrator, and adds a Start menu entry (and, if you tick it, a desktop shortcut) and an uninstaller. Uninstalling removes the program only: your imported game files and your saved games and settings (see [Where your files go](#import-your-game-files)) stay, so a reinstall picks up where you left off; delete those folders by hand if you want them gone. Windows may say "Windows protected your PC" because the installer is not signed: choose **More info**, then **Run anyway**. |
 | **macOS** (Apple silicon and Intel) | `tidewater-<version>-macos.dmg` | Open it and **drag Tidewater to Applications**, then eject the disk image. The app is not signed, so the first time **right-click it, choose Open and confirm**. If macOS offers no Open button, open System Settings, Privacy & Security and click **Open Anyway**. After that it opens normally. |
 | **Linux** (x64) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. The archive has a `tidewater.desktop` menu entry to adapt and a `README.txt`. |
 

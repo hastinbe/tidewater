@@ -55,7 +55,7 @@ publishes from `main`.
 
 | File | Made by |
 |---|---|
-| `tidewater-X.Y.Z-windows-x64-setup.exe` | Inno Setup, `packaging/windows/tidewater.iss`. Per-user install (no administrator), Start menu entry, optional desktop shortcut, uninstaller. |
+| `tidewater-X.Y.Z-windows-x64-setup.exe` | Inno Setup, `packaging/windows/tidewater.iss`. Per-user install (no administrator), Start menu entry, optional desktop shortcut, uninstaller. The uninstaller removes only the program; imported game files, saves and settings live in the user's data folders and stay. |
 | `tidewater-X.Y.Z-macos.dmg` | `packaging/macos/build-dmg.sh`: `Tidewater.app` (ad-hoc signed), an Applications link and a "Read me first" note. The binary joins the arm64 and x86_64 builds with `lipo`. |
 | `tidewater-X.Y.Z-linux-x64.tar.gz` | `packaging/linux/build-tarball.sh`: the program, `tidewater.desktop`, `README.txt`, the licence files. No AppImage yet. |
 | `SHA256SUMS` | `sha256sum` of the three files above. |
