@@ -19,8 +19,9 @@ concurrency:
 
 jobs:
   deploy:
-    # Skipped while the repository is private, so nothing is published before it goes public.
-    if: ${{ !github.event.repository.private }}
+    # Off unless the repository variable PAGES_ENABLED is "true": a project site on this account would otherwise be
+    # served under the owner's user-site custom domain.
+    if: ${{ vars.PAGES_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
