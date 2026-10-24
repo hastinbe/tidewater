@@ -1388,8 +1388,8 @@ struct Menu {
     music_tested: bool,
     /// The update notice line drawn over the picture, while the main menu offers one (`update`).
     notice: Option<String>,
-    /// The Touch Controls page shows over the main menu (`touchhelp`): any click, tap, Esc or Enter closes it.
-    help: bool,
+    /// The Touch Controls pages show over the main menu (`touchhelp`) until their OK or Esc.
+    help: Option<crate::touchhelp::Pager>,
 }
 
 /// What a menu does once its close ends.
@@ -1495,7 +1495,7 @@ fn open_menu(c: &mut Core, headings: &[(Rect, &str)], items: Vec<MenuItem>, stat
         closing: None,
         ready_at: opening.fade_in_ms as f64,
         music_tested: false,
-        help: false,
+        help: None,
         notice: None,
     };
     commands.queue(move |c| c.screens.menu = Some(menu));
@@ -1893,17 +1893,33 @@ fn run_menu(c: &mut Core) {
         *exit = true;
         return;
     }
-    // The Touch Controls page, while it shows, takes the input: a click or tap anywhere, Esc or Enter closes it.
-    if menu.help {
-        let close =
-            mouse.just_released(Button::Left) || keys.any_just_pressed([Key::Escape, Key::Enter, Key::NumpadEnter]);
-        if close {
-            menu.help = false;
-            menu.drawn = None;
-            menu.held = menuscreen::Hold::default();
-        } else if menu.drawn != Some(HELP_DRAWN) {
+    // The Touch Controls pages, while they show, take the input (`touchhelp::Pager`).
+    if let Some(help) = &mut menu.help {
+        let feed = crate::touchhelp::Feed {
+            at: pointer(input, cam).map(|p| (p.x as i32, p.y as i32)),
+            down: mouse.just_pressed(Button::Left),
+            up: mouse.just_released(Button::Left),
+            key: crate::gamemenu::help_key(keys),
+        };
+        match help.step(feed) {
+            crate::touchhelp::Outcome::Close => {
+                menu.help = None;
+                menu.drawn = None;
+                menu.held = menuscreen::Hold::default();
+                return;
+            }
+            crate::touchhelp::Outcome::Redraw => menu.drawn = None,
+            crate::touchhelp::Outcome::Same => {}
+        }
+        if menu.drawn != Some(HELP_DRAWN) {
+            // The menu's picture darkened under the panel.
             let mut p = dup(&menu.background);
-            crate::touchhelp::draw(&mut p, &front.font, &front.small, &menu.palette);
+            for px in p.rgba.chunks_exact_mut(4) {
+                for ch in &mut px[..3] {
+                    *ch /= 3;
+                }
+            }
+            help.draw(&mut p, &front.big, &front.font);
             set_image(pictures, &menu.image, p);
             menu.drawn = Some(HELP_DRAWN);
         }
@@ -1944,7 +1960,7 @@ fn run_menu(c: &mut Core) {
         Some(SETTINGS_ITEM) => menu.closing = Some((cf::SoundThenBlack::new(fades::MENUS), MenuPick::Settings)),
         // Ours: the Touch Controls page over the menu, drawn from the next frame.
         Some(TOUCH_ITEM) => {
-            menu.help = true;
+            menu.help = Some(Default::default());
             menu.drawn = None;
         }
         // A phone can't start a browser itself: the shell opens the release page (`update`).

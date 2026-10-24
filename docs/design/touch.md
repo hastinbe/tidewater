@@ -187,11 +187,21 @@ The phone rule reads the window's size and the shell's density (`touch::is_phone
 
 ## Help
 
-The **Touch Controls** page (`touchhelp`) sums up the gestures and the side bars on one page. A phone or tablet shows
-it by itself the first time a game starts (not a network game or a replay), once ever: the stored settings remember
-it with the `touch_help_seen` line (`prefs`). After that it is a button under **Help** in the game menu
-(`Screen::TouchHelp`, wherever touch is in use) and the **Touch controls** link on the main menu, above the Settings
-link, shown while touch is in use; there the page covers the menu until a tap, a click, Esc or Enter.
+The **Touch Controls** help (`touchhelp`) sums up the gestures and the side bars on two pages in a panel that fills
+most of the 640 x 480 frame: **On the map**, the gestures in two columns (the gesture in yellow, what it does in
+white), and **Buttons**, each control drawn as the bars draw it (`chrome::button_picture`, the same icons and looks,
+the one-shot and locked Shift too) beside its name and meaning, then how to pick units one by one with a locked
+Shift. Next, Back and OK under the pages are 44 pixels high and take taps 14 pixels round them, a 72-pixel target:
+about 9 mm on a phone in landscape (393 points high), more on a tablet. Enter is Next, then OK; the arrow keys turn
+the pages and Esc closes them. Every line is one line in `font12x`: a test (`touchhelp`,
+`every_line_fits_its_column_in_the_real_font`, run with `TIDEWATER_INSTALL`) measures each with the install's font
+against its column and the pages' height against the buttons.
+
+A phone or tablet shows the help by itself the first time a game starts (not a network game or a replay), once ever:
+the stored settings remember it with the `touch_help_seen` line (`prefs`). After that it is a button under **Help** in
+the game menu (`Screen::TouchHelp`, wherever touch is in use) and the **Touch controls** link on the main menu, above
+the Settings link, shown while touch is in use; there the pages cover the darkened menu until OK or Esc. Both use one
+`touchhelp::Pager` for the page and its buttons.
 
 ## Exit Program on phones and tablets
 

@@ -153,9 +153,10 @@ in yellow; a button that is on is filled yellow.
 them; tap Shift again to let go. Ctrl and Alt lock the same way.
 
 **Settings and help.** The Settings screen's Touch page changes how a drag, a tap, two fingers, the pinch and the
-holds work, the button size and which bar is which. The Touch Controls page sums all this up: a phone or tablet shows
-it at your first game, and it is under Help in the game menu and the Touch controls link on the main menu. On a phone
-or tablet there is no Exit Program (the system closes apps), and Android's Back button is Esc.
+holds work, the button size and which bar is which. The Touch Controls help sums all this up on two pages: the
+gestures, then each button as the bars draw it (Next, Back and OK turn the pages). A phone or tablet shows it at your
+first game, and it is under Help in the game menu and the Touch controls link on the main menu. On a phone or tablet
+there is no Exit Program (the system closes apps), and Android's Back button is Esc.
 
 **Try it on a desktop** with `--touch-emulation`: the mouse is one finger, and holding Alt as you press adds a second
 finger (Alt+Shift: beside the first, Alt+Ctrl: a third). How it works, and the measurements it uses, is in

@@ -888,6 +888,10 @@ fn touch_help() -> Vec<Cmd> {
         Press(Key::Enter),
         Release(Key::Enter),
         Wait(5),
+        Shot("help-2"),
+        Press(Key::Enter),
+        Release(Key::Enter),
+        Wait(5),
         Shot("closed"),
         Press(Key::F(1)),
         Release(Key::F(1)),
@@ -899,14 +903,17 @@ fn touch_help() -> Vec<Cmd> {
     ]
 }
 
-/// The main menu on a phone: the Touch controls link above the Settings link, its page over the menu, and a tap that
-/// closes it.
+/// The main menu on a phone: the Touch controls link above the Settings link, its pages over the menu, a tap on Next
+/// and one on OK, which closes them.
 fn touch_help_menu() -> Vec<Cmd> {
     use Cmd::*;
     let mut v = vec![TouchDevice, Until(AppState::MainMenu), Wait(25), Shot("menu")];
     v.extend(finger_tap(560.0, 406.0));
     v.extend([Wait(3), Shot("page")]);
-    v.extend(finger_tap(320.0, 240.0));
+    // Next, then OK in the same place on the second page (`touchhelp::buttons`).
+    v.extend(finger_tap(521.0, 436.0));
+    v.extend([Wait(3), Shot("page-2")]);
+    v.extend(finger_tap(521.0, 436.0));
     v.extend([Wait(3), Shot("closed")]);
     v
 }
