@@ -31,6 +31,7 @@ One loop serves both platforms. The desktop's `tidewater` binary and the iOS sta
 | Entry point | `platform/ios/Sources/main.c`, `tidewater_ios_main` in `sdl.rs` | `main` calls `SDL_RunApp`, which starts UIKit and then calls the Rust program once the app has launched. |
 | Document picker | `platform/ios/Sources/picker.m` | `UIDocumentPickerViewController` for a folder or a file, opened in place. |
 | Project | `platform/ios/project.yml` | xcodegen input: frameworks, `Info.plist`, orientation, file sharing. |
+| App icon | `platform/ios/Sources/Assets.xcassets` | One 1024 × 1024 `AppIcon` (no alpha) that Xcode scales for every size; drawn by `packaging/icon/render.sh` from `packaging/icon/tidewater.svg` (see [`docs/release.md`](../release.md#the-app-icon)). |
 | Script | `platform/ios/build.sh` | Builds the library, then runs xcodegen (and optionally the Simulator app). |
 
 **Why not SDL's main callbacks?** The loop already blocks inside `SDL_RunApp`'s callback, which SDL supports on iOS. A
@@ -120,4 +121,3 @@ platforms always use. Touch is active from the first frame.
 - **The picker is untried.** The Simulator run had no way to tap (no UI automation tool was available).
 - **Memory.** Imported files are about 500 MB; the app needs that much free storage and the original is not removed.
 - **Network play** is untried on the phone.
-- **No app icon.** The project has no asset catalog yet.

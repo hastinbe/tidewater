@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Tidewater's app icon: a wave cresting against a stone tower under a full moon. Our own artwork (MPL-2.0, like
+       the rest of the repository), drawn by hand from plain shapes.
+
+       The sky and the sea run 320 units past every edge of the 1024 square on purpose: Android's adaptive icon draws
+       the picture zoomed out (render.sh, its scale option) and needs the scene to carry on beyond the square. Every other
+       platform sees only the square.
+
+       After changing this file run packaging/icon/render.sh, which redraws every platform's icon from it. -->
+  <defs>
+    <linearGradient id="sky" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="760">
+      <stop offset="0" stop-color="#0c2136"/>
+      <stop offset="1" stop-color="#1d4d70"/>
+    </linearGradient>
+  </defs>
+  <!-- sky and moon -->
+  <rect x="-320" y="-320" width="1664" height="1664" fill="url(#sky)"/>
+  <circle cx="300" cy="270" r="110" fill="#f1d38c"/>
+  <!-- the tower: four merlons, a shadowed parapet and one arched window -->
+  <path d="M560 300 V190 h64 v54 h48 v-54 h64 v54 h48 v-54 h64 V300 l-24 40 V1100 H584 V340 Z" fill="#cdb98f"/>
+  <path d="M560 300 h288 l-24 40 h-240 z" fill="#a38f67"/>
+  <path d="M668 560 v-110 a36 36 0 0 1 72 0 v110 z" fill="#102a43"/>
+  <!-- the wave's body, curling over towards the tower -->
+  <path d="M-320 1344 V800 C-200 790 -90 730 0 640 C120 520 300 470 440 520 C540 556 590 640 560 700 C540 740 490 744 470 712 C500 716 520 690 506 664 C470 610 380 620 330 680 C300 716 300 760 330 790 C480 790 760 760 1024 700 C1120 680 1240 670 1344 670 V1344 Z" fill="#2aa0b4"/>
+  <!-- its foam crest -->
+  <path d="M-320 800 C-200 790 -90 730 0 640 C120 520 300 470 440 520 C540 556 590 640 560 700 C540 740 490 744 470 712 C500 716 520 690 506 664 C440 560 220 560 0 730 C-110 815 -200 845 -320 850 Z" fill="#f2f8f7"/>
+  <!-- the deeper water in front -->
+  <path d="M-320 1344 V930 C-200 925 -120 905 0 880 C240 830 480 850 700 880 C840 900 940 890 1024 860 C1140 830 1240 830 1344 840 V1344 Z" fill="#11496b"/>
+</svg>
