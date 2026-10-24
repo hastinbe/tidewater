@@ -474,6 +474,11 @@ impl GameMenu {
                 b.button(Act::Back, "OK");
                 ("Tip", false)
             }
+            Screen::Refused(_) => {
+                b.lines(&self.lines);
+                b.button(Act::Back, "OK");
+                ("Network", false)
+            }
         };
         let _ = wide;
         b.finish(title, title_h)
@@ -532,6 +537,17 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
             m.lines = wrap(front, text);
         }
         Screen::KeyHelp => m.lines = KEY_HELP.iter().map(|s| s.to_string()).collect(),
+        Screen::Refused(host) => {
+            // Network entry 28 with the host's name; ours when the install has no such table.
+            let template = front.net(REFUSED_ENTRY);
+            let template = if template.is_empty() {
+                "Only %s may do that.".to_string()
+            } else {
+                template
+            };
+            let text = crate::messages::fill_name(&template, &sim.session.player_name(host));
+            m.lines = wrap(front, &text);
+        }
         // The Settings screen is made when its first frame runs (`run_settings`), from the whole game.
         Screen::Settings => m.settings = None,
         Screen::Game | Screen::Options | Screen::Help | Screen::End => {}
@@ -553,9 +569,13 @@ fn default_act(screen: Screen) -> Option<Act> {
         Screen::Game => Some(Act::CloseAll),
         Screen::Confirm(c) => Some(Act::Do(c)),
         Screen::Sound | Screen::Speed | Screen::Prefs => Some(Act::Ok),
-        Screen::Options | Screen::Help | Screen::Objectives | Screen::End | Screen::KeyHelp | Screen::Tips => {
-            Some(Act::Back)
-        }
+        Screen::Options
+        | Screen::Help
+        | Screen::Objectives
+        | Screen::End
+        | Screen::KeyHelp
+        | Screen::Tips
+        | Screen::Refused(_) => Some(Act::Back),
         Screen::Saving(_) | Screen::Settings => None,
     }
 }
@@ -863,6 +883,16 @@ pub(crate) fn open_requests(c: &mut Core) {
     );
 }
 
+/// Network entry 28: "only the host may" (`ui/game-menu.md`, "Who may restart, return or load").
+const REFUSED_ENTRY: u16 = 28;
+
+/// The screen a choice opens, or entry 28's box when this player may not make it in a network game ([`menu::host_check`];
+/// the host follows a hand-over, `docs/design/network.md`, "Host rights").
+fn gate(screen: Screen, sim: &Sim) -> Screen {
+    let s = &sim.session;
+    menu::host_check(screen, s.is_network(), s.observing(), s.host(), sim.human)
+}
+
 /// Opens the menu on `screen`.
 #[allow(clippy::too_many_arguments)]
 fn open_menu(
@@ -877,7 +907,7 @@ fn open_menu(
     from_outcome: bool,
 ) {
     let mut nav = Nav::default();
-    nav.open(screen);
+    nav.open(gate(screen, sim));
     let image = pictures.add(frontend::blank());
     add_layer(
         commands,
@@ -1154,7 +1184,7 @@ pub(crate) fn run_menu(c: &mut Core) {
     m.dirty = true;
     match act {
         Act::Open(s) => {
-            m.nav.open_child(s);
+            m.nav.open_child(gate(s, sim));
             enter(m, front, stored, sim, flow, &folder.folder());
         }
         Act::CloseAll => {

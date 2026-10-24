@@ -342,7 +342,9 @@ fn an_observer_watches_a_local_network_game_from_the_menus() {
     assert!(!watcher.saw("Victory!"), "{}", watcher.report());
 }
 
-/// Three players: one leaves, the other two play on in step, then the creator leaves and the last one wins.
+/// Three players: the creator (the host) leaves first, the two joiners hand the game on to the first joiner and play on
+/// together and in step, then the new host leaves and the last one wins (`docs/design/network.md`, "When the host
+/// leaves").
 #[test]
 fn three_programs_play_a_local_network_game_from_the_menus() {
     let Some((install, _turn)) = ready(true) else { return };
@@ -352,8 +354,37 @@ fn three_programs_play_a_local_network_game_from_the_menus() {
         &["mp-three-host", "mp-three-join", "mp-three-second"],
     );
     check(&install, &ps, "enhanced");
-    let second = &ps[2];
+    let (joiner, second) = (&ps[1], &ps[2]);
+    for p in [joiner, second] {
+        assert!(p.saw("Hosty left the game"), "{}", p.report());
+        assert!(p.saw("Joiner is now the host."), "{}", p.report());
+    }
+    // They kept talking and giving orders after the host left, and the second saw the new host leave and won.
+    assert!(joiner.saw("Second: still here too"), "{}", joiner.report());
+    assert!(second.saw("Joiner: still here"), "{}", second.report());
     assert!(second.saw("Joiner left the game"), "{}", second.report());
-    assert!(second.saw("Hosty left the game"), "{}", second.report());
     assert!(second.saw("Victory!"), "{}", second.report());
+    // The joiners' recordings agree over the whole game they shared after the host left, and both gave orders then.
+    let mut inst = Install::open(&install).expect("the installation");
+    let (a, b) = (joiner.replay(), second.replay());
+    let host_cycles = ps[0].replay().cycles;
+    assert!(
+        a.cycles.min(b.cycles) > host_cycles + 150,
+        "{} {} {host_cycles}",
+        a.cycles,
+        b.cycles
+    );
+    let map = inst.read(&a.header.map_name).expect("the map");
+    let mut wa = new_world(&mut inst, &map, &a.header).unwrap();
+    let mut wb = new_world(&mut inst, &map, &b.header).unwrap();
+    assert_eq!(first_desync(&mut wa, &a, &mut wb, &b), None, "the joiners differ");
+    for slot in [1u8, 2] {
+        let late = b
+            .commands
+            .iter()
+            .filter(|c| c.cycle > host_cycles + 20)
+            .flat_map(|c| c.commands.iter().map(tidewater_sim::Command::player))
+            .any(|p| p == slot);
+        assert!(late, "no command from slot {slot} after the host left");
+    }
 }

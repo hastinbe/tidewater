@@ -2165,7 +2165,8 @@ enum Way {
     Classic,
     /// Enhanced rules, Local Network, the creator letting one observer in.
     Watched,
-    /// Enhanced rules, Local Network, three players.
+    /// Enhanced rules, Local Network, three players: the creator leaves first and the joiners play on with the first
+    /// joiner as the new host (`docs/design/network.md`, "When the host leaves").
     Three,
 }
 
@@ -2350,17 +2351,14 @@ fn mp_host(way: Way) -> Vec<Cmd> {
         v.push(UntilMessage("Second: hello from the second"));
     }
     v.extend([Wait(2), Shot("chat")]);
-    if way == Way::Three {
-        // The first joiner leaves; the creator and the second play on, then the creator leaves.
-        v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
-    }
     if way == Way::Classic {
         // Here the joiner leaves first; the creator, the only human left in, wins (LV1).
         v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
         v.extend([UntilOutcome, Wait(5), Shot("outcome")]);
         return v;
     }
-    let end = if way == Way::Three { 500 } else { 400 };
+    // Three players: the creator leaves first, and the joiners hand the game on and play on.
+    let end = if way == Way::Three { 300 } else { 400 };
     v.extend([UntilCycle(end), Shot("last-cycle")]);
     v.extend(mp_leave());
     v
@@ -2447,14 +2445,34 @@ fn mp_join(way: Way, role: Role) -> Vec<Cmd> {
         v.extend(tap(K::Escape));
         v.push(Wait(3));
     }
-    // In Classic mode, and the first joiner of three, this joiner leaves first.
-    if way == Way::Classic || (way == Way::Three && role == Role::Joiner) {
+    // In Classic mode this joiner leaves first.
+    if way == Way::Classic {
         v.extend([UntilCycle(300), Shot("last-cycle")]);
         v.extend(mp_leave());
         return v;
     }
     if way == Way::Three {
+        // The creator leaves first: the first joiner takes over as host, and both joiners give orders and talk again.
+        v.extend([
+            UntilMessage("Hosty left the game"),
+            UntilMessage("Joiner is now the host."),
+        ]);
+        v.extend([Wait(5), Shot("host-left")]);
+        v.extend(mp_orders());
+        if role == Role::Joiner {
+            v.extend(chat("still here"));
+            v.extend([UntilMessage("Second: still here too"), Wait(2), Shot("chat-after")]);
+            // Then the new host leaves, and the second, the only human left in, wins.
+            v.extend([UntilCycle(650), Shot("last-cycle")]);
+            v.extend(mp_leave());
+            return v;
+        }
+        v.extend([UntilMessage("Joiner: still here"), Wait(2)]);
+        v.extend(chat("still here too"));
+        v.extend([Wait(4), Shot("chat-after")]);
         v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
+        v.extend([UntilOutcome, Wait(5), Shot("outcome")]);
+        return v;
     }
     // The creator leaves; the joiner, the only human left in, wins at the next victory check (LV1).
     v.extend([UntilMessage("Hosty left the game"), Wait(5), Shot("host-left")]);

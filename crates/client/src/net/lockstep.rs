@@ -23,6 +23,10 @@
 //! - **Leaving.** A leave is a [`Command::Leave`] in the leaver's own packet, carried out in the turn like any command.
 //!   A drop one machine decides on (Alt+F2, a lost connection) goes through the host, which numbers it into the
 //!   dropped player's packet stream ([`Msg::Drop`]), so every machine carries it out in the same turn.
+//! - **The host leaving.** The others hand the relay on to the lowest remaining player and rejoin it, with every packet
+//!   and digest of the last [`LOG_TURNS`] turns kept for the catch-up (`docs/design/network.md`, "When the host
+//!   leaves"): no command is lost or carried out twice, and players that did not come back are dropped at a number
+//!   the new host works out from what every machine held ([`Msg::Lost`]).
 //!
 //! # What the engine is not
 //!
@@ -39,8 +43,8 @@ use tidewater_replay::run::Mismatch;
 use tidewater_sim::Command;
 use tidewater_sim::timing::{CLASSIC_MS, CLASSIC_ROW, enhanced_ms};
 
-use super::proto::Msg;
-use super::tcp::{Inbound, Wire};
+use super::proto::{Msg, OBSERVER_BASE};
+use super::tcp::{Inbound, Migrated, Wire};
 use crate::session::{ChatLine, LeaveNotice, Recorder, Session, Waiting};
 
 /// The most packets a player's queue holds; a command issued with this many waiting is dropped (`net/lockstep.md`).
@@ -53,6 +57,11 @@ pub const WATCH_AFTER: Duration = Duration::from_millis(2000);
 pub const DIALOG_AFTER: Duration = Duration::from_millis(7000);
 /// A turn that completes after waiting longer than this resets the cycle deadline.
 pub const DEADLINE_RESET_AFTER: Duration = Duration::from_millis(200);
+/// How many turns of every player's packets and digests a machine keeps, for a rejoin after the host is lost. Machines
+/// are never more than about 30 turns apart (a turn needs everyone's packet, and a queue holds at most 26).
+pub const LOG_TURNS: u32 = 256;
+/// How long a machine that took over waits for the other players to rejoin before it drops those that have not.
+pub const REJOIN_WAIT: Duration = Duration::from_secs(10);
 
 /// T of `net/lockstep.md`, "Data": the turn length in cycles at the fastest speed, for each network delay row.
 pub const ROW_CYCLES: [u32; 16] = [1, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 96, 128, 192, 255];
@@ -168,8 +177,24 @@ pub struct NetSession {
     exit: bool,
     /// The leave packet has been sent.
     left: bool,
-    /// The host's connection is gone (a joiner's view).
+    /// The host's connection is gone (a joiner's view), and no new host has taken this machine in yet.
     host_gone: bool,
+    /// The host the game started with: the lobby's game speed is its command.
+    first_host: u8,
+    /// Players lost in a hand-over: their digests are no longer checked.
+    lost: BTreeSet<u8>,
+    /// This machine took over from a lost host and is taking the others' rejoins.
+    rehosting: Option<Rehosting>,
+    /// Texts for the notice line.
+    texts: Vec<String>,
+    /// "X is now the host.", held until the old host (the slot) is out of the game here, so it follows that notice.
+    new_host: Option<(u8, String)>,
+}
+
+/// A machine that took over: since when, and how many packets of each slot each rejoiner held.
+struct Rehosting {
+    since: Duration,
+    rejoined: BTreeMap<u8, Vec<(u8, u32)>>,
 }
 
 impl NetSession {
@@ -209,7 +234,13 @@ impl NetSession {
             exit: false,
             left: false,
             host_gone: false,
+            first_host: 0,
+            lost: BTreeSet::new(),
+            rehosting: None,
+            texts: Vec::new(),
+            new_host: None,
         };
+        s.first_host = s.p.host;
         for _ in 0..QUEUE_TARGET {
             s.queue_packet(None);
         }
@@ -243,6 +274,34 @@ impl NetSession {
         self.p.me == self.p.host
     }
 
+    /// The host's slot as this machine knows it: the one it started with, or the one that took over.
+    pub fn host_slot(&self) -> u8 {
+        self.p.host
+    }
+
+    /// How many packets of `slot` this machine holds in order (its own: how many it has made).
+    fn count(&self, slot: u8) -> u32 {
+        if slot == self.p.me {
+            self.next_seq
+        } else {
+            self.received.get(&slot).copied().unwrap_or(0)
+        }
+    }
+
+    /// [`NetSession::count`] for every slot this machine has heard of.
+    fn counts(&self) -> Vec<(u8, u32)> {
+        let mut slots: BTreeSet<u8> = self.p.humans.iter().copied().collect();
+        slots.extend(self.received.keys().copied());
+        slots.into_iter().map(|s| (s, self.count(s))).collect()
+    }
+
+    /// Whether `slot`'s leave is among the packets this machine holds.
+    fn leaving(&self, slot: u8) -> bool {
+        self.inbox
+            .get(&slot)
+            .is_some_and(|m| m.values().any(|c| matches!(c, Some(Command::Leave { .. }))))
+    }
+
     fn now(&self) -> Duration {
         (self.clock)()
     }
@@ -271,6 +330,11 @@ impl NetSession {
             cmd,
         };
         self.next_seq += 1;
+        // Kept with the others' packets, for a rejoin after the host is lost.
+        self.inbox
+            .entry(self.p.me)
+            .or_default()
+            .insert(packet.seq, packet.cmd.clone());
         let msg = Msg::Turn {
             slot: self.p.me,
             seq: packet.seq,
@@ -287,25 +351,61 @@ impl NetSession {
             match i {
                 Inbound::Msg { from, msg } => self.hear(from, msg),
                 Inbound::Closed { slot } => self.closed(slot),
+                Inbound::Migrated(m) => self.migrated(m),
             }
         }
+        self.check_rehosted();
+    }
+
+    /// Takes `slot`'s packet `seq` if it is the next one expected from it. Returns whether it was taken.
+    fn accept(&mut self, slot: u8, seq: u32, cmd: &Option<Command>) -> bool {
+        if slot == self.p.me || !self.active.contains(&slot) {
+            return false;
+        }
+        let expected = self.received.entry(slot).or_insert(0);
+        // Packets arrive in order over one connection; anything else is a program that is not ours, or a copy.
+        if seq != *expected || self.dropped_at.get(&slot).is_some_and(|&a| seq >= a) {
+            return false;
+        }
+        *expected += 1;
+        self.inbox.entry(slot).or_default().insert(seq, cmd.clone());
+        true
     }
 
     fn hear(&mut self, from: u8, msg: Msg) {
         match msg {
             Msg::Turn { slot, seq, cmd } => {
-                if slot == self.p.me || !self.active.contains(&slot) {
-                    return;
-                }
-                let expected = self.received.entry(slot).or_insert(0);
-                // Packets arrive in order over one connection; anything else is a program that is not ours.
-                if seq != *expected || self.dropped_at.get(&slot).is_some_and(|&a| seq >= a) {
-                    return;
-                }
-                *expected += 1;
-                self.inbox.entry(slot).or_default().insert(seq, cmd.clone());
-                if self.is_host() {
+                if self.accept(slot, seq, &cmd) && self.is_host() {
                     self.wire().forward(slot, &Msg::Turn { slot, seq, cmd });
+                }
+            }
+            // A rejoiner passes on what the new host lacks; the host passes on what it takes.
+            Msg::Resend { slot, seq, cmd } if self.is_host() => {
+                if self.accept(slot, seq, &cmd) {
+                    self.wire().forward(from, &Msg::Turn { slot, seq, cmd });
+                }
+            }
+            Msg::ResendSync { slot, turn, digest } if self.is_host() => {
+                if slot != self.p.me && self.active.contains(&slot) && !self.syncs.contains_key(&(slot, turn)) {
+                    self.syncs.insert((slot, turn), digest);
+                    self.wire().forward(from, &Msg::Sync { slot, turn, digest });
+                }
+            }
+            Msg::Rejoin {
+                slot,
+                turn: _,
+                have,
+                drops,
+                ..
+            } if self.is_host() && slot == from => self.rejoined(slot, have, drops),
+            Msg::Lost { slot, at_seq } if from == self.p.host && !self.is_host() => {
+                if slot == self.p.me {
+                    self.exit = true;
+                } else {
+                    self.lost.insert(slot);
+                    if self.active.contains(&slot) {
+                        self.dropped_at.entry(slot).or_insert(at_seq);
+                    }
                 }
             }
             Msg::Sync { slot, turn, digest } => {
@@ -375,16 +475,202 @@ impl NetSession {
         if self.is_host() {
             self.issue_drop(slot);
         } else if slot == self.p.host && !self.host_gone {
-            // spec gap: the original has no host to lose (its players each hold every connection). Tidewater's star
-            // topology does: without the host this machine cannot hear the others, so it drops them and plays on alone.
-            self.host_gone = true;
-            for s in self.active.clone() {
-                if s != self.p.me {
-                    let at = self.received.get(&s).copied().unwrap_or(0);
-                    self.dropped_at.entry(s).or_insert(at);
-                }
+            self.host_lost(slot);
+        }
+    }
+
+    /// The host's connection is gone (`net/leave-and-drop.md`, "When the host leaves"; `docs/design/network.md`, "When
+    /// the host leaves"): the first remaining player who can host takes over and the others rejoin it. A game without
+    /// the mesh table (two players, no observers) keeps the old way: this machine drops the others and plays on alone.
+    fn host_lost(&mut self, host: u8) {
+        self.host_gone = true;
+        if self.exit || self.left {
+            return;
+        }
+        self.lost.insert(host);
+        let order: Vec<u8> = self
+            .active
+            .iter()
+            .copied()
+            .filter(|s| *s != host && !self.lost.contains(s))
+            .collect();
+        let rejoin = Msg::Rejoin {
+            slot: self.p.me,
+            key: 0,
+            turn: self.turn,
+            have: self.counts(),
+            drops: self.dropped_at.iter().map(|(&s, &a)| (s, a)).collect(),
+        };
+        if !self.wire().migrate(&order, rejoin) {
+            // No mesh table: the old way. A two-player game's host just left; in a bigger game the host went before the
+            // table arrived, and the player is told.
+            self.lost.remove(&host);
+            self.strand();
+            if self.p.humans.len() > 2 {
+                self.texts.push(Self::ALONE.to_string());
             }
         }
+    }
+
+    /// Plays on alone: every other player is dropped where this machine stands. spec gap: the original has no host to
+    /// lose; without one this machine cannot hear the others.
+    fn strand(&mut self) {
+        for s in self.active.clone() {
+            if s != self.p.me {
+                let at = self.count(s);
+                self.dropped_at.entry(s).or_insert(at);
+            }
+        }
+    }
+
+    /// The text when nobody could take over, or nobody rejoined.
+    const ALONE: &'static str = "Nobody could take over from the host: you play on alone.";
+
+    /// A hand-over came to an end on this machine.
+    fn migrated(&mut self, m: Migrated) {
+        match m {
+            Migrated::Hosting => {
+                let old = self.p.host;
+                self.p.host = self.p.me;
+                self.host_gone = false;
+                self.rehosting = Some(Rehosting {
+                    since: self.now(),
+                    rejoined: BTreeMap::new(),
+                });
+                // A player left on its own is told nothing new: it plays on as before.
+                let me = self.p.me;
+                if self
+                    .active
+                    .iter()
+                    .any(|&s| s != me && s != old && !self.lost.contains(&s))
+                {
+                    self.new_host = Some((old, format!("{} is now the host.", self.name(me))));
+                }
+            }
+            Migrated::Joined { host, have } => {
+                let old = self.p.host;
+                self.p.host = host;
+                self.host_gone = false;
+                self.new_host = Some((old, format!("{} is now the host.", self.name(host))));
+                self.resend_missing(&have);
+            }
+            Migrated::Stranded => {
+                self.strand();
+                self.texts.push(Self::ALONE.to_string());
+            }
+        }
+    }
+
+    /// A rejoiner sends the new host what it holds and the new host lacks: packets of any slot past the host's counts
+    /// `have`, and every digest it keeps (the host takes the ones it has not got).
+    fn resend_missing(&mut self, have: &[(u8, u32)]) {
+        let theirs: BTreeMap<u8, u32> = have.iter().copied().collect();
+        let mut out = Vec::new();
+        for (&slot, log) in &self.inbox {
+            let from = theirs.get(&slot).copied().unwrap_or(0);
+            for (&seq, cmd) in log.range(from..) {
+                out.push(Msg::Resend {
+                    slot,
+                    seq,
+                    cmd: cmd.clone(),
+                });
+            }
+        }
+        for (&(slot, turn), &digest) in &self.syncs {
+            out.push(Msg::ResendSync { slot, turn, digest });
+        }
+        for m in out {
+            self.wire().send(m);
+        }
+    }
+
+    /// The new host takes a rejoiner in: the drops it was told of, then `Resume` with this machine's counts, then what
+    /// it lacks of every other slot's packets, the digests and the drops.
+    fn rejoined(&mut self, from: u8, have: Vec<(u8, u32)>, drops: Vec<(u8, u32)>) {
+        for (slot, at_seq) in drops {
+            if slot == self.p.me {
+                self.exit = true;
+            } else if self.active.contains(&slot) && !self.dropped_at.contains_key(&slot) {
+                self.dropped_at.insert(slot, at_seq);
+                self.wire().send(Msg::Drop { slot, at_seq });
+            }
+        }
+        let mut out = vec![Msg::Resume {
+            host: self.p.me,
+            have: self.counts(),
+        }];
+        let theirs: BTreeMap<u8, u32> = have.iter().copied().collect();
+        for (&slot, log) in &self.inbox {
+            if slot == from {
+                continue;
+            }
+            let start = theirs.get(&slot).copied().unwrap_or(0);
+            for (&seq, cmd) in log.range(start..) {
+                out.push(Msg::Turn {
+                    slot,
+                    seq,
+                    cmd: cmd.clone(),
+                });
+            }
+        }
+        for (&(slot, turn), &digest) in &self.syncs {
+            if slot != from {
+                out.push(Msg::Sync { slot, turn, digest });
+            }
+        }
+        for (&slot, &at_seq) in &self.dropped_at {
+            out.push(if self.lost.contains(&slot) {
+                Msg::Lost { slot, at_seq }
+            } else {
+                Msg::Drop { slot, at_seq }
+            });
+        }
+        for m in out {
+            self.wire().send_to(from, &m);
+        }
+        if let Some(r) = &mut self.rehosting {
+            r.rejoined.insert(from, have);
+        }
+    }
+
+    /// The new host, once every player it waits for has rejoined (or [`REJOIN_WAIT`] has passed): every player that did
+    /// not come back, the old host among them, is dropped at the most packets any machine held of it.
+    fn check_rehosted(&mut self) {
+        let Some(r) = &self.rehosting else { return };
+        let me = self.p.me;
+        let all_in = self
+            .active
+            .iter()
+            .filter(|&&s| s != me && !self.lost.contains(&s) && !self.dropped_at.contains_key(&s) && !self.leaving(s))
+            .all(|s| r.rejoined.contains_key(s));
+        if !all_in && self.now().saturating_sub(r.since) < REJOIN_WAIT {
+            return;
+        }
+        let Some(r) = self.rehosting.take() else { return };
+        for slot in self.p.humans.clone() {
+            if slot == me || r.rejoined.contains_key(&slot) || self.dropped_at.contains_key(&slot) {
+                continue;
+            }
+            let held = r
+                .rejoined
+                .values()
+                .flat_map(|h| h.iter().filter(|(s, _)| *s == slot).map(|&(_, n)| n))
+                .max()
+                .unwrap_or(0);
+            let at_seq = held.max(self.count(slot));
+            self.lost.insert(slot);
+            self.dropped_at.insert(slot, at_seq);
+            self.wire().send(Msg::Lost { slot, at_seq });
+        }
+        if !all_in && !r.rejoined.keys().any(|&s| s < OBSERVER_BASE) {
+            self.texts.push(Self::ALONE.to_string());
+        }
+    }
+
+    /// Ends this machine's part as a lost connection would: nothing more is sent, not even a leave (tests stand in for a
+    /// program that was killed with it).
+    pub fn vanish(mut self) {
+        self.left = true;
     }
 
     /// The host drops `slot`: its packets from the next one it has not yet relayed do not count, and its packet at
@@ -406,8 +692,8 @@ impl NetSession {
     /// Whether the check of turn `n` has what it needs from `slot`: its digest for turn `n - 1`, unless its packet is
     /// a leave or a drop (a leaver may be gone before it reached that turn).
     fn sync_ready(&self, slot: u8, n: u32) -> bool {
-        // An observer has no digest of its own to check against, so it waits for none.
-        if n < 3 || self.observing() || self.dropped_at.get(&slot) == Some(&n) {
+        // An observer has no digest of its own to check against, so it waits for none; nor is a lost player's checked.
+        if n < 3 || self.observing() || self.dropped_at.get(&slot) == Some(&n) || self.lost.contains(&slot) {
             return true;
         }
         let leaving = matches!(
@@ -441,6 +727,7 @@ impl NetSession {
                     turn: n,
                     digest,
                 };
+                self.syncs.insert((self.p.me, n), digest);
                 self.wire().send(msg);
             }
             while !self.observing() && self.queue.len() < QUEUE_TARGET {
@@ -468,7 +755,7 @@ impl NetSession {
             let to = self.p.speed.min(8);
             if to != from {
                 self.carry.push(Command::Speed {
-                    player: self.p.host,
+                    player: self.first_host,
                     speed: to,
                 });
             }
@@ -483,10 +770,15 @@ impl NetSession {
                     dropped: true,
                 })
             } else {
-                self.inbox.get_mut(&s).and_then(|m| m.remove(&n)).flatten()
+                self.inbox.get(&s).and_then(|m| m.get(&n)).cloned().flatten()
             };
             // The sync check: this player's digest of the last turn against ours.
-            if s != self.p.me && n >= 3 && !self.observing() && !matches!(cmd, Some(Command::Leave { .. })) {
+            if s != self.p.me
+                && n >= 3
+                && !self.observing()
+                && !self.lost.contains(&s)
+                && !matches!(cmd, Some(Command::Leave { .. }))
+            {
                 let theirs = self.syncs.get(&(s, n - 1));
                 if let (Some(&mine), Some(&theirs)) = (self.digests.get(&(n - 1)), theirs)
                     && mine != theirs
@@ -512,10 +804,14 @@ impl NetSession {
             let name = self.name(slot);
             self.notices.push(LeaveNotice { slot, name, dropped });
         }
-        // Forget what the check can no longer use.
+        // Forget what the check can no longer use, but for the last turns a rejoin may need.
         let keep = n.saturating_sub(2);
-        self.syncs.retain(|&(_, t), _| t >= keep);
         self.digests.retain(|&t, _| t >= keep);
+        let log = n.saturating_sub(LOG_TURNS);
+        self.syncs.retain(|&(_, t), _| t >= log);
+        for packets in self.inbox.values_mut() {
+            packets.retain(|&seq, _| seq >= log);
+        }
         self.turn += 1;
         self.started = false;
         // The first turn is followed by the second at once; after that, the countdown is K.
@@ -654,6 +950,24 @@ impl Session for NetSession {
 
     fn observing(&self) -> bool {
         NetSession::observing(self)
+    }
+
+    fn take_notices(&mut self) -> Vec<String> {
+        if let Some((old, _)) = &self.new_host
+            && !self.active.contains(old)
+            && let Some((_, text)) = self.new_host.take()
+        {
+            self.texts.push(text);
+        }
+        std::mem::take(&mut self.texts)
+    }
+
+    /// The host while there is one: the one the game started with, or the player that took over. `None` from the
+    /// moment the host is lost until another has taken this machine in, and after a hand-over that failed
+    /// (`net/leave-and-drop.md`, "When the host leaves": with no host the check lets anyone through).
+    fn host(&self) -> Option<u8> {
+        let h = self.p.host;
+        (!self.host_gone && self.active.contains(&h) && !self.lost.contains(&h)).then_some(h)
     }
 
     fn abort_game(&mut self) {
@@ -942,6 +1256,44 @@ mod tests {
             let j = j.join().unwrap();
             peers.push(Peer::new(NetSession::with_clock(
                 params(j.slot, &j.config, j.names.clone()),
+                Box::new(j.wire),
+                None,
+                time.clock(),
+            )));
+        }
+        peers
+    }
+
+    /// `humans` players and `observers` watchers on loopback: the host is peer 0, the joiners follow in slot order and
+    /// the observers come last.
+    fn game_with(humans: usize, observers: usize, row: u8, speed: u8, time: &Time) -> Vec<Peer> {
+        let listener = tcp::listen(0).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let id = Identity::ours(1);
+        let cfg = config(humans, row, speed);
+        let slots: Vec<u8> = (1..humans as u8).collect();
+        let host = thread::spawn({
+            let (id, cfg) = (id.clone(), cfg.clone());
+            move || tcp::host_game_with(&listener, cfg, &id, &slots, observers, |_| {}).unwrap()
+        });
+        let mut joiners = Vec::new();
+        for n in 1..humans + observers {
+            let (id, observe) = (id.clone(), n >= humans);
+            joiners.push(thread::spawn(move || {
+                tcp::join_as(&format!("127.0.0.1:{port}"), id, "", observe, |_| Ok(()), |_| {}).unwrap()
+            }));
+            thread::sleep(Duration::from_millis(60));
+        }
+        let mut peers = vec![Peer::new(NetSession::with_clock(
+            params(0, &cfg, cfg.names.clone()),
+            Box::new(host.join().unwrap()),
+            None,
+            time.clock(),
+        ))];
+        for j in joiners {
+            let j = j.join().unwrap();
+            peers.push(Peer::new(NetSession::with_clock(
+                params_for(j.slot, &cfg, &j.config, j.names.clone()),
                 Box::new(j.wire),
                 None,
                 time.clock(),
@@ -1546,6 +1898,191 @@ mod tests {
                 name: "Player 2".into(),
                 dropped: true
             }]
+        );
+    }
+
+    // --- the host leaving (`docs/design/network.md`, "When the host leaves") ---
+
+    /// Every peer gives a command now and then, each in its own cycles, from `from` on.
+    fn chatter(peers: &mut [Peer], from: u32, to: u32) {
+        for p in peers.iter_mut() {
+            let me = p.s.p.me;
+            if p.s.observing() {
+                continue;
+            }
+            for t in (from + u32::from(me) * 3..to).step_by(29) {
+                p.script.entry(t).or_default().push(stop(me));
+            }
+        }
+    }
+
+    /// [`run`] over the remaining peers, moving the clock on when nobody moves for a while (a wait that only time
+    /// ends, such as the new host's wait for a player that will not come back).
+    fn run_on(peers: &mut [Peer], until: u32, time: &Time) {
+        let mut idle = 0;
+        while peers.iter().any(|p| p.tick < until && !p.frozen) {
+            let mut moved = false;
+            for p in peers.iter_mut().filter(|p| p.tick < until) {
+                moved |= p.advance();
+            }
+            if moved {
+                idle = 0;
+            } else {
+                idle += 1;
+                if idle % 400 == 0 {
+                    time.advance(Duration::from_secs(4));
+                }
+                assert!(
+                    idle < 8000,
+                    "the game stopped: {:?}",
+                    peers.iter().map(|p| p.tick).collect::<Vec<_>>()
+                );
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    /// The commands every remaining peer carried out are the same, in the same cycles, and so is the state.
+    fn in_step(peers: &[Peer]) {
+        for p in &peers[1..] {
+            assert_eq!(
+                p.applied, peers[0].applied,
+                "slot {} and slot {}",
+                p.s.p.me, peers[0].s.p.me
+            );
+            assert_eq!(p.state, peers[0].state);
+        }
+    }
+
+    fn notices(p: &mut Peer) -> (Vec<LeaveNotice>, Vec<String>) {
+        (p.s.take_leave_notices(), p.s.take_notices())
+    }
+
+    #[test]
+    fn three_players_the_host_quits_and_the_two_joiners_play_on_together() {
+        let time = Time::default();
+        let mut peers = game(3, TRACED_DIRECT_CONNECT_ROW, 8, &time);
+        chatter(&mut peers, 5, 600);
+        run(&mut peers, 100);
+        assert_eq!(peers[1].s.host(), Some(0));
+        // The host quits (Ctrl+Q, Quit to the main menu): its session goes, saying it left.
+        drop(peers.remove(0));
+        run(&mut peers, 600);
+        in_step(&peers);
+        for p in &mut peers {
+            let (left, texts) = notices(p);
+            assert_eq!(
+                left,
+                [LeaveNotice {
+                    slot: 0,
+                    name: "Player 1".into(),
+                    dropped: false
+                }],
+                "the host left, it was not dropped"
+            );
+            assert_eq!(texts, ["Player 2 is now the host."]);
+            // The rights follow the new host: the lowest slot left (`ui/game-menu.md`, entry 28).
+            assert_eq!(p.s.host(), Some(1));
+            assert_eq!(p.s.players(), [1, 2]);
+        }
+        // Both joiners' commands after the host left were carried out, on both machines.
+        for slot in [1, 2] {
+            assert!(
+                peers[0]
+                    .applied
+                    .iter()
+                    .any(|(t, c)| *t > 300 && c.contains(&stop(slot))),
+                "slot {slot}"
+            );
+        }
+    }
+
+    #[test]
+    fn four_players_the_hosts_connection_dies_and_the_three_others_play_on_together() {
+        let time = Time::default();
+        let mut peers = game(4, DIRECT_IP_ROW, 8, &time);
+        chatter(&mut peers, 5, 800);
+        run(&mut peers, 150);
+        // The host's program is killed: no leave, the connections just end.
+        peers.remove(0).s.vanish();
+        run(&mut peers, 800);
+        in_step(&peers);
+        for p in &mut peers {
+            let (left, texts) = notices(p);
+            assert_eq!(left.len(), 1, "{left:?}");
+            assert!(left[0].slot == 0 && left[0].dropped, "{left:?}");
+            assert_eq!(texts, ["Player 2 is now the host."]);
+            assert_eq!(p.s.host(), Some(1));
+        }
+        // And again: the new host goes too, and the last two hand on once more, to slot 2.
+        let at = peers[0].tick;
+        drop(peers.remove(0));
+        run(&mut peers, at + 300);
+        in_step(&peers);
+        for p in &mut peers {
+            let (left, texts) = notices(p);
+            assert_eq!(left.len(), 1);
+            assert!(left[0].slot == 1 && !left[0].dropped);
+            assert_eq!(texts, ["Player 3 is now the host."]);
+            assert_eq!(p.s.host(), Some(2));
+            assert_eq!(p.s.players(), [2, 3]);
+        }
+    }
+
+    #[test]
+    fn the_host_and_a_joiner_leave_at_once_and_the_last_two_play_on() {
+        let time = Time::default();
+        let mut peers = game(4, TRACED_DIRECT_CONNECT_ROW, 8, &time);
+        chatter(&mut peers, 5, 700);
+        run(&mut peers, 100);
+        // Slot 1, the one that would take over, leaves in the same moment as the host.
+        let host = peers.remove(0);
+        let first = peers.remove(0);
+        drop(host);
+        drop(first);
+        run_on(&mut peers, 700, &time);
+        in_step(&peers);
+        for p in &mut peers {
+            let (left, texts) = notices(p);
+            let gone: BTreeSet<u8> = left.iter().map(|n| n.slot).collect();
+            assert_eq!(gone, [0, 1].into(), "{left:?}");
+            assert_eq!(texts, ["Player 3 is now the host."]);
+            assert_eq!(p.s.host(), Some(2));
+            assert_eq!(p.s.players(), [2, 3]);
+        }
+    }
+
+    #[test]
+    fn an_observer_follows_the_new_host() {
+        let time = Time::default();
+        let mut peers = game_with(3, 1, TRACED_DIRECT_CONNECT_ROW, 8, &time);
+        assert!(peers[3].s.observing());
+        chatter(&mut peers, 5, 600);
+        run(&mut peers, 100);
+        drop(peers.remove(0));
+        run(&mut peers, 600);
+        in_step(&peers);
+        let (left, texts) = notices(&mut peers[2]);
+        assert_eq!(left.len(), 1);
+        assert_eq!(texts, ["Player 2 is now the host."]);
+        assert!(peers[2].applied.iter().any(|(t, c)| *t > 300 && c.contains(&stop(2))));
+    }
+
+    #[test]
+    fn two_players_the_host_leaves_and_the_joiner_plays_on_alone_as_before() {
+        let time = Time::default();
+        let mut peers = game(2, TRACED_DIRECT_CONNECT_ROW, 8, &time);
+        run(&mut peers, 60);
+        drop(peers.remove(0));
+        run(&mut peers, 200);
+        let (left, texts) = notices(&mut peers[0]);
+        assert_eq!(left.len(), 1);
+        assert!(!left[0].dropped);
+        assert!(texts.is_empty(), "no hand-over in a two-player game: {texts:?}");
+        assert_eq!(
+            peers[0].s.host(),
+            None,
+            "no host: the check lets the last player through"
         );
     }
 

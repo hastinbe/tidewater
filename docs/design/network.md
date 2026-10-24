@@ -72,7 +72,7 @@ tidewater --join HOST-ADDRESS            # or HOST-ADDRESS:PORT
 
 - **Threads, not async.** Each connection has a reader and a writer thread feeding channels; the game thread never
   blocks on the network once a game runs. The handshake before the window opens does block, on purpose.
-- **Star topology.** Joiners connect only to the host. The host stamps each packet with the slot it came from (a joiner
+- **Star topology.** Joiners connect only to the host (a new one, if the host leaves: "When the host leaves"). The host stamps each packet with the slot it came from (a joiner
   cannot send as another player) and passes on what it accepts. The host is not a game server: it decides nothing about
   the game, every machine runs everything, and the only thing it alone decides is a drop (below).
 - **The session is the only seam.** `NetSession` implements `Session`; `game::tick` gained a few calls (`observe_speed`,
@@ -101,8 +101,14 @@ the end; `Hello` is first so a program of another protocol version can still rea
 | `HaveMap` | joiner to host | Whether this machine has the lobby's map (by hash) |
 | `MapRequest`, `MapOffer`, `MapChunk`, `MapDenied` | see "Map transfer" | The map, in chunks |
 | `Chat` | any (the host relays) | An in-game chat line: sender slot, allies only or not, text |
+| `Mesh` | host to all | The game's key; a joining player should open a socket for a new host |
+| `Listen` | joiner to host | The port of that socket (0: none) |
+| `Peer` | host to all | Where a player can be reached if the host goes |
+| `Rejoin`, `Resume` | to and from the new host | The hand-over's handshake (see "When the host leaves") |
+| `Resend`, `ResendSync` | to the new host | Another player's packet or digest the new host lacks |
+| `Lost` | new host to all | A player that did not come back: dropped at a packet number, its digests no longer checked |
 
-The protocol number is **7** (`net::proto::PROTOCOL`); it changes whenever a message or `Command` variant does. A
+The protocol number is **8** (`net::proto::PROTOCOL`); it changes whenever a message or `Command` variant does. A
 joiner of another protocol is refused with a message naming both versions: the host reads only the first varint of the
 `Hello` to know that it cannot read the rest.
 
@@ -151,7 +157,7 @@ The Local Network game list finds games with a small UDP beacon. Code: `net/beac
   | 4 | magic `TWLN` |
   | 1 | beacon version, 2 |
   | 1 | kind, 1 = announce |
-  | 2 | the network protocol (7) |
+  | 2 | the network protocol (8) |
   | 2 | the TCP port the lobby listens on |
   | 1 | players in the lobby |
   | 1 | rows that can hold a player |
@@ -263,6 +269,56 @@ frozen state, not the save (a load releases every unit).
   The host only passes on packets it counted, which is what makes the count exact.
 - **The dropped machine** is told, ends its game with a surrender and shows that it left.
 
+## When the host leaves
+
+`net/leave-and-drop.md`, "When the host leaves": the first remaining player who can host becomes the host and the game
+goes on. In Tidewater's star the host also relays every packet, so the remaining machines hand the relay on to that
+player and reconnect to it. Code: `net/tcp.rs` (the mesh table, dialling, taking over), `net/lockstep.rs` (the rejoin).
+
+- **The mesh table, at the start.** In a game with three or more humans, or with an observer, the host sends every
+  machine `Mesh` with a random key for the game. Each joining player then opens a listening socket on a free port and
+  answers `Listen` with its port; the host sends everyone `Peer` with that player's address (the address the host sees
+  its connection come from, and that port). A two-player game without observers sends none of this and opens no socket.
+- **Who takes over.** When a machine loses the host's connection, it takes the players still in the game as it sees
+  them, in slot order, without the host: the spec's "first remaining connected player who can host" (observers never
+  host, nor a player whose socket could not open). It tries them in order: connect (3 s), send `Rejoin` with the key,
+  wait for `Resume` (5 s). A player that has left has closed its socket, so the connection is refused and the next one
+  is tried. A machine that reaches its own slot takes over: its wire becomes a host's wire that accepts on its socket.
+  This runs on a thread of its own; the game waits for the turn as for any late player ("Waiting for players").
+- **No command lost or run twice.** Every machine keeps the last 256 turns of every player's packets and digests, its
+  own included. `Rejoin` carries the next turn, how many packets of each player this machine holds, and the drops it
+  was told of. The new host answers `Resume` with its own counts and sends the rejoiner what it lacks (packets in order,
+  digests, drops); the rejoiner sends back (`Resend`, `ResendSync`) what the new host lacks, which passes it on to the
+  others. Packets are numbered per player, so a copy that arrives twice is ignored by its number.
+- **The players who did not come back.** Once every player it expects has rejoined, or after 10 s, the new host drops
+  the old host and every player that did not rejoin, each at the most packets any machine held of it (`Lost`). Every
+  packet before that number is somewhere among the machines that rejoined, and a machine that has already run a turn
+  used only packets before it, so every machine runs the same turns. A player whose leave the new host already holds is
+  not waited for. A lost player's digests are no longer checked (some of them may have died with the host's machine);
+  this changes a turn only if that player was already out of step.
+- **What the players see.** A host that quits sends its leave first, so the others show "Player X has left the game."
+  (entry 64); a host whose connection just ends is "was dropped" (entry 65). The machines then show "X is now the host."
+  (our notice; the spec has none), after that leave notice; a player left on its own sees none. From then on the new
+  host is the one the game menu asks for ("Host rights").
+- **Observers** reconnect to the new host the same way and get the same catch-up. The players never wait for them.
+- **When it can't be done.** If the table never arrived, or no player can be reached (a firewall, a NAT), a machine
+  falls back to the old behaviour: it drops everyone else where it stands, plays on alone, and says "Nobody could take
+  over from the host: you play on alone." A new host that nobody reaches drops the others after 10 s and says the same.
+  Two groups can then form, each in step within itself (the machines that reached one player, and the ones that did not).
+- **Not handled.** A host that leaves at the very start, before the table arrived (fallback above); an observer that
+  ran a turn past the drop number before it rejoined (it would leave step; it only watches); a player the old host had
+  dropped but not yet told, who then takes over (two groups, as above). The rejoin trusts the key: any machine of the
+  game could forge another's packet during the rejoin, as it could already lie about its own.
+
+### Host rights
+
+`ui/game-menu.md`, "Who may restart, return or load", and `game/save-load.md`: in a network game only the host may
+choose Return to Chat Room, Save Game or Load Game; anyone else gets network entry 28 with the host's name, in a box with
+an OK button. The host is the current one (the new host after a hand-over). While there is none (between losing the host
+and the new one, or after the fallback) the check lets anyone through, as the spec says for a game with no host. Return
+to Chat Room goes to the main menu whoever chooses it, since Tidewater has no chat room. An observer is never refused:
+its choices touch only its own machine. Code: `Session::host`, `menu::host_check` (LV13 is its test), `gamemenu::gate`.
+
 ## Observers
 
 A host can leave places for watchers: `--lobby observers=N` (0 to 4, off by default) and a watcher joins with
@@ -312,9 +368,8 @@ of player, and a spectator interface of its own.
   with the host's choice (`docs/design/extras.md`, "Multiplayer (C+L)"). They are not in the replay header. Smart
   attack-move changes the commands a player sends, but the commands still travel as ordinary commands, so peers stay in step.
 
-- **The host leaving.** The original's players each hold every connection and have no host to lose. A joiner that loses
-  the host drops every other player where it stands and plays on alone. The other joiners may do the same at slightly
-  different turns, so they can drop one another through the sync check. Host migration is not built.
+- **The host leaving** is "When the host leaves" above: the original's players each hold every connection and have no
+  host to lose, so handing the relay on is Tidewater's own mechanism for the spec's rule.
 - **The "Waiting for players" dialog** is a line on the notice bar; the dialog is a lobby-phase screen.
 - **Entry 63** shows when a leaving player has nothing left, judged on the machine that shows it at the time the leave
   notice appears; the victory check still reads the local player in places (the open questions in
@@ -345,15 +400,20 @@ of player, and a spectator interface of its own.
   its own folder (a data folder linking to the game files, its own settings, saves and recordings), each running a
   scripted scene (`mp-*` in `script.rs`) through the real menus, headless. Five games, one after another: Local Network
   found on the game list (two players), Direct IP with the address typed, Classic rules with Ready, an observer joining
-  a two-player game with Watch Game, and three players where one leaves and the others play on. In each the creator
+  a two-player game with Watch Game, and three players where the host leaves first, the two joiners hand the game on
+  and play on together, and then the new host leaves. In each the creator
   picks a map and sets rally points and smart attack-move in the Extras box; everyone gives orders, chat goes both
   ways and a player leaves. The test then checks each program's `<scene>-events.txt` (the screens it reached, its seat,
   the options in force, the messages it showed) and compares the recordings cycle by cycle as `twtool desync-diff`
   does. Below, "Running the end-to-end check".
-- **`crates/client/tests/net.rs`** plays real games between two machines in one process over loopback TCP on the smallest
-  installed map, with scripted commands from both sides: hashes at every turn, recordings compared with the same
-  checks as `twtool desync-diff`, a forced divergence, a delayed peer, a joiner with a different map, and Classic
-  rules. It needs `TIDEWATER_INSTALL` and does nothing without it.
+- **`crates/client/tests/net.rs`** plays real games between two to four machines in one process over loopback TCP on the
+  smallest installed map, with scripted commands from every side: hashes at every turn, recordings compared with the
+  same checks as `twtool desync-diff`, a forced divergence, a delayed peer, a joiner with a different map, Classic
+  rules, and the host leaving three- and four-player games (quitting, and its connection dying) with the others in step
+  to the end. It needs `TIDEWATER_INSTALL` and does nothing without it.
+- **Hand-over tests** are in `net/lockstep.rs` (three and four players, the host quitting or its connection dying, a
+  second hand-over, the host and the next in line leaving at once, an observer following the new host, a two-player
+  game unchanged), `net/proto.rs` (the messages) and `menu.rs` (entry 28 follows the host).
 
 ### Running the end-to-end check
 

@@ -23,7 +23,7 @@ use tidewater_sim::setup::{Lobby, Setup};
 /// give an edge (**C+L**, `crate::extras`: [`GameConfig::client_extras`], [`LobbyView::client_extras`]), so every
 /// player runs the game with the same ones, and the menu lobby has places for observers ([`LobbyView::observers`],
 /// [`LobbyView::watchers`]).
-pub const PROTOCOL: u16 = 7;
+pub const PROTOCOL: u16 = 8;
 
 /// The first slot number of an observer: a game has eight player slots (0 to 7), so observers are 8, 9 and so on. An
 /// observer's slot only names its connection; it is in no turn and no state.
@@ -206,6 +206,35 @@ pub enum Msg {
     /// relays it). Like [`Msg::Chat`] it is not in any turn and not in the game's state hash; each machine shows it
     /// only if the sender is its ally.
     Ping { slot: u8, x: u16, y: u16 },
+    /// Host to every machine at the start of a game of three or more humans, or with observers: the game's key for a
+    /// rejoin, and a joining player should open a socket a new host can be reached on (`docs/design/network.md`, "When
+    /// the host leaves").
+    Mesh { key: u64 },
+    /// Joiner to host, answering [`Msg::Mesh`]: the port this player listens on for a hand-over (0: it could not open
+    /// one, so it cannot take over).
+    Listen { port: u16 },
+    /// Host to every machine: player `slot` can be reached at `addr` if the host goes.
+    Peer { slot: u8, addr: String },
+    /// To the machine taking over after the host is lost: who this is, the game's key, the next turn it will carry out,
+    /// how many packets of each slot it holds, and the drops it was told of (slot, packet number).
+    Rejoin {
+        slot: u8,
+        key: u64,
+        turn: u32,
+        have: Vec<(u8, u32)>,
+        drops: Vec<(u8, u32)>,
+    },
+    /// The new host to a rejoiner, first: taken in. `have` is how many packets of each slot the new host holds, so the
+    /// rejoiner sends what it lacks.
+    Resume { host: u8, have: Vec<(u8, u32)> },
+    /// A rejoiner to the new host: player `slot`'s packet `seq`, which the new host lacks. Unlike [`Msg::Turn`] its slot
+    /// is not the sender's.
+    Resend { slot: u8, seq: u32, cmd: Option<Command> },
+    /// A rejoiner to the new host: player `slot`'s digest of turn `turn`.
+    ResendSync { slot: u8, turn: u32, digest: u64 },
+    /// The new host to every machine: player `slot` did not come back after the hand-over. Its packets from `at_seq` on
+    /// do not count and its packet `at_seq` is a drop, as for [`Msg::Drop`]; its digests are no longer checked.
+    Lost { slot: u8, at_seq: u32 },
 }
 
 /// What a row of the lobby holds (`ui/game-setup-lobby.md`, "Rows").
@@ -503,6 +532,37 @@ mod tests {
                 text: "hold the ford".into(),
             },
             Msg::Ping { slot: 1, x: 40, y: 99 },
+            Msg::Mesh { key: 0xfeed_beef },
+            Msg::Listen { port: 50123 },
+            Msg::Peer {
+                slot: 2,
+                addr: "10.0.0.7:50123".into(),
+            },
+            Msg::Rejoin {
+                slot: 2,
+                key: 9,
+                turn: 40,
+                have: vec![(0, 41), (2, 43)],
+                drops: vec![(3, 30)],
+            },
+            Msg::Resume {
+                host: 1,
+                have: vec![(0, 40)],
+            },
+            Msg::Resend {
+                slot: 0,
+                seq: 40,
+                cmd: Some(Command::Stop {
+                    player: 0,
+                    units: vec![],
+                }),
+            },
+            Msg::ResendSync {
+                slot: 0,
+                turn: 39,
+                digest: 77,
+            },
+            Msg::Lost { slot: 0, at_seq: 41 },
         ];
         let mut bytes = Vec::new();
         for m in &msgs {

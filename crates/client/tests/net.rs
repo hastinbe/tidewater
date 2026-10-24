@@ -1,5 +1,5 @@
-//! Network play on a real map: two machines in one process, joined over loopback TCP, play a scripted game, check the
-//! state hash at every turn and record it (set `TIDEWATER_INSTALL` to the game's installation; without it the tests do
+//! Network play on a real map: two to four machines in one process, joined over loopback TCP, play a scripted game,
+//! check the state hash at every turn and record it; with three or four, the host leaves and the others play on (set `TIDEWATER_INSTALL` to the game's installation; without it the tests do
 //! nothing, like the other tests that need game files).
 //!
 //! The machines are driven by one thread, one cycle at a time each, the way the game screen drives its session
@@ -40,7 +40,13 @@ struct Rig {
 
 /// The installation's smallest map with two start slots (the replay round trip's choice).
 fn rig() -> Option<Rig> {
+    rig_for(2)
+}
+
+/// The installation's smallest map whose start slots begin with rows 0 to `players - 1`.
+fn rig_for(players: usize) -> Option<Rig> {
     let root = PathBuf::from(std::env::var_os("TIDEWATER_INSTALL")?);
+    let rows: Vec<usize> = (0..players).collect();
     let mut best: Option<(usize, String, Vec<u8>)> = None;
     let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("Maps"))
         .ok()?
@@ -60,8 +66,8 @@ fn rig() -> Option<Rig> {
             .map(|(i, _)| i)
             .collect();
         let size = pud.width as usize * pud.height as usize;
-        // The lobby seats its humans in rows 0 and 1.
-        if slots.starts_with(&[0, 1]) && best.as_ref().is_none_or(|b| size < b.0) {
+        // The lobby seats its humans in rows 0, 1 and on.
+        if slots.starts_with(&rows) && best.as_ref().is_none_or(|b| size < b.0) {
             let name = format!("Maps\\{}", f.file_name().unwrap().to_string_lossy());
             best = Some((size, name, bytes));
         }
@@ -114,6 +120,65 @@ fn handshake(rig: &Rig, dir: &Path, lobby_spec: &str, setup: Setup) -> (NetStart
     )
     .unwrap();
     (host.join().unwrap(), joiner)
+}
+
+/// The host and `players - 1` joiners through the program's own handshake, in slot order.
+fn handshake_n(rig: &Rig, dir: &Path, players: usize, lobby_spec: &str, setup: Setup) -> Vec<NetStart> {
+    const NAMES: [&str; 4] = ["Ann", "Bob", "Cy", "Di"];
+    let spec = LobbySpec::parse(lobby_spec).unwrap();
+    let (tx, rx) = mpsc::channel();
+    let host = thread::spawn({
+        let (host_store, name) = (store(rig, dir, NAMES[0]), rig.name.clone());
+        move || {
+            let mut install = storage::open_install(&host_store.0).unwrap();
+            lobby::host(
+                Some(0),
+                &spec,
+                &name,
+                setup,
+                &mut install,
+                &host_store,
+                NAMES[0],
+                1,
+                |l| {
+                    let _ = tx.send(l.to_string());
+                },
+            )
+            .unwrap()
+        }
+    });
+    let port = loop {
+        let line = rx
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the host says its port");
+        if let Some(rest) = line.strip_prefix("hosting on port ") {
+            break rest.split(':').next().unwrap().parse::<u16>().unwrap();
+        }
+    };
+    let mut joiners = Vec::new();
+    for &who in &NAMES[1..players] {
+        let join_store = store(rig, dir, who);
+        joiners.push(thread::spawn(move || {
+            let mut install = storage::open_install(&join_store.0).unwrap();
+            lobby::join(
+                &format!("127.0.0.1:{port}"),
+                &mut install,
+                &join_store,
+                who,
+                false,
+                |_| {},
+            )
+            .unwrap()
+        }));
+        // One at a time, so the slots come out in order.
+        thread::sleep(Duration::from_millis(300));
+    }
+    let mut starts = vec![host.join().unwrap()];
+    starts.extend(joiners.into_iter().map(|j| j.join().unwrap()));
+    for (i, s) in starts.iter().enumerate() {
+        assert_eq!(s.me as usize, i);
+    }
+    starts
 }
 
 /// One machine: the world, its session, and the scripted player.
@@ -297,6 +362,111 @@ fn script(w: &World, t: u32, me: u8) -> Vec<Command> {
         _ => {}
     }
     out
+}
+
+/// The host leaves (`kill`: its connection just ends, as when its program is killed; else Ctrl+Q, Quit to the main
+/// menu) at cycle `at`; the others play on to `until`. Checks that they stay in step to the end, that the new host is
+/// the lowest slot left with the host's rights, and that every recording agrees with the others over the cycles they
+/// share and replays on its own.
+fn host_leaves(players: usize, setup: Setup, kill: bool, at: u32, until: u32) {
+    const NAMES: [&str; 4] = ["Ann", "Bob", "Cy", "Di"];
+    let Some(rig) = rig_for(players) else {
+        eprintln!("skipped: set TIDEWATER_INSTALL to run (and a map with {players} start slots)");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let starts = handshake_n(
+        &rig,
+        dir.path(),
+        players,
+        &format!("humans={players},fixed,seed=12345,speed=8,row=3"),
+        setup,
+    );
+    let mut ms: Vec<Machine> = starts
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| machine(&rig, dir.path(), NAMES[i], s, true))
+        .collect();
+    run(&mut ms, at);
+    assert!(ms.iter().all(|m| m.session.host() == Some(0)));
+    let host = ms.remove(0);
+    if kill {
+        host.session.vanish();
+    } else {
+        drop(host);
+    }
+    run(&mut ms, until);
+    for m in &ms[1..] {
+        assert_eq!(
+            m.hashes, ms[0].hashes,
+            "slot {} and slot 1: the hash at every turn",
+            m.me
+        );
+        assert_eq!(m.applied, ms[0].applied, "the same commands in the same cycles");
+    }
+    for m in &mut ms {
+        assert_eq!(m.notices.len(), 1, "{:?}", m.notices);
+        assert_eq!(m.notices[0].slot, 0);
+        assert_eq!(
+            m.notices[0].dropped, kill,
+            "a host that quits left; one whose connection died was dropped"
+        );
+        assert_eq!(
+            m.session.host(),
+            Some(1),
+            "the lowest slot left is the host, with its rights"
+        );
+        assert_eq!(m.session.take_notices(), ["Bob is now the host."]);
+        assert_eq!(m.session.players(), (1..players as u8).collect::<Vec<_>>());
+    }
+    // Every remaining player's orders after the host left were carried out (the script gives some at 400 and on).
+    let late: Vec<u8> = ms[0]
+        .applied
+        .iter()
+        .filter(|(t, _)| *t > at + 50)
+        .flat_map(|(_, c)| c.iter().map(Command::player))
+        .collect();
+    for slot in 1..players as u8 {
+        assert!(
+            late.contains(&slot),
+            "no command from slot {slot} after the host left: {late:?}"
+        );
+    }
+    drop(ms);
+    let replays: Vec<Replay> = NAMES[..players].iter().map(|w| replay_of(dir.path(), w)).collect();
+    let mut install = Install::open(&rig.root).unwrap();
+    assert!(replays[0].cycles <= at + 1 && replays[1].cycles == until);
+    for pair in [(0, 1), (1, 2), (players - 2, players - 1)] {
+        let (a, b) = (&replays[pair.0], &replays[pair.1]);
+        let mut wa = new_world(&mut install, &rig.bytes, &a.header).unwrap();
+        let mut wb = new_world(&mut install, &rig.bytes, &b.header).unwrap();
+        assert_eq!(
+            first_desync(&mut wa, a, &mut wb, b),
+            None,
+            "{} and {}",
+            NAMES[pair.0],
+            NAMES[pair.1]
+        );
+    }
+    for (r, who) in replays.iter().zip(NAMES) {
+        let mut w = new_world(&mut install, &rig.bytes, &r.header).unwrap();
+        verify(&mut w, r).unwrap_or_else(|m| panic!("{who}'s recording: {m:?}"));
+    }
+}
+
+#[test]
+fn three_machines_the_host_quits_and_the_two_joiners_play_on_in_step() {
+    host_leaves(3, Setup::default(), false, 300, 900);
+}
+
+#[test]
+fn four_machines_the_hosts_connection_dies_and_the_three_others_play_on_in_step() {
+    host_leaves(4, Setup::default(), true, 250, 800);
+}
+
+#[test]
+fn classic_rules_hand_the_game_on_too() {
+    host_leaves(3, Setup::parse("custom:classic").unwrap(), false, 200, 600);
 }
 
 fn replay_of(dir: &Path, who: &str) -> Replay {

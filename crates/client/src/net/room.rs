@@ -1055,7 +1055,7 @@ impl GuestRoom {
                     out.push(GuestEvent::Go(Box::new(NetStart {
                         config,
                         me: slot,
-                        wire: Box::new(ClientWire::from_parts(link, events, host)),
+                        wire: Box::new(ClientWire::from_parts(link, events, host, slot)),
                         names,
                     })));
                 }
@@ -1498,8 +1498,8 @@ mod tests {
         let addr = format!("127.0.0.1:{}", room.port());
         let t = thread::spawn(move || {
             let mut s = std::net::TcpStream::connect(addr).unwrap();
-            // Protocol 6's Hello: variant 0, the version, then what that version put after it.
-            let body = [0u8, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            // Protocol 7's Hello: variant 0, the version, then what that version put after it.
+            let body = [0u8, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
             s.write_all(&(body.len() as u32).to_le_bytes()).unwrap();
             s.write_all(&body).unwrap();
             read_frame(&mut s)
@@ -1507,8 +1507,8 @@ mod tests {
         wait(&mut room, |_| t.is_finished());
         match t.join().unwrap().unwrap() {
             Msg::Refuse { reason } => {
-                assert_eq!(reason, Identity::protocol_reason(7, 6));
-                assert!(reason.contains("host 7") && reason.contains("joiner 6"), "{reason}");
+                assert_eq!(reason, Identity::protocol_reason(8, 7));
+                assert!(reason.contains("host 8") && reason.contains("joiner 7"), "{reason}");
             }
             other => panic!("{other:?}"),
         }

@@ -3,9 +3,8 @@
 //! settings dialogs edit. No SDL types here; `gamemenu` draws it and applies the results.
 //!
 //! Choices where the spec leaves a gap:
-//! - The client plays one human player, so the game always counts as single player: the menu stops the game, there is
-//!   no Load-less network menu, no "who may restart" check and no Battle.net rules. [`end_buttons`] still covers the
-//!   multiplayer column and [`bnet_quit`] the 120-second rule, for when those games exist.
+//! - There is no Load-less network menu and no Battle.net rules ([`bnet_quit`] holds the 120-second rule for when those
+//!   games exist). The "who may restart" check of a network game is [`host_check`].
 //! - A confirmation opened from the End-scenario menu goes back to it on Cancel; one opened by its key goes back to
 //!   the game ("Going back").
 //! - Keys inside a menu open the next screen as a child (so Previous comes back to the menu); the key table is the
@@ -52,6 +51,8 @@ pub enum Screen {
     Tips,
     /// Tidewater's own Settings screen over the game (`settings`, not in the original).
     Settings,
+    /// Network entry 28: only the host, the player in this slot, may make that choice ([`host_check`]).
+    Refused(u8),
 }
 
 /// The open screens, from the first one opened to the current one. Only the last is shown.
@@ -160,6 +161,21 @@ pub fn end_buttons(kind: Kind) -> Vec<EndButton> {
         Kind::Campaign => vec![Restart, Surrender, QuitToMenu, Exit],
         Kind::Custom => vec![LoadCustom, Surrender, QuitToMenu, Exit],
         Kind::Multiplayer => vec![ReturnToChat, Surrender, QuitToMenu, Exit],
+    }
+}
+
+/// `ui/game-menu.md`, "Who may restart, return or load", and `game/save-load.md`, "Who may save or load": in a network
+/// game only the host may open restart, return to chat room, load another scenario, save or load; anyone else gets
+/// [`Screen::Refused`] naming the host (network entry 28). `host` is the session's host: `None` when there is none at
+/// the moment, and then the check passes. An observer's choices touch only its own machine, so it is never refused.
+pub fn host_check(screen: Screen, network: bool, observer: bool, host: Option<u8>, me: u8) -> Screen {
+    let gated = matches!(
+        screen,
+        Screen::Confirm(Confirm::Restart | Confirm::LoadCustom | Confirm::ReturnToChat) | Screen::Saving(_)
+    );
+    match host {
+        Some(h) if network && gated && !observer && h != me => Screen::Refused(h),
+        _ => screen,
     }
 }
 
@@ -311,6 +327,26 @@ mod tests {
         );
         assert_eq!(Kind::of(Some(GameKind::Campaign(3))), Kind::Campaign);
         assert_eq!(Kind::of(None), Kind::Custom);
+    }
+
+    #[test]
+    fn only_the_host_may_return_save_or_load_in_a_network_game() {
+        let ret = Screen::Confirm(Confirm::ReturnToChat);
+        let save = Screen::Saving(Saving::Save);
+        // Player 2 while player 1 hosts: entry 28 names player 1 (LV13: after a hand-over, the new host).
+        assert_eq!(host_check(ret, true, false, Some(1), 2), Screen::Refused(1));
+        assert_eq!(host_check(save, true, false, Some(1), 2), Screen::Refused(1));
+        assert_eq!(
+            host_check(Screen::Saving(Saving::Load), true, false, Some(1), 2),
+            Screen::Refused(1)
+        );
+        // The host itself, single player, no host at the moment, an observer, and an ungated choice all pass.
+        assert_eq!(host_check(ret, true, false, Some(1), 1), ret);
+        assert_eq!(host_check(save, false, false, None, 0), save);
+        assert_eq!(host_check(ret, true, false, None, 2), ret);
+        assert_eq!(host_check(ret, true, true, Some(0), 0), ret);
+        let quit = Screen::Confirm(Confirm::QuitToMenu);
+        assert_eq!(host_check(quit, true, false, Some(1), 2), quit);
     }
 
     #[test]

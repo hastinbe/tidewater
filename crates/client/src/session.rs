@@ -89,9 +89,15 @@ pub trait Session: Send + Sync {
         None
     }
 
-    /// Texts for the notice line since the last call (a replay's pause, end and desync).
+    /// Texts for the notice line since the last call (a replay's pause, end and desync; a network game's new host).
     fn take_notices(&mut self) -> Vec<String> {
         Vec::new()
+    }
+
+    /// The network game's host, the only player who may restart, return or load (`ui/game-menu.md`, "Who may restart,
+    /// return or load"). `None` when there is none: not a network game, or the host is lost and nobody has taken over.
+    fn host(&self) -> Option<u8> {
+        None
     }
 
     /// How many times faster than the game's speed the cycles run (a replay viewer's own control; 1 otherwise).

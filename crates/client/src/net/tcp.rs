@@ -11,6 +11,7 @@
 //! which drains a queue onto the socket, so the game thread never waits on the network. The handshake before a game
 //! blocks, on purpose: the lobby is on the command line until the lobby screens exist.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -28,13 +29,17 @@ use super::proto::{
 pub(super) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a joiner waits for the connection itself.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// A hand-over (`docs/design/network.md`, "When the host leaves"): how long a machine waits for the connection to a
+/// player that may take over, and then for its answer to the rejoin.
+const DIAL_TIMEOUT: Duration = Duration::from_secs(3);
+const RESUME_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl Inbound {
     #[cfg(test)]
     fn into_msg(self) -> Msg {
         match self {
             Inbound::Msg { msg, .. } => msg,
-            Inbound::Closed { .. } => panic!("not a message"),
+            other => panic!("not a message: {other:?}"),
         }
     }
 }
@@ -46,6 +51,19 @@ pub enum Inbound {
     Msg { from: u8, msg: Msg },
     /// The connection to `slot` ended, cleanly or not.
     Closed { slot: u8 },
+    /// A hand-over this machine started ([`Wire::migrate`]) has come to an end.
+    Migrated(Migrated),
+}
+
+/// How a hand-over ended for this machine (`docs/design/network.md`, "When the host leaves").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Migrated {
+    /// This machine took over: its wire is a host's now, accepting the others' rejoins.
+    Hosting,
+    /// This machine is connected to the new host in slot `host`, which holds `have` packets of each slot.
+    Joined { host: u8, have: Vec<(u8, u32)> },
+    /// Nobody could be reached: this machine is on its own.
+    Stranded,
 }
 
 /// The turn engine's end of the network: whatever carries messages between the machines.
@@ -58,6 +76,15 @@ pub trait Wire: Send {
     /// wire does anything. The engine calls it, rather than the wire relaying by itself, so that what the host relays
     /// is exactly what it counted (`Msg::Drop`'s `at_seq` is that count).
     fn forward(&mut self, _from: u8, _msg: &Msg) {}
+    /// The host sends `msg` to the machine in `slot` only (a rejoiner's catch-up). Only a host's wire does anything.
+    fn send_to(&mut self, _slot: u8, _msg: &Msg) {}
+    /// The host's connection is gone: hand the game on. `order` is the players that may take over, in the order to try
+    /// them (this machine's slot among them when it may); `rejoin` is the [`Msg::Rejoin`] to give the one that does
+    /// (the wire puts the game's key in). The outcome arrives as [`Inbound::Migrated`]. `false`: this wire can't (no
+    /// mesh table, as in a two-player game), and nothing was started.
+    fn migrate(&mut self, _order: &[u8], _rejoin: Msg) -> bool {
+        false
+    }
 }
 
 pub(super) enum Event {
@@ -69,6 +96,8 @@ pub(super) enum Event {
 /// side of the socket, so a last message (a leave) is still delivered.
 pub(super) struct Link {
     tx: Sender<Msg>,
+    /// The other machine's address, as this end of the connection sees it.
+    peer: Option<SocketAddr>,
 }
 
 impl Link {
@@ -76,6 +105,7 @@ impl Link {
     pub(super) fn spawn(stream: TcpStream, id: usize, events: Sender<Event>) -> io::Result<Link> {
         stream.set_nodelay(true)?;
         stream.set_read_timeout(None)?;
+        let peer = stream.peer_addr().ok();
         let mut reader = stream.try_clone()?;
         thread::Builder::new().name(format!("net-read-{id}")).spawn(move || {
             while let Ok(msg) = read_frame(&mut reader) {
@@ -97,7 +127,7 @@ impl Link {
             // reset the connection over data we have not read and lose the last message.
             let _ = writer.shutdown(Shutdown::Write);
         })?;
-        Ok(Link { tx })
+        Ok(Link { tx, peer })
     }
 
     pub(super) fn send(&self, msg: &Msg) {
@@ -112,6 +142,19 @@ pub struct HostWire {
     events: Receiver<Event>,
     /// Every slot's name, indexed by slot, with the joiners' own names in (the host's copy of the Start message).
     pub names: Vec<String>,
+    /// The game's key for a hand-over, once the mesh table is open ([`Msg::Mesh`]).
+    key: Option<u64>,
+    /// A machine that took over from a lost host: the socket the others rejoin on.
+    taking: Option<TakeOver>,
+}
+
+/// A new host's socket, and the connections on it that have not yet said who they are.
+struct TakeOver {
+    me: u8,
+    listener: TcpListener,
+    tx: Sender<Event>,
+    pending: Vec<(usize, Link)>,
+    next_id: usize,
 }
 
 struct HostLink {
@@ -130,9 +173,13 @@ impl Wire for HostWire {
 
     fn poll(&mut self) -> Vec<Inbound> {
         let mut out = Vec::new();
+        self.accept_rejoiners();
         while let Ok(ev) = self.events.try_recv() {
             match ev {
                 Event::Closed(id) => {
+                    if let Some(t) = &mut self.taking {
+                        t.pending.retain(|(p, _)| *p != id);
+                    }
                     if let Some(l) = self.links.iter_mut().find(|l| l.id == id)
                         && std::mem::replace(&mut l.open, false)
                         // An observer leaving is nobody's business but the link's.
@@ -142,11 +189,28 @@ impl Wire for HostWire {
                     }
                 }
                 Event::Msg(id, msg) => {
+                    if self
+                        .taking
+                        .as_ref()
+                        .is_some_and(|t| t.pending.iter().any(|(p, _)| *p == id))
+                    {
+                        if let Some(i) = self.bind_rejoiner(id, msg) {
+                            out.push(i);
+                        }
+                        continue;
+                    }
                     let Some(from) = self.links.iter().find(|l| l.id == id && l.open).map(|l| l.slot) else {
                         continue;
                     };
-                    // An observer only listens: whatever it says is not heard.
+                    // An observer only listens: whatever it says is not heard, but for what it passes on in a rejoin.
                     if from >= OBSERVER_BASE {
+                        if matches!(msg, Msg::Resend { .. } | Msg::ResendSync { .. }) {
+                            out.push(Inbound::Msg { from, msg });
+                        }
+                        continue;
+                    }
+                    if let Msg::Listen { port } = msg {
+                        self.heard_listen(from, port);
                         continue;
                     }
                     // The slot is the connection's, whatever the message claims.
@@ -163,7 +227,7 @@ impl Wire for HostWire {
                             text,
                         },
                         Msg::Ping { x, y, .. } => Msg::Ping { slot: from, x, y },
-                        m @ Msg::DropRequest { .. } => m,
+                        m @ (Msg::DropRequest { .. } | Msg::Resend { .. } | Msg::ResendSync { .. }) => m,
                         // Everything else is the host's to say, or a handshake message out of place.
                         _ => continue,
                     };
@@ -177,13 +241,105 @@ impl Wire for HostWire {
     fn forward(&mut self, from: u8, msg: &Msg) {
         self.forward_to_others(from, msg);
     }
+
+    fn send_to(&mut self, slot: u8, msg: &Msg) {
+        if let Some(l) = self.links.iter().find(|l| l.open && l.slot == slot) {
+            l.link.send(msg);
+        }
+    }
 }
 
 impl HostWire {
+    /// Opens the mesh table when a hand-over could matter (three or more humans, or an observer): every machine gets the
+    /// game's key and each joining player is asked for a socket (`docs/design/network.md`, "When the host leaves"). A
+    /// two-player game without observers sends nothing.
+    fn open_mesh(&mut self) {
+        let players = self.links.iter().filter(|l| l.slot < OBSERVER_BASE).count();
+        let watchers = self.links.len() - players;
+        if players < 2 && watchers == 0 {
+            return;
+        }
+        let key = random_key();
+        self.key = Some(key);
+        self.send(Msg::Mesh { key });
+    }
+
+    /// A joining player's socket port: everyone is told where it can be reached.
+    fn heard_listen(&mut self, from: u8, port: u16) {
+        if self.key.is_none() || port == 0 {
+            return;
+        }
+        let Some(ip) = self
+            .links
+            .iter()
+            .find(|l| l.slot == from)
+            .and_then(|l| l.link.peer)
+            .map(|a| a.ip())
+        else {
+            return;
+        };
+        let addr = SocketAddr::new(ip, port).to_string();
+        self.send(Msg::Peer { slot: from, addr });
+    }
+
+    /// The wire of a machine that takes over from a lost host: no connections yet; the others rejoin on `listener`.
+    fn taking_over(listener: TcpListener, me: u8, key: u64) -> HostWire {
+        let (tx, events) = mpsc::channel();
+        HostWire {
+            links: Vec::new(),
+            events,
+            names: Vec::new(),
+            key: Some(key),
+            taking: Some(TakeOver {
+                me,
+                listener,
+                tx,
+                pending: Vec::new(),
+                next_id: 0,
+            }),
+        }
+    }
+
+    /// Takes the connections waiting on a new host's socket; each must say [`Msg::Rejoin`] first.
+    fn accept_rejoiners(&mut self) {
+        let Some(t) = &mut self.taking else { return };
+        while let Ok((stream, _)) = t.listener.accept() {
+            let _ = stream.set_nonblocking(false);
+            let id = t.next_id;
+            t.next_id += 1;
+            if let Ok(link) = Link::spawn(stream, id, t.tx.clone()) {
+                t.pending.push((id, link));
+            }
+        }
+    }
+
+    /// A waiting connection's first message: a rejoin with the game's key binds it to its slot (and is handed to the
+    /// turn engine); anything else closes it.
+    fn bind_rejoiner(&mut self, id: usize, msg: Msg) -> Option<Inbound> {
+        let t = self.taking.as_mut()?;
+        let at = t.pending.iter().position(|(p, _)| *p == id)?;
+        let (_, link) = t.pending.remove(at);
+        let me = t.me;
+        let Msg::Rejoin { slot, key, .. } = &msg else {
+            return None;
+        };
+        let slot = *slot;
+        if Some(*key) != self.key || slot == me || self.links.iter().any(|l| l.open && l.slot == slot) {
+            return None;
+        }
+        self.links.push(HostLink {
+            slot,
+            id,
+            link,
+            open: true,
+        });
+        Some(Inbound::Msg { from: slot, msg })
+    }
+
     /// The wire over connections the lobby (`room`) already holds: `joiners` are each connection's slot and event id,
     /// `events` the channel their reader threads send on.
     pub(super) fn from_parts(joiners: Vec<(u8, usize, Link)>, events: Receiver<Event>, names: Vec<String>) -> HostWire {
-        HostWire {
+        let mut wire = HostWire {
             links: joiners
                 .into_iter()
                 .map(|(slot, id, link)| HostLink {
@@ -195,7 +351,11 @@ impl HostWire {
                 .collect(),
             events,
             names,
-        }
+            key: None,
+            taking: None,
+        };
+        wire.open_mesh();
+        wire
     }
 
     fn forward_to_others(&mut self, from: u8, msg: &Msg) {
@@ -205,35 +365,160 @@ impl HostWire {
     }
 }
 
-/// A joiner's wire: the one connection to the host.
+/// A joiner's wire: the one connection to the host. After a hand-over it is either connected to the new host, or it
+/// is the new host and holds a host's wire.
 pub struct ClientWire {
     link: Link,
     events: Receiver<Event>,
     host: u8,
     closed: bool,
+    /// This machine's slot.
+    me: u8,
+    /// The mesh table (`docs/design/network.md`, "When the host leaves"): the game's key, this player's socket, and
+    /// where the other players can be reached.
+    key: Option<u64>,
+    listener: Option<TcpListener>,
+    peers: BTreeMap<u8, SocketAddr>,
+    /// A hand-over under way: the dialling thread's answer.
+    dial: Option<Receiver<Dialed>>,
+    /// This machine took over.
+    hosting: Option<HostWire>,
+    /// Outcomes to report at the next poll.
+    out: Vec<Inbound>,
+}
+
+/// What the dialling thread of a hand-over found.
+enum Dialed {
+    /// This machine is the first player that can take over.
+    Host,
+    /// The player in `slot` took this machine in.
+    Joined {
+        host: u8,
+        stream: TcpStream,
+        have: Vec<(u8, u32)>,
+    },
+    Stranded,
 }
 
 impl ClientWire {
-    /// The wire over the connection the lobby (`room`) already holds, to the host in slot `host`.
-    pub(super) fn from_parts(link: Link, events: Receiver<Event>, host: u8) -> ClientWire {
+    /// The wire over the connection the lobby (`room`) already holds, to the host in slot `host`; this machine is `me`.
+    pub(super) fn from_parts(link: Link, events: Receiver<Event>, host: u8, me: u8) -> ClientWire {
         ClientWire {
             link,
             events,
             host,
             closed: false,
+            me,
+            key: None,
+            listener: None,
+            peers: BTreeMap::new(),
+            dial: None,
+            hosting: None,
+            out: Vec::new(),
+        }
+    }
+
+    /// The host opened the mesh: keep the key and, as a player, open a socket and say its port.
+    fn mesh(&mut self, key: u64) {
+        self.key = Some(key);
+        if self.me >= OBSERVER_BASE || self.listener.is_some() {
+            return;
+        }
+        let listener = TcpListener::bind(("0.0.0.0", 0)).and_then(|l| l.set_nonblocking(true).map(|()| l));
+        let port = match listener {
+            Ok(l) => {
+                let port = l.local_addr().map_or(0, |a| a.port());
+                self.listener = Some(l);
+                port
+            }
+            Err(_) => 0,
+        };
+        self.link.send(&Msg::Listen { port });
+    }
+
+    fn dialled(&mut self, d: Dialed) {
+        match d {
+            Dialed::Host => match (self.listener.take(), self.key) {
+                (Some(listener), Some(key)) => {
+                    self.hosting = Some(HostWire::taking_over(listener, self.me, key));
+                    self.out.push(Inbound::Migrated(Migrated::Hosting));
+                }
+                _ => self.out.push(Inbound::Migrated(Migrated::Stranded)),
+            },
+            Dialed::Joined { host, stream, have } => {
+                let (tx, rx) = mpsc::channel();
+                match Link::spawn(stream, 0, tx) {
+                    Ok(link) => {
+                        self.link = link;
+                        self.events = rx;
+                        self.host = host;
+                        self.closed = false;
+                        self.out.push(Inbound::Migrated(Migrated::Joined { host, have }));
+                    }
+                    Err(_) => self.out.push(Inbound::Migrated(Migrated::Stranded)),
+                }
+            }
+            Dialed::Stranded => self.out.push(Inbound::Migrated(Migrated::Stranded)),
         }
     }
 }
 
+/// Tries the players of a hand-over in order: this machine (`me`) when it is reached takes over; another is taken when
+/// it answers the rejoin with [`Msg::Resume`]. A player that has gone refuses the connection, one that does not take
+/// over does not answer; either way the next is tried.
+fn dial(order: Vec<(u8, Option<SocketAddr>)>, me: u8, rejoin: Msg) -> Dialed {
+    for (slot, addr) in order {
+        if slot == me {
+            return Dialed::Host;
+        }
+        let Some(addr) = addr else { continue };
+        let Ok(mut stream) = TcpStream::connect_timeout(&addr, DIAL_TIMEOUT) else {
+            continue;
+        };
+        let _ = stream.set_nodelay(true);
+        if stream.set_read_timeout(Some(RESUME_TIMEOUT)).is_err() || write_frame(&mut stream, &rejoin).is_err() {
+            continue;
+        }
+        if let Ok(Msg::Resume { host, have }) = read_frame(&mut stream)
+            && host == slot
+        {
+            return Dialed::Joined { host, stream, have };
+        }
+    }
+    Dialed::Stranded
+}
+
+/// A key no outsider can guess easily: the standard library's random hasher seeds, over the clock.
+fn random_key() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    if let Ok(t) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        h.write_u128(t.as_nanos());
+    }
+    h.finish()
+}
+
 impl Wire for ClientWire {
     fn send(&mut self, msg: Msg) {
-        if !self.closed {
+        if let Some(h) = &mut self.hosting {
+            h.send(msg);
+        } else if !self.closed {
             self.link.send(&msg);
         }
     }
 
     fn poll(&mut self) -> Vec<Inbound> {
-        let mut out = Vec::new();
+        if let Some(rx) = &self.dial
+            && let Ok(d) = rx.try_recv()
+        {
+            self.dial = None;
+            self.dialled(d);
+        }
+        let mut out = std::mem::take(&mut self.out);
+        if let Some(h) = &mut self.hosting {
+            out.extend(h.poll());
+            return out;
+        }
         while let Ok(ev) = self.events.try_recv() {
             match ev {
                 Event::Closed(_) => {
@@ -243,14 +528,63 @@ impl Wire for ClientWire {
                 }
                 Event::Msg(_, msg) => match msg {
                     Msg::Turn { slot, .. } | Msg::Sync { slot, .. } => out.push(Inbound::Msg { from: slot, msg }),
-                    Msg::Drop { .. } | Msg::Chat { .. } | Msg::Ping { .. } => {
+                    Msg::Drop { .. } | Msg::Lost { .. } | Msg::Chat { .. } | Msg::Ping { .. } => {
                         out.push(Inbound::Msg { from: self.host, msg })
+                    }
+                    Msg::Mesh { key } => self.mesh(key),
+                    Msg::Peer { slot, addr } => {
+                        if let Ok(a) = addr.parse::<SocketAddr>()
+                            && slot != self.me
+                            && slot < OBSERVER_BASE
+                        {
+                            self.peers.insert(slot, a);
+                        }
                     }
                     _ => {}
                 },
             }
         }
         out
+    }
+
+    fn forward(&mut self, from: u8, msg: &Msg) {
+        if let Some(h) = &mut self.hosting {
+            h.forward(from, msg);
+        }
+    }
+
+    fn send_to(&mut self, slot: u8, msg: &Msg) {
+        if let Some(h) = &mut self.hosting {
+            h.send_to(slot, msg);
+        }
+    }
+
+    fn migrate(&mut self, order: &[u8], mut rejoin: Msg) -> bool {
+        let Some(key) = self.key else { return false };
+        if self.hosting.is_some() || self.dial.is_some() {
+            return false;
+        }
+        if let Msg::Rejoin { key: k, .. } = &mut rejoin {
+            *k = key;
+        }
+        let can_host = self.listener.is_some();
+        let order: Vec<(u8, Option<SocketAddr>)> = order
+            .iter()
+            .filter(|&&s| s != self.me || can_host)
+            .map(|&s| (s, self.peers.get(&s).copied()))
+            .collect();
+        let (tx, rx) = mpsc::channel();
+        let me = self.me;
+        let spawned = thread::Builder::new()
+            .name("net-handover".into())
+            .spawn(move || {
+                let _ = tx.send(dial(order, me, rejoin));
+            })
+            .is_ok();
+        if spawned {
+            self.dial = Some(rx);
+        }
+        spawned
     }
 }
 
@@ -396,11 +730,15 @@ pub fn host_game_with(
             open: true,
         });
     }
-    Ok(HostWire {
+    let mut wire = HostWire {
         links,
         events,
         names: config.names,
-    })
+        key: None,
+        taking: None,
+    };
+    wire.open_mesh();
+    Ok(wire)
 }
 
 /// Joins the game at `addr` (`HOST` or `HOST:PORT`, [`DEFAULT_PORT`] when there is no port). `verify` looks at the
@@ -469,12 +807,7 @@ pub fn join_as(
     let link = Link::spawn(stream, 0, tx)?;
     let host = config.lobby.humans.first().map_or(0, |h| h.0);
     Ok(Joined {
-        wire: ClientWire {
-            link,
-            events,
-            host,
-            closed: false,
-        },
+        wire: ClientWire::from_parts(link, events, host, slot),
         config,
         slot,
         names,
