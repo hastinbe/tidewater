@@ -6,8 +6,9 @@
 //!
 //! The 640 × 480 screen is drawn at a whole number of physical pixels per screen pixel, black-bordered in a larger
 //! window, and the map view shows one map pixel per screen pixel, as the original does (`display`). On a touch
-//! platform, or with the `scaling` extra at `sharp`, it fills the window's safe area at any size instead, drawn sharp
-//! bilinear (`display::Letterbox::fit_area`). The mouse wheel zooms only with the `--free-zoom` development option.
+//! platform, with the `scaling` extra at `sharp`, or at its default `auto` where the whole-number scale fills the safe
+//! area poorly (a full screen, a resized window), it fills the safe area at any size instead, drawn sharp bilinear
+//! (`display::Letterbox::fit_with`). The mouse wheel zooms only with the `--free-zoom` development option.
 //! The controls are in the core (`game`).
 //!
 //! **Touch** (`docs/design/touch.md`). Fingers on a touch screen go in as `input::Touch` events (a trackpad's do not);
@@ -44,6 +45,7 @@ use tidewater_client::args::Args;
 use tidewater_client::audio::SAMPLE_RATE;
 use tidewater_client::core::{Core, Platform};
 use tidewater_client::display::{self, Letterbox};
+use tidewater_client::extras::Scaling;
 use tidewater_client::firstrun::PickKind;
 use tidewater_client::host::{self, FrameStats, LockedPointer};
 use tidewater_client::input::{
@@ -217,7 +219,11 @@ fn run(l: host::Launch) -> Result<()> {
         mods: (false, false, false),
         left_down: false,
         keyboard: !MOBILE,
-        fractional: MOBILE,
+        fit: if MOBILE {
+            display::Fit::Sharp
+        } else {
+            display::Fit::Whole
+        },
         ppi_per_density: core.opts.touch_dpi.map_or(
             if MOBILE {
                 160.0
@@ -243,7 +249,15 @@ fn run(l: host::Launch) -> Result<()> {
         let interval = now - last;
         last = now;
         first = false;
-        shell.fractional = MOBILE || core.extras.scaling() == tidewater_client::extras::Scaling::Sharp;
+        shell.fit = if MOBILE {
+            display::Fit::Sharp
+        } else {
+            match core.extras.scaling() {
+                Scaling::Auto => display::Fit::Auto,
+                Scaling::Integer => display::Fit::Whole,
+                Scaling::Sharp => display::Fit::Sharp,
+            }
+        };
         let was_suspended = core.suspended;
         let quit = shell.take_events(&mut core);
         // In the background nothing runs: no frame, no drawing (the system may stop the program at any moment), only
@@ -304,7 +318,7 @@ fn run(l: host::Launch) -> Result<()> {
         if screen != shell.screen {
             renderer.set_size(screen)?;
             if !MOBILE && !big_script {
-                fit_window(&window, shell.screen, screen, shell.fractional, scripted);
+                fit_window(&window, shell.screen, screen, shell.fit, scripted);
             }
             shell.screen = screen;
         }
@@ -355,16 +369,18 @@ fn run(l: host::Launch) -> Result<()> {
 /// Makes the window hold a new screen size. A window that shows whole-number scales grows to keep its scale (the
 /// screen is as high as before, so only the width changes) if the display has room; one that fits any size needs
 /// nothing. The smallest size follows the screen.
-fn fit_window(window: &sdl::Window, old: (u32, u32), new: (u32, u32), fractional: bool, scripted: bool) {
+fn fit_window(window: &sdl::Window, old: (u32, u32), new: (u32, u32), fit: display::Fit, scripted: bool) {
     let d = window.pixel_density();
     let points = |len: u32| (len as f32 / d).ceil() as u32;
     if !scripted {
         window.set_min_size(points(new.0), points(new.1));
     }
-    if fractional && !scripted {
+    let (wx, wy) = window.size_in_pixels();
+    // A window that fills at any size (sharp, touch, or `auto` where the whole scale fits poorly, as a full screen
+    // does) only changes its letterbox.
+    if !scripted && !display::Letterbox::fit_with((wx, wy), window.safe_area(), fit, old).is_whole() {
         return;
     }
-    let (wx, wy) = window.size_in_pixels();
     let scale = display::fit_scale_of((wx, wy), old);
     let want = (new.0 * scale, new.1 * scale);
     if want.0 <= wx && want.1 <= wy && !scripted {
@@ -415,8 +431,8 @@ struct Shell<'a> {
     left_down: bool,
     /// The soft keyboard (or the desktop's text input) is open.
     keyboard: bool,
-    /// The picture fits the safe area at any scale (`display`).
-    fractional: bool,
+    /// How the picture fits the safe area (`display`).
+    fit: display::Fit,
     /// Points to the inch (physical pixels per inch is this times the density), or physical pixels per inch itself when
     /// `ppi_absolute` (`--touch-dpi`).
     ppi_per_density: f32,
@@ -554,7 +570,7 @@ impl Platform for Shell<'_> {
         } else {
             self.ppi_per_density * g.factor
         };
-        g.fractional = self.fractional;
+        g.fit = self.fit;
         g.screen = self.screen;
         Some(g)
     }

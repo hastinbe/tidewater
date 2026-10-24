@@ -24,8 +24,11 @@
 //! - **Fractional scale** (client-only, not part of the original). Touch platforms fit the screen by a fraction of
 //!   the window's safe area instead of a whole number, drawn "sharp bilinear": the picture is first scaled up by a
 //!   whole number with the nearest texel and then scaled linearly down to the fractional size, so pixels stay crisp
-//!   without a thick uneven edge ([`Letterbox::fit_area`], [`sharp_steps`]). Desktop keeps whole numbers unless the
-//!   `scaling` extra says `sharp`. The safe area is the part of the window the system doesn't cover (a phone's rounded
+//!   without a thick uneven edge ([`Letterbox::fit_area`], [`sharp_steps`]). Desktop follows the `scaling` extra
+//!   ([`Fit`]): `auto` (the default) keeps the whole-number scale when it covers at least [`AUTO_COVER`] (90 %) of the
+//!   limiting dimension of the safe area and otherwise fills it fractionally, so a window sized to a whole scale looks
+//!   as it always did while a full screen or a resized window with a poor whole fit fills; `integer` is always whole
+//!   numbers, `sharp` always fractional ([`fractional_for`]). The safe area is the part of the window the system doesn't cover (a phone's rounded
 //!   corners, notch and home bar).
 //! - **Widescreen** (client-only, not part of the original; [`crate::widescreen`]). A game may have a screen wider than
 //!   640 pixels (the `widescreen` option). The [`Letterbox`] then carries the screen's size, so the scale, the black
@@ -110,6 +113,12 @@ impl Letterbox {
     /// crisply.
     pub fn fit_area(size: (u32, u32), safe: Area, fractional: bool) -> Self {
         Self::fit_area_screen(size, safe, fractional, SCREEN)
+    }
+
+    /// A `screen` in the `safe` area by a [`Fit`] mode: [`fractional_for`] decides whether the scale is whole.
+    pub fn fit_with(size: (u32, u32), safe: Area, fit: Fit, screen: (u32, u32)) -> Self {
+        let (_, _, sw, sh) = clip_area(safe, size);
+        Self::fit_area_screen(size, safe, fractional_for(fit, (sw, sh), screen), screen)
     }
 
     /// [`Letterbox::fit_area`] for a `screen` of another size.
@@ -220,6 +229,35 @@ impl Letterbox {
             (self.offset.0 as f32 + self.screen.0 as f32 * s / 2.0) / factor,
             (self.offset.1 as f32 + self.screen.1 as f32 * s / 2.0) / factor,
         )
+    }
+}
+
+/// How the picture is fitted to the window (the `scaling` extra; touch platforms always use [`Fit::Sharp`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fit {
+    /// Whole numbers when they fill the area well ([`AUTO_COVER`]), otherwise fractional.
+    Auto,
+    /// Always whole numbers.
+    Whole,
+    /// Always fractional, drawn sharp bilinear.
+    Sharp,
+}
+
+/// What share of the limiting dimension (width or height, whichever binds) the whole-number scale must cover for
+/// [`Fit::Auto`] to keep it.
+pub const AUTO_COVER: f32 = 0.9;
+
+/// Whether `fit` draws `screen` at a fractional scale in a safe area of `area` physical pixels (width, height).
+/// For [`Fit::Auto`]: the whole-number scale ([`fit_scale_of`]) is kept when it is at least [`AUTO_COVER`] of the
+/// fractional one (so it covers that share of the limiting dimension), and a poorer fit goes fractional.
+pub fn fractional_for(fit: Fit, area: (u32, u32), screen: (u32, u32)) -> bool {
+    match fit {
+        Fit::Whole => false,
+        Fit::Sharp => true,
+        Fit::Auto => {
+            let raw = (area.0 as f32 / screen.0.max(1) as f32).min(area.1 as f32 / screen.1.max(1) as f32);
+            (fit_scale_of(area, screen) as f32) < AUTO_COVER * raw
+        }
     }
 }
 
@@ -417,6 +455,62 @@ mod tests {
             240,
             "the overhang is cut to the window (280 wide), the screen centred in what is left"
         );
+    }
+
+    #[test]
+    fn auto_keeps_a_good_whole_fit_and_fills_a_poor_one() {
+        let auto = |size: (u32, u32), screen| Letterbox::fit_with(size, (0, 0, size.0, size.1), Fit::Auto, screen);
+        // The notched laptop's full screen: 4 x 480 > 1900, so whole is 3 (76 % of the height): fill instead.
+        let lb = auto((3024, 1900), SCREEN);
+        assert!(!lb.is_whole());
+        assert!((lb.scale - 1900.0 / 480.0).abs() < 1e-6, "{}", lb.scale);
+        assert_eq!(lb.screen().3, 1900, "the whole height");
+        // A window sized to a whole scale stays whole, and is the integer fit exactly.
+        for size in [(2560, 1920), (1280, 960), (1920, 1440), (640, 480)] {
+            assert_eq!(auto(size, SCREEN), Letterbox::fit(size), "{size:?}");
+        }
+        // A resized window: 2 of 2.208 (91 %) keeps whole, 2 of 2.225 (90 %, just under) fills; 1 of 1.875 fills.
+        assert!(auto((1920, 1060), SCREEN).is_whole());
+        assert!(!auto((1920, 1068), SCREEN).is_whole());
+        assert!(!auto((1500, 900), SCREEN).is_whole());
+        // Smaller than the screen: whole 1 is kept when it nearly fits, as `integer` does; a tiny window shrinks.
+        assert_eq!(auto((620, 470), SCREEN).scale, Letterbox::fit((620, 470)).scale);
+        // `integer` and `sharp` mean what they say.
+        let area = (0, 0, 3024, 1900);
+        assert_eq!(Letterbox::fit_with((3024, 1900), area, Fit::Whole, SCREEN).scale, 3.0);
+        let sharp = Letterbox::fit_with((2560, 1920), (0, 0, 2560, 1920), Fit::Sharp, SCREEN);
+        assert_eq!(sharp.scale, 4.0);
+        let sharp = Letterbox::fit_with((3024, 1900), area, Fit::Sharp, SCREEN);
+        assert_eq!(sharp.screen().3, 1900);
+        // The safe area, not the window, is what counts.
+        let lb = Letterbox::fit_with((3024, 1964), (0, 64, 3024, 1900), Fit::Auto, SCREEN);
+        assert_eq!(lb.screen().3, 1900);
+        assert_eq!(lb.offset.1, 64);
+    }
+
+    #[test]
+    fn auto_fills_the_notched_full_screen_with_a_widescreen_game_too() {
+        use crate::extras::Widescreen;
+        use crate::widescreen::width;
+        let area = (3024, 1900);
+        let lb_of = |w: u32| Letterbox::fit_with(area, (0, 0, area.0, area.1), Fit::Auto, (w, 480));
+        // `auto` widescreen takes the window's shape: 768 x 480 (16:10), width-limited at 3.9375 (3024 / 768).
+        let w = width(Widescreen::Auto, Some(area), false);
+        assert_eq!(w, 768);
+        let lb = lb_of(w);
+        assert!((lb.scale - 3024.0 / 768.0).abs() < 1e-6);
+        assert_eq!(
+            lb.screen(),
+            (0, 5, 3024, 1890),
+            "the whole width, 10 pixels of height spare"
+        );
+        // 16:9 (864 wide) is width-limited at 3.5 (whole 3 would be 86 %): it fills the width, 1680 high.
+        let lb = lb_of(864);
+        assert!((lb.scale - 3024.0 / 864.0).abs() < 1e-6);
+        assert_eq!(lb.screen().2, 3024);
+        // A 16:9 screen in a window of exactly 2 x 864 x 2 x 480 stays whole.
+        let lb = Letterbox::fit_with((3456, 1920), (0, 0, 3456, 1920), Fit::Auto, (864, 480));
+        assert_eq!((lb.scale, lb.is_whole()), (4.0, true));
     }
 
     #[test]

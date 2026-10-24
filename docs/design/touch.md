@@ -73,13 +73,13 @@ snapshots do not depend on it.
 
 ## Scaling
 
-`Letterbox::fit_area(size, safe, fractional)` fits the picture in the window's **safe area** (clear of notches,
-rounded corners and the home bar). With `fractional` it uses any scale, down to a quarter, and the shell draws it
+`Letterbox::fit_with(size, safe, fit, screen)` fits the picture in the window's **safe area** (clear of notches,
+rounded corners and the home bar). In the fractional mode it uses any scale, down to a quarter, and the shell draws it
 **sharp bilinear**: the picture is first scaled up by the next whole number with the nearest texel, then scaled down
 to the exact size with a linear filter, so pixels stay crisp without shimmering at a fractional scale. A fit that is
-a whole number is drawn directly. Touch platforms (iOS, Android) always fit fractionally. On a desktop the default is
-whole numbers, as before; the client-only extra `scaling` (`--extra-scaling sharp`, values `integer` and `sharp`)
-switches a desktop to the fractional fit.
+a whole number is drawn directly. Touch platforms (iOS, Android) always fit fractionally. On a desktop the client-only
+extra `scaling` (values `auto`, the default, `integer` and `sharp`) decides: `auto` keeps a whole number that fills the
+area well and otherwise fits fractionally; see `docs/design/extras.md`.
 
 ## Zoom and pan of the map view
 
