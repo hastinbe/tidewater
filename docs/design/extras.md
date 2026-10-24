@@ -190,7 +190,7 @@ without new screen code. The file and the flags still work and are for power use
 ## Rebindable keys
 
 Not an option with a switch: the `[keys]` section of `settings.txt` rebinds the game's keys and the command buttons'
-keys. With no `[keys]` section every key is the original's (`keymap.rs`: the key table `mouse::key_action`, the buttons'
+keys. The Settings screen's **Keys** page edits the section (see "The Keys page" below); the file stays the format. With no `[keys]` section every key is the original's (`keymap.rs`: the key table `mouse::key_action`, the buttons'
 hotkeys from the string table, F6 for the idle worker). The game writes the section back exactly as it found it, so a
 mistake in it is never lost.
 
@@ -220,10 +220,37 @@ idle-worker=ctrl+i
 - **Conflicts.** A key on two actions, or a key an action you did not rebind still uses, is refused: the game prints
   `settings: [keys] pause=Ctrl+S: Ctrl+S is already used by toggle-sounds; the line is ignored` at start-up and the
   action keeps its original key. The first line wins; a second line for the same action is refused too. Rebinding an
-  action frees its original keys, so two actions can swap. Two buttons that show at the same time with the same
+  action frees its original keys, so two actions can swap (in the file; the Keys page binds one at a time). Two buttons that show at the same time with the same
   hotkey letter are not caught (which buttons show depends on the selection); the first in panel order acts.
 - **Checks.** Rules and messages: `keymap.rs` tests. With no section the key map hands every key on unchanged (a test
   tries every key and modifier). The frame scene `extras-keys` rebinds Move, pause and the idle key.
+
+### The Keys page
+
+The fifth page of the Settings screen (`settings.rs`, hidden on touch-only platforms, `Env::touch`) lists every
+action the section can name (`keymap::rows`: 19 game keys and dialogs, 6 views, 30 control-group keys, the idle worker,
+13 command buttons and the 9 panel places, 78 rows) in the Select scenario dialog's list and scroll bar look, 8 rows
+of 24 pixels, scrolled by the wheel, the bar or the arrow keys. A row shows the key the file gives it in gold, else the
+original's in grey (`own letter` for a command button, `-` for a panel place).
+
+- **Choosing a key.** A click, or Enter (or Space) on the focused list, puts the screen in "Press a key... (Esc
+  cancels)"; the next key that is not a modifier alone binds the selected row. The chord is the key with Ctrl, Alt and
+  Shift as held (`keymap::Chord::pressed`, the same key names the file reads).
+- **The rules are the file's.** The new line goes through `KeyMap::parse` last (`keymap::with_binding`), so it is the
+  one that is refused: another action's key, a key a not-rebound action still uses, the Settings key (Ctrl+G, which
+  `keymap` reserves) and a wrong shape (a bare letter for a game key, a chord for a button) all leave the lines as they
+  were and say why in the description area, naming the action that has the key. **There is no one-step swap**: because
+  an action keeps its original key until it is rebound, `speed-up=minus` is refused while `speed-down` still has minus.
+  A swap takes two steps through a spare key; rebinding an action frees its original keys.
+- **Backspace** on the list removes the row's line (its own key again). **Reset keys** removes every line for an
+  action and keeps comments and lines that name no action, as the file keeps whatever it holds (`keymap::reset_lines`).
+- **OK and Cancel.** The page edits a copy of the section's lines (`Values::keys`). OK parses them into the prefs'
+  `keys` (`Prefs::keys`, read by the game every frame), so `settings.txt` holds the lines exactly as the file's text
+  format has them; a Keys page that was not touched leaves the section as the file had it, typos included. Cancel and
+  Esc discard. Defaults on the other pages leaves the keys alone.
+- **Checks.** Unit tests in `keymap.rs` (every row is a name the file reads, a chord prints as it parses, binding and
+  refusing) and `settings.rs` (capture, conflict, shape, reset, scrolling, the round trip through `Prefs::to_text` and
+  `Prefs::from_text`); the frame scenes `settings-screen` and `settings-ingame` show the page.
 
 ## Sim options
 

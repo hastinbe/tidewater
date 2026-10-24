@@ -1039,14 +1039,14 @@ fn settings() -> Vec<Cmd> {
     v.extend(click(460.0, 187.0));
     v.extend([Wait(2), Shot("scaling-sharp")]);
     // The tabs.
-    v.extend(click(263.0, 76.0));
+    v.extend(click(212.0, 76.0));
     v.extend([Wait(2), Shot("interface")]);
-    v.extend(click(377.0, 76.0));
+    v.extend(click(320.0, 76.0));
     v.extend([Wait(2), Shot("sound")]);
     v.extend(click(460.0, 174.0));
     v.extend([Wait(2), Shot("music-list")]);
     v.extend(tap(K::Escape));
-    v.extend(click(491.0, 76.0));
+    v.extend(click(428.0, 76.0));
     v.extend([Wait(2), Shot("gameplay")]);
     // The keyboard: Tab to the first row, Enter opens its list, Down and Enter pick.
     v.extend(tap(K::Tab));
@@ -1056,7 +1056,26 @@ fn settings() -> Vec<Cmd> {
     v.extend(tap(K::Down));
     v.extend(tap(K::Enter));
     v.extend([Wait(2), Shot("rally-on")]);
+    // The Keys page: the list, a click on Pause asks for a key, Ctrl+U binds it, Ctrl+S is refused (it is Sound effects
+    // on or off), the wheel scrolls, Backspace puts a key back and Reset keys every key.
+    v.extend(click(536.0, 76.0));
+    v.extend([Wait(2), Shot("keys")]);
+    v.extend(click(300.0, 160.0));
+    v.extend([Wait(2), Shot("keys-press")]);
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('U')));
+    v.extend([Release(K::ControlLeft), Wait(2), Shot("keys-bound")]);
+    v.extend(click(300.0, 184.0));
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('S')));
+    v.extend([Release(K::ControlLeft), Wait(2), Shot("keys-conflict")]);
+    v.extend([Wheel(-5.0), Wait(2), Shot("keys-scrolled")]);
+    v.extend(tap(K::Tab));
+    v.extend(tap(K::Enter));
+    v.extend([Wait(2), Shot("keys-reset")]);
     // Defaults resets every row; Esc leaves without applying anything.
+    v.extend(click(428.0, 76.0));
+    v.extend([Wait(2)]);
     v.extend(click(117.0, 424.0));
     v.extend([Wait(2), Shot("defaults")]);
     v.extend(tap(K::Escape));
@@ -1064,7 +1083,7 @@ fn settings() -> Vec<Cmd> {
     // The link opens it again; the music volume is set to 30% and OK applies it.
     v.extend(click(560.0, 462.0));
     v.extend([Until(AppState::Settings), Wait(25), Shot("again"), Wait(2)]);
-    v.extend(click(377.0, 76.0));
+    v.extend(click(320.0, 76.0));
     v.extend([Wait(2), Shot("again-sound")]);
     v.extend(click(460.0, 174.0));
     v.extend([Wait(2), Move(460.0, 250.0), Wait(1)]);
@@ -1086,20 +1105,29 @@ fn settings_ingame() -> Vec<Cmd> {
     // The game stands still while it is open.
     v.extend([Wait(20), Shot("general-later")]);
     // Interface: Health bars (the first row) to Always.
-    v.extend(click(263.0, 76.0));
+    v.extend(click(212.0, 76.0));
     v.extend([Wait(2)]);
     v.extend(click(460.0, 114.0));
     v.extend([Wait(2), Move(460.0, 195.0), Wait(1), Shot("health-list")]);
     v.extend(click(460.0, 192.0));
     v.extend([Wait(2), Shot("health-always")]);
     // Gameplay: the game's rules, greyed, and a click on one does nothing.
-    v.extend(click(491.0, 76.0));
+    v.extend(click(428.0, 76.0));
     v.extend([Wait(2), Shot("gameplay")]);
     v.extend(click(460.0, 114.0));
     v.extend([Wait(2), Shot("gameplay-click")]);
+    // Keys: Pause is given Ctrl+U, which OK applies at once (the game's key table reads the stored keys every frame).
+    v.extend(click(536.0, 76.0));
+    v.extend(click(300.0, 160.0));
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('U')));
+    v.extend([Release(K::ControlLeft), Wait(2), Shot("keys")]);
     // OK applies and returns to the game, which runs again with health bars on.
     v.extend(click(523.0, 424.0));
     v.extend([Wait(40), Shot("applied")]);
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('U')));
+    v.extend([Release(K::ControlLeft), Wait(10), Shot("new-pause-key")]);
     // F2 is still the first remembered view.
     v.extend(tap(K::F(2)));
     v.extend([Wait(3), Shot("f2-view")]);

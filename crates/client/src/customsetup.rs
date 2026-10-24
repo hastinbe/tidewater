@@ -341,6 +341,9 @@ pub(crate) struct Input {
     /// Keys that went down this frame.
     pub keys: Vec<Key>,
     pub shift: bool,
+    /// Ctrl or Alt held (the Settings screen's Keys page reads the chord a key press makes).
+    pub ctrl: bool,
+    pub alt: bool,
     /// Wheel lines, positive away from the user.
     pub wheel: i32,
     /// The key events that went down this frame in order, with the text each types: for the screens with a text box.

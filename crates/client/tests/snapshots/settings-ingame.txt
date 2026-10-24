@@ -5,38 +5,42 @@ frames	3-3	2ab4d7048026f340
 frames	4-10	c2e52e287af839f4
 shot	33	game	302f66d6801ce7bd
 frames	11-34	302f66d6801ce7bd
-shot	41	general	6adf1598341d41c1
-shot	62	general-later	6adf1598341d41c1
-frames	35-62	6adf1598341d41c1
-frames	63-63	740321ac7c5f8116
-frames	64-65	23f8756dfb13655b
-frames	66-66	2cbc1a17e68e8184
-frames	67-68	acbd6a5ef8be3883
-shot	70	health-list	b01d2107ed037a2e
-frames	69-70	b01d2107ed037a2e
-frames	71-71	823fe3c4985c2323
-frames	72-72	23e35e898552101c
-shot	74	health-always	3b055e78d618447a
-frames	73-74	3b055e78d618447a
-frames	75-75	30dfeec8eb01208a
-shot	78	gameplay	5f426d8c1b1ccdcf
-frames	76-78	5f426d8c1b1ccdcf
-frames	79-79	34e2dc922f39a5ad
-shot	82	gameplay-click	99c5b596b67c236f
-frames	80-82	99c5b596b67c236f
-frames	83-83	cbd6ed2eb40c8c9b
-frames	84-84	c130c5ad080cc87e
-frames	85-120	22204420bbc12765
-shot	124	applied	4eeee8ac3538594d
-shot	129	f2-view	4eeee8ac3538594d
-frames	121-129	4eeee8ac3538594d
-shot	134	options	db46baa407a5f81a
-frames	130-134	db46baa407a5f81a
-shot	136	options-link-hover	6d99636a7075db1f
-frames	135-136	6d99636a7075db1f
-frames	137-137	478b37b502242618
-shot	141	from-link	81ff4fb8acefd07b
-frames	138-141	81ff4fb8acefd07b
-frames	142-142	f83fba3eba2ab267
-shot	146	cancelled	4e54a5f61ea7b5ec
-frames	143-146	4e54a5f61ea7b5ec
+shot	41	general	a446baec1b4e3b9a
+shot	62	general-later	a446baec1b4e3b9a
+frames	35-62	a446baec1b4e3b9a
+frames	63-63	69f5d9cb61eda4d9
+frames	64-65	0d2798e1de4bd2ac
+frames	66-66	0879ebfae35eb86f
+frames	67-68	61c099d2bdbe12f0
+shot	70	health-list	f6fed51744b6df61
+frames	69-70	f6fed51744b6df61
+frames	71-71	8cf4a318fbe30278
+frames	72-72	c855ca7eeb320e97
+shot	74	health-always	5099e93972b5d3dd
+frames	73-74	5099e93972b5d3dd
+frames	75-75	8f2afcb20ef7f30d
+shot	78	gameplay	5a12275b14853f9c
+frames	76-78	5a12275b14853f9c
+frames	79-79	a5788e5d1d0cc37e
+shot	82	gameplay-click	e54034c3faf25660
+frames	80-82	e54034c3faf25660
+frames	83-83	32369f8b2ba9d30f
+shot	89	keys	af4d862ba93d22ba
+frames	84-89	af4d862ba93d22ba
+frames	90-90	9c6c8d09fa981728
+frames	91-91	c130c5ad080cc87e
+frames	92-128	22204420bbc12765
+shot	131	applied	4eeee8ac3538594d
+shot	144	new-pause-key	4eeee8ac3538594d
+shot	149	f2-view	4eeee8ac3538594d
+frames	129-149	4eeee8ac3538594d
+shot	154	options	1e0598f3a70ed839
+frames	150-154	1e0598f3a70ed839
+shot	156	options-link-hover	a587220a12b2f6ac
+frames	155-156	a587220a12b2f6ac
+frames	157-157	6010be0baf9ea5fb
+shot	161	from-link	ec6e9c10134dca9c
+frames	158-161	ec6e9c10134dca9c
+frames	162-162	69ddc7cec52bafcc
+shot	166	cancelled	a9311e98b4229a73
+frames	163-166	a9311e98b4229a73

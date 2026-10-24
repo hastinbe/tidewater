@@ -16,12 +16,20 @@
 //! words ([`CHOICE_WORDS`]) are written here; the page's `match` has no catch-all arm, so a new option does not build
 //! until it is on a page, and a test checks that every option is on exactly one.
 //!
+//! **The Keys page** (desktop and any build with a keyboard; hidden on touch-only platforms) lists every rebindable
+//! action (`keymap::rows`) with its key in a scrolling list in the Custom Scenario dialog's look. Enter or a click on a
+//! row asks for the next key press ("Press a key... (Esc cancels)"), which binds it unless `keymap`'s rules refuse it:
+//! a key another action has (or an action that was not rebound still uses) is not bound and the description names the
+//! action that has it, so two actions swap keys by moving one away first ([`keymap::with_binding`]). Backspace or Delete
+//! gives a row its original key back and **Reset keys** every row. The screen edits the `[keys]` section's lines; OK
+//! stores them in the prefs' keys, so `settings.txt` holds them as the file's own text.
+//!
 //! **What OK does.** The screen edits a [`Values`] copy. OK ([`commit`]) writes only the rows that were changed (or
 //! reset by Defaults) into the settings file's view and into the run's live values, so an option the command line set
 //! for this run stays as it is unless the player chose it here; the frontend then writes `settings.txt` at once.
 //! Cancel and Esc throw the copy away.
 //!
-//! Choices of ours where nothing else says (the screen is ours): the tabs are the four pages, the selected one drawn
+//! Choices of ours where nothing else says (the screen is ours): the tabs are the pages (five; the Keys page is not on a phone), the selected one drawn
 //! pressed; Up and Down move the focus like Tab and Shift+Tab; Left and Right change the focused drop-down's value, move
 //! between the tabs, or between OK, Cancel and Defaults; PageUp and PageDown change page; O, C and D press the
 //! bottom buttons.
@@ -31,9 +39,11 @@ use tidewater_formats::fnt::Font;
 use crate::audio::Audio;
 use crate::customsetup::{DropState, Input, Look};
 use crate::extras::{self, ClientExtras, Id, Kind, REGISTRY, Scope};
-use crate::hud::Rect;
+use crate::hud::{self, Rect};
 use crate::input::Key;
+use crate::keymap::{self, Chord, KeyMap};
 use crate::menuscreen::{self, ButtonState};
+use crate::mouse::KeyMods;
 use crate::mpwidgets::{self, Popup, PopupKey, Ptr};
 use crate::prefs::{Prefs, bit};
 use crate::scene::Picture;
@@ -48,10 +58,11 @@ pub(crate) enum Page {
     Interface,
     Sound,
     Gameplay,
+    Keys,
 }
 
 impl Page {
-    pub(crate) const ALL: [Page; 4] = [Page::General, Page::Interface, Page::Sound, Page::Gameplay];
+    pub(crate) const ALL: [Page; 5] = [Page::General, Page::Interface, Page::Sound, Page::Gameplay, Page::Keys];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
@@ -59,6 +70,7 @@ impl Page {
             Page::Interface => "Interface",
             Page::Sound => "Sound",
             Page::Gameplay => "Gameplay",
+            Page::Keys => "Keys",
         }
     }
 
@@ -72,8 +84,20 @@ impl Page {
                 "How loud the unit voices, the sound effects and the music are, as a share of the game's own volume."
             }
             Page::Gameplay => "Rule changes for the games you start. Point at a row to read what it does.",
+            Page::Keys => {
+                "The keys of the game screen. Choose an action and press Enter, or click it, then press the new key. \
+                 Backspace puts the original key back."
+            }
         }
     }
+}
+
+/// The pages the platform shows, in tab order: the Keys page needs a keyboard.
+pub(crate) fn pages(env: &Env) -> Vec<Page> {
+    Page::ALL
+        .into_iter()
+        .filter(|&p| p != Page::Keys || !env.touch)
+        .collect()
 }
 
 /// The page an option is on. No catch-all arm: a new option has to be put on a page to build.
@@ -183,6 +207,8 @@ pub(crate) enum Action {
     OpenFolder,
     /// Open the first-run import screen again.
     Reimport,
+    /// Every key back to the original's (the Keys page).
+    ResetKeys,
 }
 
 impl Action {
@@ -190,6 +216,7 @@ impl Action {
         match self {
             Action::OpenFolder => "Open settings folder",
             Action::Reimport => "Import game files again...",
+            Action::ResetKeys => "Reset keys",
         }
     }
 }
@@ -252,6 +279,9 @@ pub(crate) fn options(item: Item, current: u8) -> Vec<(u8, String)> {
 pub(crate) struct Values {
     v: [u8; ITEMS],
     touched: [bool; ITEMS],
+    /// The `[keys]` section's lines as the Keys page edits them, and whether it changed them.
+    keys: Vec<String>,
+    keys_touched: bool,
 }
 
 impl Values {
@@ -270,7 +300,19 @@ impl Values {
         Values {
             v,
             touched: [false; ITEMS],
+            keys: prefs.keys.lines().to_vec(),
+            keys_touched: false,
         }
+    }
+
+    /// The lines of the `[keys]` section being edited.
+    pub(crate) fn key_lines(&self) -> &[String] {
+        &self.keys
+    }
+
+    fn set_key_lines(&mut self, lines: Vec<String>) {
+        self.keys = lines;
+        self.keys_touched = true;
     }
 
     pub(crate) fn get(&self, item: Item) -> u8 {
@@ -299,8 +341,12 @@ impl Values {
         }
     }
 
-    /// Writes the changed rows into the settings file's view and the run's live options.
+    /// Writes the changed rows into the settings file's view and the run's live options, and the edited keys into the
+    /// stored keys, which the game reads at once.
     pub(crate) fn apply(&self, stored: &mut Prefs, live: &mut ClientExtras) {
+        if self.keys_touched {
+            (stored.keys, stored.key_problems) = KeyMap::parse(&self.keys);
+        }
         for i in (0..ITEMS).filter(|&i| self.touched[i]) {
             let v = self.v[i];
             match item_at(i) {
@@ -364,6 +410,10 @@ fn describe_action(a: Action) -> &'static str {
         Action::OpenFolder => {
             "Open the folder that holds settings.txt in your file manager. Keys are rebound in the [keys] section of \
              that file."
+        }
+        Action::ResetKeys => {
+            "Put every key back to the original's. Lines in the [keys] section that are not keys, such as comments, stay. \
+             Cancel still throws the change away."
         }
         Action::Reimport => {
             "Choose the game files again, for example after reinstalling the game. Esc on that screen leaves \
@@ -430,7 +480,7 @@ pub(crate) const DATA_UNKNOWN: &str = "Game files: imported (no record of where 
 const PANEL: Rect = Rect::new(40, 24, 560, 424);
 const HEADING: Rect = Rect::new(40, 34, 560, 20);
 const TAB_Y: i32 = 62;
-const TAB_W: u32 = 106;
+const TAB_W: u32 = 100;
 const TAB_H: u32 = 28;
 const TAB_GAP: i32 = 8;
 const ROWS_TOP: i32 = 100;
@@ -454,10 +504,10 @@ const OK: Rect = Rect::new(470, BUTTON_Y, BUTTON_W, BUTTON_H);
 const CANCEL: Rect = Rect::new(356, BUTTON_Y, BUTTON_W, BUTTON_H);
 const DEFAULTS: Rect = Rect::new(64, BUTTON_Y, BUTTON_W, BUTTON_H);
 
-fn tab_rect(p: Page) -> Rect {
-    let n = Page::ALL.len() as i32;
+fn tab_rect(p: Page, pages: &[Page]) -> Rect {
+    let n = pages.len() as i32;
     let total = n * TAB_W as i32 + (n - 1) * TAB_GAP;
-    let i = Page::ALL.iter().position(|&x| x == p).unwrap_or(0) as i32;
+    let i = pages.iter().position(|&x| x == p).unwrap_or(0) as i32;
     Rect::new(
         PANEL.x + (PANEL.w as i32 - total) / 2 + i * (TAB_W as i32 + TAB_GAP),
         TAB_Y,
@@ -471,6 +521,16 @@ fn drop_rect(row: Rect) -> Rect {
     Rect::new(DROP_X, row.y + (row.h as i32 - DROP_H as i32) / 2, DROP_W, DROP_H)
 }
 
+// The Keys page: the list of actions (ours; the look is the Select scenario dialog's list and scroll bar).
+const KEYS_LIST: Rect = Rect::new(56, 100, 512, 192);
+const KEYS_TRACK: Rect = Rect::new(568, 100, 16, 192);
+const KEYS_LINES: usize = 8;
+const KEYS_LINE_H: i32 = 24;
+/// Where a row's key starts, and where its action's name starts.
+const KEYS_KEY_X: i32 = 392;
+const KEYS_NAME_X: i32 = 64;
+const KEYS_RESET: Rect = Rect::new(56, 300, 160, 28);
+
 /// Something the pointer can be on or the focus can be on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Target {
@@ -482,6 +542,23 @@ pub(crate) enum Target {
     Defaults,
     /// A line of the open drop-down's list.
     PopupRow(usize),
+    /// A row of the Keys page's list (an index into `keymap::rows`), shown or not scrolled out.
+    KeyRow(usize),
+    /// The Keys page's scroll bar above (false) or below (true) its thumb.
+    KeyTrack(bool),
+    /// The Keys page's list as a whole: where the focus is while an action of it is chosen. Not under the pointer.
+    KeyList,
+}
+
+/// The scroll bar's thumb for a list of `n` rows whose first shown row is `top`.
+fn key_thumb(top: usize, n: usize) -> Rect {
+    let t = KEYS_TRACK;
+    if n <= KEYS_LINES {
+        return t;
+    }
+    let h = (t.h as usize * KEYS_LINES / n).max(12) as u32;
+    let y = t.y + ((t.h - h) as usize * top / (n - KEYS_LINES)) as i32;
+    Rect::new(t.x, y, t.w, h)
 }
 
 /// A page's targets and its fixed text lines, from the platform.
@@ -582,14 +659,38 @@ pub(crate) struct Screen {
     open: Option<Open>,
     ptr: Ptr<Target>,
     changed: bool,
+    keys: KeysUi,
+}
+
+/// The Keys page's state.
+struct KeysUi {
+    rows: Vec<keymap::Row>,
+    /// The keys as the lines now stand.
+    map: KeyMap,
+    sel: usize,
+    /// The first row shown.
+    top: usize,
+    /// The next key press binds the selected row.
+    capturing: bool,
+    /// What the last try said (a conflict, a key that cannot be used, what was bound); shown in the description.
+    note: Option<String>,
 }
 
 impl Screen {
     /// The screen as it opens, on the General page with the first tab focused.
     pub(crate) fn new(env: Env, values: Values) -> Screen {
+        let keys = KeysUi {
+            rows: keymap::rows(),
+            map: KeyMap::parse(values.key_lines()).0,
+            sel: 0,
+            top: 0,
+            capturing: false,
+            note: None,
+        };
         Screen {
             env,
             values,
+            keys,
             page: Page::General,
             focus: Target::Tab(Page::General),
             open: None,
@@ -623,14 +724,61 @@ impl Screen {
 
     /// The targets of the page and the fixed ones, in Tab order.
     fn page_targets(&self) -> Vec<(Target, Rect)> {
-        let mut v: Vec<(Target, Rect)> = Page::ALL.iter().map(|&p| (Target::Tab(p), tab_rect(p))).collect();
+        let pages = pages(&self.env);
+        let mut v: Vec<(Target, Rect)> = pages.iter().map(|&p| (Target::Tab(p), tab_rect(p, &pages))).collect();
         v.extend(layout(self.page, &self.env).targets);
+        if self.page == Page::Keys {
+            v.extend(self.key_targets());
+        }
         v.extend([(Target::Ok, OK), (Target::Cancel, CANCEL), (Target::Defaults, DEFAULTS)]);
         v
     }
 
+    /// The Keys page's targets: the shown rows, the two parts of the scroll bar and the Reset keys button.
+    fn key_targets(&self) -> Vec<(Target, Rect)> {
+        let mut v = Vec::new();
+        let n = self.keys.rows.len();
+        for line in 0..KEYS_LINES.min(n.saturating_sub(self.keys.top)) {
+            v.push((
+                Target::KeyRow(self.keys.top + line),
+                Rect::new(
+                    KEYS_LIST.x,
+                    KEYS_LIST.y + line as i32 * KEYS_LINE_H,
+                    KEYS_LIST.w,
+                    KEYS_LINE_H as u32,
+                ),
+            ));
+        }
+        let thumb = key_thumb(self.keys.top, n);
+        let above = (thumb.y - KEYS_TRACK.y) as u32;
+        let below = (KEYS_TRACK.y + KEYS_TRACK.h as i32 - thumb.y - thumb.h as i32).max(0) as u32;
+        if above > 0 {
+            v.push((
+                Target::KeyTrack(false),
+                Rect::new(KEYS_TRACK.x, KEYS_TRACK.y, KEYS_TRACK.w, above),
+            ));
+        }
+        if below > 0 {
+            v.push((
+                Target::KeyTrack(true),
+                Rect::new(KEYS_TRACK.x, thumb.y + thumb.h as i32, KEYS_TRACK.w, below),
+            ));
+        }
+        v.push((Target::Action(Action::ResetKeys), KEYS_RESET));
+        v
+    }
+
+    /// The Tab stops: the rows of the Keys page are one stop, its list.
     fn stops(&self) -> Vec<Target> {
-        self.page_targets().into_iter().map(|(t, _)| t).collect()
+        let mut v = Vec::new();
+        for (t, _) in self.page_targets() {
+            match t {
+                Target::KeyRow(_) | Target::KeyTrack(_) => {}
+                Target::Action(Action::ResetKeys) => v.extend([Target::KeyList, t]),
+                t => v.push(t),
+            }
+        }
+        v
     }
 
     // --- Input -----------------------------------------------------------------------------------------------
@@ -649,9 +797,21 @@ impl Screen {
             } else if let Some(t) = ev.down
                 && !matches!(t, Target::PopupRow(_))
             {
-                self.focus = t;
+                self.focus = if matches!(t, Target::KeyRow(_) | Target::KeyTrack(_)) {
+                    Target::KeyList
+                } else {
+                    t
+                };
                 self.changed = true;
             }
+        }
+        // The wheel scrolls the Keys page's list while the pointer is over it.
+        if self.page == Page::Keys
+            && self.open.is_none()
+            && input.wheel != 0
+            && matches!(self.ptr.hot, Some(Target::KeyRow(_) | Target::KeyTrack(_)))
+        {
+            self.scroll_keys(-(input.wheel as isize));
         }
         let mut out = Outcome::Stay;
         if let Some(t) = ev.clicked {
@@ -662,6 +822,9 @@ impl Screen {
                 self.changed = true;
                 out = if self.open.is_some() {
                     self.popup_key(k)
+                } else if self.keys.capturing {
+                    self.capture(k, input);
+                    Outcome::Stay
                 } else {
                     self.main_key(k, input.shift)
                 };
@@ -675,10 +838,31 @@ impl Screen {
 
     fn activate(&mut self, t: Target) -> Outcome {
         self.changed = true;
+        // Anything but a row of the list ends the wait for a key.
+        if !matches!(t, Target::KeyRow(_)) {
+            self.keys.capturing = false;
+        }
         match t {
             Target::Tab(p) => {
                 self.page = p;
                 self.focus = Target::Tab(p);
+                self.keys.note = None;
+            }
+            Target::KeyRow(i) => {
+                self.select_key(i);
+                self.focus = Target::KeyList;
+                self.start_capture();
+            }
+            Target::KeyList => self.start_capture(),
+            Target::KeyTrack(down) => self.scroll_keys(if down {
+                KEYS_LINES as isize
+            } else {
+                -(KEYS_LINES as isize)
+            }),
+            Target::Action(Action::ResetKeys) => {
+                let lines = keymap::reset_lines(self.values.key_lines());
+                self.set_keys(lines);
+                self.keys.note = Some("Every key is the original's again.".to_string());
             }
             Target::Row(item) if read_only(item, &self.env) => {}
             Target::Row(item) => self.open_list(item),
@@ -690,6 +874,101 @@ impl Screen {
             Target::PopupRow(i) => self.choose(i),
         }
         Outcome::Stay
+    }
+
+    // --- The Keys page -------------------------------------------------------------------------------------
+
+    /// The lines changed: the keys they give are worked out again.
+    fn set_keys(&mut self, lines: Vec<String>) {
+        self.keys.map = KeyMap::parse(&lines).0;
+        self.values.set_key_lines(lines);
+    }
+
+    fn select_key(&mut self, i: usize) {
+        let n = self.keys.rows.len();
+        self.keys.sel = i.min(n.saturating_sub(1));
+        self.keys.note = None;
+        // Keep the row on the screen.
+        if self.keys.sel < self.keys.top {
+            self.keys.top = self.keys.sel;
+        } else if self.keys.sel >= self.keys.top + KEYS_LINES {
+            self.keys.top = self.keys.sel + 1 - KEYS_LINES;
+        }
+    }
+
+    fn scroll_keys(&mut self, by: isize) {
+        let max = self.keys.rows.len().saturating_sub(KEYS_LINES) as isize;
+        let top = (self.keys.top as isize + by).clamp(0, max) as usize;
+        if top != self.keys.top {
+            self.keys.top = top;
+            self.changed = true;
+        }
+    }
+
+    fn start_capture(&mut self) {
+        self.keys.capturing = true;
+        self.keys.note = None;
+    }
+
+    /// The key a row has now and whether it is the player's own.
+    fn key_text(&self, i: usize) -> (String, bool) {
+        let row = &self.keys.rows[i];
+        match self.keys.map.chord_of(&row.name) {
+            Some(c) => (c.text(), true),
+            None => (row.default.clone(), false),
+        }
+    }
+
+    /// A key pressed while the page waits for one: Esc gives up, a modifier alone is waited out, any other key is bound to
+    /// the selected row if the rules allow it, and the description says what happened.
+    fn capture(&mut self, k: Key, input: &Input) {
+        match k {
+            Key::Escape => {
+                self.keys.capturing = false;
+                self.keys.note = None;
+            }
+            Key::ShiftLeft
+            | Key::ShiftRight
+            | Key::ControlLeft
+            | Key::ControlRight
+            | Key::AltLeft
+            | Key::AltRight
+            | Key::SuperLeft
+            | Key::SuperRight
+            | Key::CapsLock => {}
+            _ => {
+                self.keys.capturing = false;
+                let mods = KeyMods {
+                    shift: input.shift,
+                    ctrl: input.ctrl,
+                    alt: input.alt,
+                };
+                let row = self.keys.rows[self.keys.sel].clone();
+                let Some(chord) = Chord::pressed(k, mods) else {
+                    self.keys.note = Some(
+                        "That key cannot be used. Use a letter, a digit, F1 to F12, minus or equal, with Ctrl, Alt or \
+                         Shift where the action needs one."
+                            .to_string(),
+                    );
+                    return;
+                };
+                self.keys.note = Some(match keymap::with_binding(self.values.key_lines(), &row.name, chord) {
+                    Ok(lines) => {
+                        self.set_keys(lines);
+                        format!("{} is now {}.", row.label, chord.text())
+                    }
+                    Err(why) => why,
+                });
+            }
+        }
+    }
+
+    /// The selected row's own key back (Backspace or Delete on the list).
+    fn restore_key(&mut self) {
+        let row = self.keys.rows[self.keys.sel].clone();
+        let lines = keymap::without_binding(self.values.key_lines(), &row.name);
+        self.set_keys(lines);
+        self.keys.note = Some(format!("{} has its original key again: {}.", row.label, row.default));
     }
 
     fn open_list(&mut self, item: Item) {
@@ -749,15 +1028,38 @@ impl Screen {
     }
 
     fn switch_page(&mut self, by: isize) {
-        let at = Page::ALL.iter().position(|&p| p == self.page).unwrap_or(0) as isize;
-        let p = Page::ALL[(at + by).rem_euclid(Page::ALL.len() as isize) as usize];
+        let pages = pages(&self.env);
+        let at = pages.iter().position(|&p| p == self.page).unwrap_or(0) as isize;
+        let p = pages[(at + by).rem_euclid(pages.len() as isize) as usize];
         self.page = p;
+        self.keys.capturing = false;
+        self.keys.note = None;
         if matches!(self.focus, Target::Tab(_)) {
             self.focus = Target::Tab(p);
         }
     }
 
+    fn key_move(&mut self, to: usize) -> Outcome {
+        self.select_key(to);
+        Outcome::Stay
+    }
+
     fn main_key(&mut self, k: Key, shift: bool) -> Outcome {
+        if self.focus == Target::KeyList {
+            // On the Keys page's list the arrows move through the rows; Tab leaves it.
+            let last = self.keys.rows.len().saturating_sub(1);
+            match k {
+                Key::Down => return self.key_move(self.keys.sel.saturating_add(1).min(last)),
+                Key::Up => return self.key_move(self.keys.sel.saturating_sub(1)),
+                Key::Home => return self.key_move(0),
+                Key::End => return self.key_move(last),
+                Key::Backspace => {
+                    self.restore_key();
+                    return Outcome::Stay;
+                }
+                _ => {}
+            }
+        }
         match k {
             Key::Tab => self.step(shift),
             Key::Down => self.step(false),
@@ -813,6 +1115,14 @@ impl Screen {
 
     /// The description to show: the hovered row's, else the focused one's.
     fn described(&self) -> String {
+        if self.page == Page::Keys {
+            if self.keys.capturing {
+                return "Press a key... (Esc cancels)".to_string();
+            }
+            if let Some(n) = &self.keys.note {
+                return n.clone();
+            }
+        }
         let t = match self.ptr.hot {
             Some(Target::PopupRow(_)) | None => self.open.as_ref().map(|o| Target::Row(o.item)).unwrap_or(self.focus),
             Some(t) => t,
@@ -825,10 +1135,27 @@ impl Screen {
             Target::Cancel if self.env.in_game => "Throw the changes away and go back to the game.".to_string(),
             Target::Cancel => "Throw the changes away and go back to the main menu.".to_string(),
             Target::Defaults => {
-                "Set every setting on every page to its default. Cancel still throws the change away.".to_string()
+                "Set every setting to its default, apart from the keys (Reset keys does those). Cancel \
+                 still throws the change away."
+                    .to_string()
             }
-            Target::PopupRow(_) => String::new(),
+            Target::KeyRow(i) => self.key_description(i),
+            Target::KeyList => self.key_description(self.keys.sel),
+            Target::KeyTrack(_) | Target::PopupRow(_) => String::new(),
         }
+    }
+
+    /// What the description area says about the action in row `i` of the Keys page.
+    fn key_description(&self, i: usize) -> String {
+        let Some(row) = self.keys.rows.get(i) else {
+            return String::new();
+        };
+        let (now, own) = self.key_text(i);
+        let now = if own { now } else { format!("{now} (the original's)") };
+        format!(
+            "{}: {now}. In the original: {}. Enter or a click changes it; Backspace puts the original key back.",
+            row.label, row.original
+        )
     }
 
     /// The whole screen over `bg`, the menu picture.
@@ -842,7 +1169,8 @@ impl Screen {
             pressed: !modal && self.ptr.pressed(t),
             default: false,
         };
-        for page in Page::ALL {
+        let shown_pages = pages(&self.env);
+        for &page in &shown_pages {
             let t = Target::Tab(page);
             let mut s = state(t, true);
             // The page that shows is drawn pressed, the way a tab is down.
@@ -852,7 +1180,7 @@ impl Screen {
                 look.font,
                 look.pal,
                 Some(look.faces),
-                tab_rect(page),
+                tab_rect(page, &shown_pages),
                 page.label(),
                 None,
                 s,
@@ -905,6 +1233,23 @@ impl Screen {
                 _ => {}
             }
         }
+        if self.page == Page::Keys {
+            self.draw_keys(&mut p, look, modal);
+            for (t, r) in self.key_targets() {
+                if let Target::Action(a) = t {
+                    menuscreen::draw_button(
+                        &mut p,
+                        look.font,
+                        look.pal,
+                        Some(look.faces),
+                        r,
+                        a.label(),
+                        None,
+                        state(t, true),
+                    );
+                }
+            }
+        }
         for (text, r) in &lay.texts {
             self.draw_lines(&mut p, look, small, text, *r);
         }
@@ -933,6 +1278,76 @@ impl Screen {
             mpwidgets::draw_popup(look, &mut p, &o.popup, hot);
         }
         p
+    }
+
+    /// The Keys page's list: a line per action with its key (the player's own in gold, the original's in grey), the
+    /// selected line filled, the scroll bar, in the Select scenario dialog's look.
+    fn draw_keys(&self, p: &mut Picture, look: &Look, modal: bool) {
+        let rgb = |e: u8| look.pal.0[e as usize];
+        hud::fill(p, KEYS_LIST, rgb(menuscreen::BLACK));
+        let focused = !modal && self.focus == Target::KeyList;
+        hud::outline(
+            p,
+            KEYS_LIST,
+            rgb(if focused {
+                menuscreen::FOCUS_RING
+            } else {
+                *menuscreen::OUTER_RING.start()
+            }),
+        );
+        let n = self.keys.rows.len();
+        for line in 0..KEYS_LINES.min(n.saturating_sub(self.keys.top)) {
+            let i = self.keys.top + line;
+            let r = Rect::new(
+                KEYS_LIST.x + 1,
+                KEYS_LIST.y + 1 + line as i32 * KEYS_LINE_H - 1,
+                KEYS_LIST.w - 2,
+                KEYS_LINE_H as u32,
+            );
+            let on = i == self.keys.sel;
+            let hot = !modal && self.ptr.is_hot(Target::KeyRow(i));
+            if on {
+                hud::fill(p, r, rgb(162));
+            }
+            let y = r.y + (KEYS_LINE_H - look.font.height as i32) / 2;
+            let name_map = if on || hot { menuscreen::WHITE } else { menuscreen::GOLD };
+            look.text(
+                p,
+                (KEYS_NAME_X, y),
+                &crate::customsetup::fit(
+                    look.font,
+                    &self.keys.rows[i].label,
+                    (KEYS_KEY_X - KEYS_NAME_X - 8) as u32,
+                ),
+                name_map,
+            );
+            let (text, own) = self.key_text(i);
+            let (text, map) = if on && self.keys.capturing {
+                ("Press a key...".to_string(), menuscreen::WHITE)
+            } else if own {
+                (text, if on || hot { menuscreen::WHITE } else { menuscreen::GOLD })
+            } else {
+                (text, menuscreen::GREY)
+            };
+            look.text(
+                p,
+                (KEYS_KEY_X, y),
+                &crate::customsetup::fit(
+                    look.font,
+                    &text,
+                    (KEYS_LIST.x + KEYS_LIST.w as i32 - KEYS_KEY_X - 8) as u32,
+                ),
+                map,
+            );
+        }
+        hud::fill(p, KEYS_TRACK, rgb(menuscreen::BLACK));
+        hud::outline(p, KEYS_TRACK, rgb(*menuscreen::OUTER_RING.start()));
+        let thumb = key_thumb(self.keys.top, n);
+        hud::fill(
+            p,
+            Rect::new(thumb.x + 2, thumb.y + 2, thumb.w - 4, thumb.h.saturating_sub(4)),
+            rgb(162),
+        );
     }
 
     /// `text` wrapped in `r` in the small font, gold; what does not fit in the rectangle's height is cut with "...".
@@ -1331,7 +1746,7 @@ mod tests {
         key(&mut s, Key::Tab);
         assert_eq!(s.focus, Target::Tab(Page::General));
         // Down walks through the tabs, then the rows in order.
-        for _ in 0..4 {
+        for _ in 0..5 {
             key(&mut s, Key::Down);
         }
         assert_eq!(s.focus, Target::Row(Item::Window));
@@ -1391,7 +1806,11 @@ mod tests {
         });
         assert!(s.open.is_none());
         key(&mut s, Key::PageDown);
+        assert_eq!(s.page(), Page::Keys);
+        key(&mut s, Key::PageDown);
         assert_eq!(s.page(), Page::General);
+        key(&mut s, Key::PageUp);
+        assert_eq!(s.page(), Page::Keys);
         key(&mut s, Key::PageUp);
         assert_eq!(s.page(), Page::Gameplay);
     }
@@ -1497,7 +1916,7 @@ mod tests {
         // The labels have room left of the drop-downs.
         const { assert!(DROP_X - LABEL_X >= 250) };
         for e in &envs {
-            for page in Page::ALL {
+            for page in pages(e) {
                 let s = screen_with(e.clone());
                 let mut s = s;
                 s.page = page;
@@ -1515,7 +1934,12 @@ mod tests {
                 for (name, r) in &all {
                     assert!(inside(*r, PANEL), "{name} on {page:?} is inside the panel: {r:?}");
                     assert!(inside(*r, screen), "{name} on {page:?} is on the screen");
-                    if name != "description" && name != "heading" && !name.starts_with("text") {
+                    // The scroll bar of the Keys page is 16 wide, as the Select scenario dialog's is: a keyboard page.
+                    if name != "description"
+                        && name != "heading"
+                        && !name.starts_with("text")
+                        && !name.starts_with("KeyTrack")
+                    {
                         assert!(r.h >= 24 && r.w >= 24, "{name} on {page:?} is big enough to tap: {r:?}");
                     }
                 }
@@ -1561,6 +1985,386 @@ mod tests {
         assert!(GAMEPLAY_NOTE.contains("host") && GAMEPLAY_NOTE.contains("single-player"));
     }
 
+    // --- The Keys page ---------------------------------------------------------------------------------------
+
+    fn keys_screen() -> Screen {
+        let mut s = screen();
+        click(&mut s, Target::Tab(Page::Keys));
+        s
+    }
+
+    /// A key pressed with the modifiers held.
+    fn chord_key(s: &mut Screen, k: Key, ctrl: bool, alt: bool, shift: bool) -> Outcome {
+        s.update(&Input {
+            keys: vec![k],
+            ctrl,
+            alt,
+            shift,
+            ..Default::default()
+        })
+    }
+
+    fn row_of(s: &Screen, name: &str) -> usize {
+        s.keys.rows.iter().position(|r| r.name == name).expect(name)
+    }
+
+    /// Chooses the row of `name`: scrolls to it and presses Enter on the list.
+    fn choose(s: &mut Screen, name: &str) {
+        s.focus = Target::KeyList;
+        let at = row_of(s, name);
+        s.select_key(at);
+        key(s, Key::Enter);
+        assert!(s.keys.capturing, "{name} waits for a key");
+    }
+
+    #[test]
+    fn the_keys_page_is_a_fifth_tab_that_a_phone_does_not_have() {
+        assert_eq!(pages(&env(false)), Page::ALL);
+        assert_eq!(
+            pages(&env(true)),
+            [Page::General, Page::Interface, Page::Sound, Page::Gameplay]
+        );
+        let s = keys_screen();
+        assert_eq!(s.page(), Page::Keys);
+        let tabs: Vec<Target> = s
+            .page_targets()
+            .into_iter()
+            .map(|(t, _)| t)
+            .filter(|t| matches!(t, Target::Tab(_)))
+            .collect();
+        assert_eq!(tabs.len(), 5);
+        // On a phone PageDown never reaches it.
+        let mut p = screen_with(env(true));
+        p.page = Page::Gameplay;
+        key(&mut p, Key::PageDown);
+        assert_eq!(p.page(), Page::General);
+        assert!(
+            p.page_targets()
+                .iter()
+                .all(|(t, _)| !matches!(t, Target::Tab(Page::Keys)))
+        );
+        // The five tabs fit the panel without touching.
+        let all = pages(&env(false));
+        for (i, a) in all.iter().enumerate() {
+            let r = tab_rect(*a, &all);
+            assert!(r.x >= PANEL.x && r.x + r.w as i32 <= PANEL.x + PANEL.w as i32);
+            if let Some(b) = all.get(i + 1) {
+                assert!(r.x + r.w as i32 <= tab_rect(*b, &all).x);
+            }
+        }
+    }
+
+    #[test]
+    fn enter_asks_for_a_key_and_the_next_press_binds_it() {
+        let mut s = keys_screen();
+        choose(&mut s, "pause");
+        assert_eq!(s.described(), "Press a key... (Esc cancels)");
+        // A modifier alone waits for the key.
+        chord_key(&mut s, Key::ControlLeft, true, false, false);
+        assert!(s.keys.capturing);
+        assert_eq!(chord_key(&mut s, Key::Letter('U'), true, false, false), Outcome::Stay);
+        assert!(!s.keys.capturing);
+        assert_eq!(s.values.key_lines(), ["pause=ctrl+u"]);
+        assert!(s.values.keys_touched);
+        let i = row_of(&s, "pause");
+        assert_eq!(s.key_text(i), ("Ctrl+U".to_string(), true));
+        assert_eq!(s.key_text(row_of(&s, "speed-up")), ("+".to_string(), false));
+        assert!(
+            s.described().contains("Pause or resume is now Ctrl+U"),
+            "{}",
+            s.described()
+        );
+        // A chord with Alt and Shift, and a function key, bind the same way.
+        choose(&mut s, "tips");
+        chord_key(&mut s, Key::Letter('Y'), false, true, true);
+        // A digit is a chord too (the digits are control groups: this one is free once group 3 gave it up).
+        choose(&mut s, "group-recall-3");
+        key(&mut s, Key::F(12));
+        assert!(
+            s.described().contains("Load game"),
+            "F12 is the original's load key: {}",
+            s.described()
+        );
+        assert_eq!(s.values.key_lines(), ["pause=ctrl+u", "tips=alt+shift+y"]);
+    }
+
+    #[test]
+    fn a_click_asks_for_a_key_too_and_esc_gives_up_without_leaving() {
+        let mut s = keys_screen();
+        let i = row_of(&s, "speed-down");
+        click(&mut s, Target::KeyRow(i));
+        assert!(s.keys.capturing && s.keys.sel == i);
+        assert_eq!(s.focus, Target::KeyList);
+        assert_eq!(key(&mut s, Key::Escape), Outcome::Stay, "Esc only gives up the wait");
+        assert!(!s.keys.capturing && s.values.key_lines().is_empty());
+        assert!(!s.values.keys_touched);
+        // A click anywhere else gives up too.
+        click(&mut s, Target::KeyRow(i));
+        click(&mut s, Target::Tab(Page::Sound));
+        assert!(!s.keys.capturing);
+        // And Esc with nothing to wait for leaves the screen as ever.
+        assert_eq!(key(&mut s, Key::Escape), Outcome::Cancel);
+    }
+
+    #[test]
+    fn a_key_another_action_has_is_not_bound_and_the_description_names_it() {
+        let mut s = keys_screen();
+        // Ctrl+S is the original's Sound effects on or off; F5 Options; F6 the idle worker's.
+        for (name, chord, owner) in [
+            ("pause", (Key::Letter('S'), true), "Sound effects on or off"),
+            ("speed-up", (Key::F(5), false), "Options"),
+            ("group-set-2", (Key::F(6), false), "Select the next idle worker"),
+        ] {
+            choose(&mut s, name);
+            chord_key(&mut s, chord.0, chord.1, false, false);
+            assert!(s.values.key_lines().is_empty(), "{name} was not bound");
+            let d = s.described();
+            assert!(d.contains(owner) && d.contains("already used"), "{d}");
+            assert!(!s.keys.capturing);
+        }
+        // Another action's own new key is refused the same way, until that one moves away (two actions swap in two steps).
+        choose(&mut s, "pause");
+        chord_key(&mut s, Key::Letter('U'), true, false, false);
+        choose(&mut s, "tips");
+        chord_key(&mut s, Key::Letter('U'), true, false, false);
+        assert!(s.described().contains("Pause or resume"), "{}", s.described());
+        assert_eq!(s.values.key_lines(), ["pause=ctrl+u"]);
+        choose(&mut s, "speed-up");
+        key(&mut s, Key::Minus);
+        assert!(
+            s.described().contains("Game speed down"),
+            "minus is speed-down's until it moves"
+        );
+        choose(&mut s, "speed-down");
+        key(&mut s, Key::Equal);
+        assert!(
+            s.described().contains("Game speed up"),
+            "so is plus speed-up's: no one-step swap"
+        );
+        choose(&mut s, "speed-down");
+        chord_key(&mut s, Key::Letter('U'), false, true, false);
+        choose(&mut s, "speed-up");
+        key(&mut s, Key::Minus);
+        assert!(s.described().contains("Game speed up is now -"), "{}", s.described());
+        choose(&mut s, "speed-down");
+        key(&mut s, Key::Equal);
+        assert!(s.described().contains("Game speed down is now +"), "{}", s.described());
+        assert_eq!(
+            s.values.key_lines(),
+            ["pause=ctrl+u", "speed-up=minus", "speed-down=equal"]
+        );
+    }
+
+    #[test]
+    fn a_key_with_the_wrong_shape_or_no_name_says_so_and_binds_nothing() {
+        let mut s = keys_screen();
+        // A letter on its own belongs to the command buttons.
+        choose(&mut s, "pause");
+        key(&mut s, Key::Letter('U'));
+        assert!(s.described().contains("command buttons"), "{}", s.described());
+        // A command button takes a bare letter or digit, not a chord.
+        choose(&mut s, "button-stop");
+        chord_key(&mut s, Key::Letter('X'), true, false, false);
+        assert!(s.described().contains("bare letter or digit"), "{}", s.described());
+        // F10 stays the game menu's, and the arrows have no name.
+        choose(&mut s, "tips");
+        key(&mut s, Key::F(10));
+        assert!(s.described().contains("F10"), "{}", s.described());
+        choose(&mut s, "tips");
+        key(&mut s, Key::Up);
+        assert!(s.described().contains("cannot be used"), "{}", s.described());
+        assert!(s.values.key_lines().is_empty());
+        // The right shape binds: a bare letter for a button.
+        choose(&mut s, "button-stop");
+        key(&mut s, Key::Letter('X'));
+        assert_eq!(s.values.key_lines(), ["button-stop=x"]);
+        assert_eq!(s.key_text(row_of(&s, "button-stop")).0, "X");
+    }
+
+    #[test]
+    fn the_settings_key_is_not_free_to_bind() {
+        let mut s = keys_screen();
+        choose(&mut s, "pause");
+        chord_key(&mut s, Key::Letter('G'), true, false, false);
+        assert!(s.described().contains("settings"), "{}", s.described());
+        assert!(s.values.key_lines().is_empty());
+    }
+
+    #[test]
+    fn backspace_gives_a_row_its_key_back_and_reset_keys_every_row() {
+        let mut s = keys_screen();
+        for (name, k) in [("pause", Key::Letter('U')), ("tips", Key::Letter('Y'))] {
+            choose(&mut s, name);
+            chord_key(&mut s, k, true, false, false);
+        }
+        let i = row_of(&s, "pause");
+        s.select_key(i);
+        key(&mut s, Key::Backspace);
+        assert_eq!(s.values.key_lines(), ["tips=ctrl+y"]);
+        assert_eq!(s.key_text(i), ("Ctrl+P".to_string(), false));
+        assert!(s.described().contains("original key again"));
+        // Reset keys: every binding goes; a comment the player wrote and a line that names no action stay.
+        let mut prefs = Prefs::default();
+        prefs.keys = KeyMap::parse(&[
+            "# mine".into(),
+            "tips=ctrl+y".into(),
+            "typo=ctrl+u".into(),
+            "pause=ctrl+u".into(),
+        ])
+        .0;
+        let mut r = Screen::new(env(false), Values::new(&prefs, &ClientExtras::default(), false, false));
+        r.page = Page::Keys;
+        assert_eq!(r.key_text(row_of(&r, "pause")).0, "Ctrl+U");
+        assert_eq!(click(&mut r, Target::Action(Action::ResetKeys)), Outcome::Stay);
+        assert_eq!(r.values.key_lines(), ["# mine", "typo=ctrl+u"]);
+        assert!(r.keys.map.is_default());
+        assert_eq!(r.key_text(row_of(&r, "pause")), ("Ctrl+P".to_string(), false));
+        assert!(r.values.keys_touched);
+        // Defaults on the other pages leaves the keys alone.
+        let mut d = keys_screen();
+        choose(&mut d, "pause");
+        chord_key(&mut d, Key::Letter('U'), true, false, false);
+        click(&mut d, Target::Defaults);
+        assert_eq!(d.values.key_lines(), ["pause=ctrl+u"]);
+    }
+
+    #[test]
+    fn ok_stores_the_keys_in_the_prefs_and_the_settings_text_holds_them() {
+        let mut s = keys_screen();
+        choose(&mut s, "pause");
+        chord_key(&mut s, Key::Letter('U'), true, false, false);
+        choose(&mut s, "idle-worker");
+        chord_key(&mut s, Key::Letter('I'), true, false, false);
+        choose(&mut s, "group-recall-1");
+        key(&mut s, Key::F(6));
+        assert!(s.described().contains("is now F6"), "{}", s.described());
+        assert_eq!(click(&mut s, Target::Ok), Outcome::Ok);
+        let mut stored = Prefs::default();
+        let (mut live, mut audio) = (ClientExtras::default(), Audio::default());
+        commit(s.values(), &mut stored, &mut live, &mut audio);
+        let text = stored.to_text();
+        assert!(
+            text.ends_with("[keys]\npause=ctrl+u\nidle-worker=ctrl+i\ngroup-recall-1=f6\n"),
+            "{text}"
+        );
+        // The file's own text reads back to the same keys, which the game acts on.
+        let back = Prefs::from_text(&text);
+        assert!(back.key_problems.is_empty());
+        assert_eq!(back.keys, stored.keys);
+        assert_eq!(back.keys.chord_of("pause").map(|c| c.text()), Some("Ctrl+U".into()));
+        let ctrl = KeyMods {
+            ctrl: true,
+            ..Default::default()
+        };
+        let (k, m) = back.keys.game(Key::Letter('U'), ctrl).expect("Ctrl+U now means pause");
+        assert_eq!(
+            crate::mouse::key_action(k, m, false, true, false),
+            Some(crate::mouse::KeyAction::Pause)
+        );
+        assert!(back.keys.idle_pressed(Key::Letter('I'), ctrl));
+        // Opening the screen again shows them.
+        let mut again = Screen::new(env(false), Values::new(&back, &ClientExtras::default(), false, false));
+        again.page = Page::Keys;
+        assert_eq!(again.key_text(row_of(&again, "pause")), ("Ctrl+U".to_string(), true));
+        assert_eq!(again.key_text(row_of(&again, "idle-worker")).0, "Ctrl+I");
+    }
+
+    #[test]
+    fn cancel_leaves_the_keys_as_they_were() {
+        let mut s = keys_screen();
+        choose(&mut s, "pause");
+        chord_key(&mut s, Key::Letter('U'), true, false, false);
+        assert_eq!(click(&mut s, Target::Cancel), Outcome::Cancel);
+        // The frontend calls `commit` for OK alone, so the stored keys are untouched.
+        let stored = Prefs::default();
+        assert!(stored.keys.is_default());
+        // And an OK without a change to the keys does not rewrite them (a typo in the file is kept as it is).
+        let mut prefs = Prefs::default();
+        prefs.keys = KeyMap::parse(&["pause=ctrl+nope".into()]).0;
+        let mut other = Screen::new(env(false), Values::new(&prefs, &ClientExtras::default(), false, false));
+        pick(&mut other, Item::Window, 1);
+        let (mut stored, mut live, mut audio) = (prefs.clone(), ClientExtras::default(), Audio::default());
+        commit(other.values(), &mut stored, &mut live, &mut audio);
+        assert_eq!(stored.keys.lines(), ["pause=ctrl+nope"]);
+    }
+
+    #[test]
+    fn the_list_scrolls_by_the_wheel_the_bar_and_the_arrows() {
+        let mut s = keys_screen();
+        let n = s.keys.rows.len();
+        assert!(n > KEYS_LINES, "more actions than lines");
+        assert_eq!(s.keys.top, 0);
+        // Wheel lines, positive away from the user: down the list is negative.
+        let over = |s: &mut Screen, wheel: i32| {
+            let r = KEYS_LIST;
+            s.update(&Input {
+                at: Some((r.x + 10, r.y + 10)),
+                wheel,
+                ..Default::default()
+            })
+        };
+        over(&mut s, -3);
+        assert_eq!(s.keys.top, 3);
+        over(&mut s, 1);
+        assert_eq!(s.keys.top, 2);
+        over(&mut s, 50);
+        assert_eq!(s.keys.top, 0, "never above the first row");
+        over(&mut s, -500);
+        assert_eq!(s.keys.top, n - KEYS_LINES, "never past the last");
+        // The bar's track above the thumb pages up, below it pages down.
+        click(&mut s, Target::KeyTrack(false));
+        assert_eq!(s.keys.top, n - 2 * KEYS_LINES);
+        click(&mut s, Target::KeyTrack(true));
+        assert_eq!(s.keys.top, n - KEYS_LINES);
+        // The arrows move the selection and keep it in view; Home and End jump.
+        s.focus = Target::KeyList;
+        key(&mut s, Key::Home);
+        assert_eq!((s.keys.sel, s.keys.top), (0, 0));
+        for _ in 0..KEYS_LINES {
+            key(&mut s, Key::Down);
+        }
+        assert_eq!((s.keys.sel, s.keys.top), (KEYS_LINES, 1));
+        key(&mut s, Key::End);
+        assert_eq!((s.keys.sel, s.keys.top), (n - 1, n - KEYS_LINES));
+        key(&mut s, Key::Down);
+        assert_eq!(s.keys.sel, n - 1, "stops at the last row");
+        // The thumb is in the track, at the bottom now.
+        let t = key_thumb(s.keys.top, n);
+        assert_eq!(t.y + t.h as i32, KEYS_TRACK.y + KEYS_TRACK.h as i32);
+        // A short list has no thumb to move.
+        assert_eq!(key_thumb(0, KEYS_LINES), KEYS_TRACK);
+        // Tab leaves the list for Reset keys.
+        key(&mut s, Key::Tab);
+        assert_eq!(s.focus, Target::Action(Action::ResetKeys));
+    }
+
+    #[test]
+    fn the_list_and_reset_button_clear_each_other_the_description_and_the_buttons() {
+        let s = keys_screen();
+        let apart = |a: Rect, b: Rect| {
+            a.x + a.w as i32 <= b.x || b.x + b.w as i32 <= a.x || a.y + a.h as i32 <= b.y || b.y + b.h as i32 <= a.y
+        };
+        for r in [KEYS_LIST, KEYS_TRACK, KEYS_RESET] {
+            assert!(apart(r, DESC) && apart(r, OK) && apart(r, CANCEL) && apart(r, DEFAULTS));
+        }
+        assert!(apart(KEYS_LIST, KEYS_TRACK) && apart(KEYS_LIST, KEYS_RESET));
+        assert!(KEYS_LIST.x + KEYS_LIST.w as i32 <= KEYS_TRACK.x);
+        assert_eq!(KEYS_LIST.h, KEYS_LINES as u32 * KEYS_LINE_H as u32);
+        const { assert!(KEYS_LINE_H >= 24 && KEYS_RESET.h >= 24 && KEYS_RESET.w >= 24) };
+        // The Tab order: the tabs, the list, Reset keys, then the buttons.
+        let stops = s.stops();
+        assert_eq!(
+            &stops[5..],
+            [
+                Target::KeyList,
+                Target::Action(Action::ResetKeys),
+                Target::Ok,
+                Target::Cancel,
+                Target::Defaults
+            ]
+        );
+    }
+
     /// A synthetic font: every printable glyph 7 pixels wide, 10 high.
     fn font() -> Font {
         let g = tidewater_formats::fnt::Glyph {
@@ -1593,6 +2397,12 @@ mod tests {
         }
         all.push(describe_action(Action::OpenFolder).to_string());
         all.push(describe_action(Action::Reimport).to_string());
+        all.push(describe_action(Action::ResetKeys).to_string());
+        // Every action of the Keys page, in the longest form its description takes (the player's own key).
+        let s = screen();
+        for i in 0..s.keys.rows.len() {
+            all.push(s.key_description(i));
+        }
         for d in all {
             let lines = wrap(&f, &d, DESC.w);
             assert!(lines.len() <= 4, "{} lines for: {d}", lines.len());

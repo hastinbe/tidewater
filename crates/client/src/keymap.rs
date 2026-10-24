@@ -65,6 +65,39 @@ impl Chord {
     }
 }
 
+impl Chord {
+    /// The chord as the settings file writes it (`ctrl+alt+x`, `f6`, `minus`, `equal`), what [`parse_chord`] reads.
+    pub fn file_text(&self) -> String {
+        let mut out = String::new();
+        for (on, name) in [
+            (self.mods.ctrl, "ctrl+"),
+            (self.mods.alt, "alt+"),
+            (self.mods.shift, "shift+"),
+        ] {
+            if on {
+                out.push_str(name);
+            }
+        }
+        out.push_str(&match self.key {
+            mouse::Key::Letter(c) => c.to_ascii_lowercase().to_string(),
+            mouse::Key::Digit(d) => d.to_string(),
+            mouse::Key::Plus => "equal".into(),
+            mouse::Key::Minus => "minus".into(),
+            mouse::Key::F(n) => format!("f{n}"),
+        });
+        out
+    }
+
+    /// The chord a pressed key with its modifiers makes, or `None` for a key the key table has no name for (the arrow
+    /// keys, Enter, Escape, the keypad's digits and so on).
+    pub fn pressed(key: Key, mods: mouse::KeyMods) -> Option<Chord> {
+        Some(Chord {
+            key: crate::game::game_key(key)?,
+            mods,
+        })
+    }
+}
+
 // --- the original's table ------------------------------------------------------------------------------------------
 
 /// The keys the in-game table knows, to list its default chords.
@@ -256,6 +289,227 @@ pub fn parse_chord(text: &str) -> Result<Chord, String> {
     })
 }
 
+// --- the rows of the Keys page ---------------------------------------------------------------------------------------
+
+/// One action the Keys page lists.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    /// The name in the settings file.
+    pub name: String,
+    /// What it is called on the page.
+    pub label: String,
+    /// The key it has in the original, short enough for the list ("Ctrl+P", "F6", or "-" for an action with none).
+    pub default: String,
+    /// What the description says about the original's key.
+    pub original: String,
+}
+
+/// The name of a command button as the page words it.
+fn button_label(name: &str) -> &'static str {
+    match name {
+        "move" => "Move",
+        "attack" => "Attack",
+        "patrol" => "Patrol",
+        "stop" => "Stop",
+        "stand-ground" => "Stand ground",
+        "harvest" => "Harvest",
+        "repair" => "Repair",
+        "return-goods" => "Return goods",
+        "unload" => "Unload",
+        "attack-ground" => "Attack ground",
+        "demolish" => "Demolish",
+        "build-basic" => "Build basic structure",
+        "build-advanced" => "Build advanced structure",
+        _ => "",
+    }
+}
+
+/// What an action is called on the Keys page.
+pub fn label_of(name: &str) -> String {
+    let fixed = match name {
+        "speed-up" => "Game speed up",
+        "speed-down" => "Game speed down",
+        "pause" => "Pause or resume",
+        "centre-primary" => "Centre on the selected unit",
+        "game-menu" => "Game menu",
+        "options" => "Options",
+        "help-menu" => "Help menu",
+        "keyboard-help" => "Keystroke help",
+        "sound-dialog" => "Sound dialog",
+        "speed-dialog" => "Speeds dialog",
+        "preferences" => "Preferences dialog",
+        "tips" => "Tips",
+        "save-game" => "Save game",
+        "load-game" => "Load game",
+        "restart" => "Restart the scenario",
+        "quit" => "Quit to the main menu",
+        "quit-dialog" => "Exit the program",
+        "toggle-music" => "Music on or off",
+        "toggle-sounds" => "Sound effects on or off",
+        "idle-worker" => "Select the next idle worker",
+        _ => "",
+    };
+    if !fixed.is_empty() {
+        return fixed.to_string();
+    }
+    for (prefix, text) in [
+        ("group-set-", "Make group"),
+        ("group-recall-", "Select group"),
+        ("group-show-", "Select and show group"),
+        ("goto-view-", "Go to view"),
+        ("remember-view-", "Remember view"),
+    ] {
+        if let Some(n) = name.strip_prefix(prefix) {
+            return format!("{text} {n}");
+        }
+    }
+    if let Some(n) = name.strip_prefix("slot-") {
+        return format!("Panel button {n}");
+    }
+    if let Some(b) = name.strip_prefix("button-") {
+        return format!("Command: {}", button_label(b));
+    }
+    name.to_string()
+}
+
+/// The names of every rebindable action, in the order the Keys page lists them: the game keys, the menus and dialogs,
+/// the remembered views, the control groups, then the command buttons and the panel's places.
+fn row_names() -> Vec<String> {
+    let mut v: Vec<String> = [
+        "speed-up",
+        "speed-down",
+        "pause",
+        "centre-primary",
+        "idle-worker",
+        "game-menu",
+        "options",
+        "help-menu",
+        "keyboard-help",
+        "sound-dialog",
+        "speed-dialog",
+        "preferences",
+        "tips",
+        "save-game",
+        "load-game",
+        "restart",
+        "quit",
+        "quit-dialog",
+        "toggle-music",
+        "toggle-sounds",
+    ]
+    .map(String::from)
+    .to_vec();
+    for kind in ["goto-view-", "remember-view-"] {
+        v.extend((1..=3).map(|n| format!("{kind}{n}")));
+    }
+    for kind in ["group-recall-", "group-set-", "group-show-"] {
+        v.extend((0..=9).map(|n| format!("{kind}{n}")));
+    }
+    v.extend(BUTTONS.iter().map(|b| format!("button-{b}")));
+    v.extend((1..=9).map(|n| format!("slot-{n}")));
+    v
+}
+
+/// Every action that can be rebound, with the original's key for it. A test checks the list against the names the file
+/// reads.
+pub fn rows() -> Vec<Row> {
+    let table = default_chords();
+    let actions = game_actions();
+    row_names()
+        .into_iter()
+        .map(|name| {
+            let (default, original) = match bind_by_name(&name, &actions) {
+                Some(Bind::Game(a)) => {
+                    let mut all: Vec<Chord> = table.iter().filter(|(_, x)| *x == a).map(|(c, _)| *c).collect();
+                    // F5 works with any modifiers held; the page names only the plainest chord of each key.
+                    let within = |a: mouse::KeyMods, b: mouse::KeyMods| {
+                        (!a.ctrl || b.ctrl) && (!a.alt || b.alt) && (!a.shift || b.shift)
+                    };
+                    let plain = all.clone();
+                    all.retain(|c| {
+                        !plain
+                            .iter()
+                            .any(|o| o.key == c.key && o.mods != c.mods && within(o.mods, c.mods))
+                    });
+                    all.sort_by_key(|c| (c.mods.ctrl as u8 + c.mods.alt as u8 + c.mods.shift as u8, !c.mods.ctrl));
+                    let first = all.first().map_or_else(|| "-".to_string(), Chord::text);
+                    let every: Vec<String> = all.iter().map(Chord::text).collect();
+                    (first, every.join(" or "))
+                }
+                Some(Bind::Idle) => (
+                    format!("F{}", crate::idle::KEY),
+                    format!("F{} (with or without Ctrl, Alt or Shift)", crate::idle::KEY),
+                ),
+                Some(Bind::Button(_)) => ("own letter".to_string(), "the letter on the button".to_string()),
+                Some(Bind::Slot(_)) | None => ("-".to_string(), "none".to_string()),
+            };
+            Row {
+                label: label_of(&name),
+                name,
+                default,
+                original,
+            }
+        })
+        .collect()
+}
+
+/// The `[keys]` lines with the action `name` given `chord`, or why not: the message names the other action that has the
+/// key, or says what is wrong with the key's shape. The rules are the file's own (`KeyMap::parse`): a key is refused
+/// when another action has it or when an action that was not rebound still uses it, so two actions swap keys by moving
+/// one of them away first. Rebinding an action frees its original keys. Comments and the other lines stay as they are,
+/// and the new line goes last so it is the one that is refused.
+pub fn with_binding(lines: &[String], name: &str, chord: Chord) -> Result<Vec<String>, String> {
+    let mut out = without_binding(lines, name);
+    out.push(format!("{name}={}", chord.file_text()));
+    let before = KeyMap::parse(&without_binding(lines, name)).1;
+    let (_, after) = KeyMap::parse(&out);
+    let prefix = format!("{name}=");
+    let Some(problem) = after.iter().find(|p| p.starts_with(&prefix) && !before.contains(p)) else {
+        return Ok(out);
+    };
+    // "pause=Ctrl+S: Ctrl+S is already used by toggle-sounds; the line is ignored"
+    let msg = problem
+        .split_once(": ")
+        .map_or(problem.as_str(), |(_, m)| m)
+        .trim_end_matches("; the line is ignored");
+    if let Some((key, owner)) = msg.split_once(" is already used by ") {
+        let owner = label_of(owner);
+        return Err(format!(
+            "{key} is already used by {owner}, so it was not changed. Give {owner} another key first, or choose              another key."
+        ));
+    }
+    let mut msg = msg.to_string();
+    if let Some(first) = msg.get(..1) {
+        msg.replace_range(..1, &first.to_uppercase());
+    }
+    Err(format!("{msg}."))
+}
+
+/// The `[keys]` lines without any line for the action `name` (its own key again).
+pub fn without_binding(lines: &[String], name: &str) -> Vec<String> {
+    lines.iter().filter(|l| line_name(l) != Some(name)).cloned().collect()
+}
+
+/// The `[keys]` lines with every line for an action removed: the original's keys. Comments and lines that name no
+/// action (a typo the player may want to read again) stay.
+pub fn reset_lines(lines: &[String]) -> Vec<String> {
+    let actions = game_actions();
+    lines
+        .iter()
+        .filter(|l| line_name(l).is_none_or(|n| bind_by_name(n, &actions).is_none()))
+        .cloned()
+        .collect()
+}
+
+/// The action name a `name=key` line is for; `None` for a comment or a line without an equals sign.
+fn line_name(line: &str) -> Option<&str> {
+    let l = line.trim();
+    if l.starts_with('#') {
+        return None;
+    }
+    l.split_once('=').map(|(n, _)| n.trim())
+}
+
 // --- the keymap ----------------------------------------------------------------------------------------------------
 
 /// What a name in `[keys]` binds.
@@ -300,6 +554,8 @@ pub struct KeyMap {
     idle: Option<Chord>,
     slots: [Option<char>; 9],
     buttons: Vec<(&'static str, char)>,
+    /// The lines that were accepted: the action's name and the key the file gives it.
+    bound: Vec<(String, Chord)>,
 }
 
 /// The messages of the lines a section had wrong.
@@ -395,7 +651,8 @@ impl KeyMap {
                 wanted.remove(i);
             }
         }
-        for (_, bind, chord) in wanted {
+        for (name, bind, chord) in wanted {
+            map.bound.push((name, chord));
             match bind {
                 Bind::Game(a) => {
                     if let Some(canon) = canonical(a, &table) {
@@ -414,6 +671,16 @@ impl KeyMap {
             }
         }
         (map, problems)
+    }
+
+    /// The lines of the `[keys]` section as the file has them (comments and lines that could not be used too).
+    pub fn lines(&self) -> &[String] {
+        &self.raw
+    }
+
+    /// The key the file gives the action `name`, if a line for it was accepted.
+    pub fn chord_of(&self, name: &str) -> Option<Chord> {
+        self.bound.iter().find(|(n, _)| n == name).map(|(_, c)| *c)
     }
 
     /// Whether the player has rebound anything.
@@ -826,6 +1093,98 @@ mod tests {
         assert!(has("button-stop=3") && has("group-recall-3"), "{problems:?}");
         assert!(has("button-move=X") && has("slot-1"), "{problems:?}");
         assert!(has("button-attack=ctrl+a") && has("button-patrol=f2"), "{problems:?}");
+    }
+
+    #[test]
+    fn the_keys_page_lists_every_action_the_file_reads_once() {
+        let rows = rows();
+        let names: HashSet<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names.len(), rows.len(), "unique");
+        assert_eq!(rows.len(), game_actions().len() + 1 + BUTTONS.len() + 9);
+        let actions = game_actions();
+        for r in &rows {
+            assert!(
+                bind_by_name(&r.name, &actions).is_some(),
+                "{} is read by the file",
+                r.name
+            );
+            assert!(!r.label.is_empty() && r.label != r.name, "{}", r.name);
+            assert!(!r.default.is_empty() && !r.original.is_empty());
+        }
+        for (n, _) in &actions {
+            assert!(names.contains(n.as_str()), "{n} is listed");
+        }
+        assert!(names.contains("idle-worker") && names.contains("slot-9") && names.contains("button-stop"));
+        let by = |n: &str| rows.iter().find(|r| r.name == n).unwrap();
+        assert_eq!(
+            (by("pause").default.as_str(), by("pause").original.as_str()),
+            ("Ctrl+P", "Ctrl+P or Alt+P")
+        );
+        assert_eq!(by("idle-worker").default, "F6");
+        assert_eq!(by("group-recall-3").default, "3");
+        assert_eq!(by("slot-1").default, "-");
+        assert_eq!(by("button-move").label, "Command: Move");
+        assert_eq!(by("goto-view-2").label, "Go to view 2");
+    }
+
+    #[test]
+    fn a_chord_prints_as_the_file_reads_it() {
+        for key in key_universe() {
+            for mods in mod_combos() {
+                let c = Chord { key, mods };
+                match parse_chord(&c.file_text()) {
+                    Ok(back) => assert_eq!(back, c, "{}", c.file_text()),
+                    Err(e) => assert!(matches!(key, mouse::Key::F(10)), "{}: {e}", c.file_text()),
+                }
+            }
+        }
+        let c = Chord::pressed(Key::Letter('P'), mods(true, true, false)).unwrap();
+        assert_eq!(
+            (c.file_text().as_str(), c.text().as_str()),
+            ("ctrl+alt+p", "Ctrl+Alt+P")
+        );
+        assert_eq!(Chord::pressed(Key::NumpadAdd, NONE).unwrap().file_text(), "equal");
+        assert_eq!(Chord::pressed(Key::Minus, NONE).unwrap().file_text(), "minus");
+        assert_eq!(Chord::pressed(Key::Up, NONE), None);
+        assert_eq!(Chord::pressed(Key::Enter, NONE), None);
+    }
+
+    #[test]
+    fn binding_a_key_edits_the_lines_by_the_files_own_rules() {
+        let ctrl = |c: char| Chord::pressed(Key::Letter(c), mods(true, false, false)).unwrap();
+        let lines = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+        // Bound; the comment stays and the action's earlier line is replaced, not repeated.
+        let l = with_binding(&lines(&["# mine", "pause=ctrl+u"]), "pause", ctrl('Y')).unwrap();
+        assert_eq!(l, ["# mine", "pause=ctrl+y"]);
+        let (map, problems) = KeyMap::parse(&l);
+        assert!(problems.is_empty());
+        assert_eq!(map.chord_of("pause"), Some(ctrl('Y')));
+        assert_eq!(map.chord_of("tips"), None);
+        // Taken by an action that was not rebound, by another rebound one, and the settings key.
+        let e = with_binding(&[], "pause", ctrl('S')).unwrap_err();
+        assert!(e.contains("Ctrl+S") && e.contains("Sound effects on or off"), "{e}");
+        let e = with_binding(&lines(&["tips=ctrl+y"]), "pause", ctrl('Y')).unwrap_err();
+        assert!(e.contains("Tips"), "{e}");
+        let e = with_binding(&[], "pause", ctrl('G')).unwrap_err();
+        assert!(e.contains("settings"), "{e}");
+        // The shape.
+        let bare = Chord::pressed(Key::Letter('U'), NONE).unwrap();
+        let e = with_binding(&[], "pause", bare).unwrap_err();
+        assert!(e.starts_with("A letter on its own") && e.ends_with('.'), "{e}");
+        // A refused line that is already in the file does not hide a new refusal of the same text.
+        let e = with_binding(&lines(&["pause=ctrl+s"]), "pause", ctrl('S')).unwrap_err();
+        assert!(e.contains("already used"), "{e}");
+        // Rebinding frees the original keys, so a key the old binding had is free again for another action.
+        let l = with_binding(&[], "toggle-sounds", ctrl('U')).unwrap();
+        assert!(with_binding(&l, "pause", ctrl('S')).is_ok());
+        // Removing one and resetting all.
+        let all = lines(&["# mine", "pause=ctrl+u", "tips=ctrl+y", "typo=ctrl+u", "bogus"]);
+        assert_eq!(
+            without_binding(&all, "pause"),
+            ["# mine", "tips=ctrl+y", "typo=ctrl+u", "bogus"]
+        );
+        assert_eq!(reset_lines(&all), ["# mine", "typo=ctrl+u", "bogus"]);
+        assert!(KeyMap::parse(&reset_lines(&all)).0.is_default());
     }
 
     #[test]

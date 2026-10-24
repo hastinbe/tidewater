@@ -2228,6 +2228,8 @@ pub(crate) fn custom_input(input: &crate::input::Input, cam: &FrontScreen) -> cu
         up: input.mouse.just_released(Button::Left),
         keys: input.keys.get_just_pressed().copied().collect(),
         shift: input.keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]),
+        ctrl: input.keys.any_pressed([Key::ControlLeft, Key::ControlRight]),
+        alt: input.keys.any_pressed([Key::AltLeft, Key::AltRight]),
         wheel: lines.round() as i32,
         ..Default::default()
     }
