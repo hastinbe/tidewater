@@ -11,6 +11,11 @@
 //! - A pan and a zoom for the map view (`game::touch_view`), or, outside the game, the pan as mouse-wheel lines for
 //!   lists.
 //! - The tap tolerance ([`Input::tap_radius`]) for the frame a tap's left button comes up.
+//! - The smart tap (option `touch-smart-tap`, `mouse::smart_tap`): with units of yours selected, a tap on the map
+//!   view that is not on one of your own units is a right click, press and release; the chrome's plain-click latch
+//!   makes the next tap a left click.
+//! - The chrome's keys: the group buttons (a tap is the digit, a hold Ctrl and the digit), the menu (F10) and the
+//!   idle-worker button (F6, `crate::idle::KEY`), each let go a frame later.
 //! - A pulse where a long press fired, drawn onto the picture after it is composed ([`draw_pulse`]).
 //!
 //! [`Input::touches`]: crate::input::Input::touches
@@ -22,7 +27,8 @@ use std::time::Duration;
 
 use crate::chrome::{self, Chrome, Control, Fed, Overlay};
 use crate::core::{Core, game_running};
-use crate::gesture::{self, Gesture, Pt, Zone};
+use crate::extras::{TouchSettings, TouchTwoFinger};
+use crate::gesture::{self, Gesture, OneFinger, Pt, TwoFinger, Zone};
 use crate::input::{Button, Key, KeyEvent, Touch, Wheel, WindowGeom};
 use crate::touchemu::Emulator;
 
@@ -32,6 +38,8 @@ pub const TAP_MM: f32 = 6.0;
 pub const LINE_MM: f32 = 7.0;
 /// How long the long-press pulse shows, in milliseconds.
 pub const PULSE_MS: f32 = 400.0;
+/// A screen whose short side is under this many millimetres is a phone's, where the pinch zoom is on by default.
+pub const PHONE_MM: f32 = 90.0;
 
 /// The core's touch state.
 #[derive(Default)]
@@ -56,6 +64,10 @@ pub struct TouchState {
     wheel_acc: f32,
     /// The latched modifiers come up at the next step.
     release_mods: bool,
+    /// Keys the chrome pressed, let go at the next step.
+    queued: Vec<(Key, bool)>,
+    /// The tap whose press went out as a right click (the smart tap): its release does too.
+    tap_right: bool,
     pause: bool,
     /// The platform's pointer the last frame, to see a mouse come back.
     last_platform: Option<Option<Pt>>,
@@ -114,6 +126,12 @@ impl TouchState {
         *pointer = self.pointer;
     }
 
+    /// A key pressed now and let go at the next step.
+    fn stroke(&mut self, k: Key, keys: &mut Vec<(Key, bool)>) {
+        keys.push((k, true));
+        self.queued.push((k, false));
+    }
+
     fn press(&mut self, c: Control, keys: &mut Vec<(Key, bool)>) {
         match c {
             Control::Shift => {
@@ -128,10 +146,52 @@ impl TouchState {
                 self.chrome.alt = !self.chrome.alt;
                 keys.push((Key::AltLeft, self.chrome.alt));
             }
-            Control::RightClick => self.chrome.right_click = !self.chrome.right_click,
+            Control::Plain => self.chrome.plain = !self.chrome.plain,
             Control::Pause => self.pause = true,
             Control::Keyboard => self.chrome.keyboard = !self.chrome.keyboard,
+            Control::Menu => self.stroke(Key::F(10), keys),
+            Control::IdleWorker => self.stroke(Key::F(crate::idle::KEY), keys),
+            Control::Group(n) => self.stroke(Key::Digit(n), keys),
         }
+    }
+
+    /// A control held long enough: a group button sets its group (Ctrl and the digit).
+    fn hold(&mut self, c: Control, keys: &mut Vec<(Key, bool)>) {
+        if let Control::Group(n) = c {
+            let ctrl = !self.chrome.ctrl;
+            if ctrl {
+                keys.push((Key::ControlLeft, true));
+            }
+            self.stroke(Key::Digit(n), keys);
+            if ctrl {
+                self.queued.push((Key::ControlLeft, false));
+            }
+        }
+    }
+}
+
+/// Whether a window is a phone's: its short side under [`PHONE_MM`].
+pub fn is_phone(w: WindowGeom) -> bool {
+    let short = w.size.0.min(w.size.1) as f32 / w.factor.max(0.01);
+    short / w.points_per_mm().max(0.01) < PHONE_MM
+}
+
+/// The gesture machine's settings from the touch options for a window (`docs/design/touch.md`, "Options").
+fn gesture_config(s: &TouchSettings, w: WindowGeom) -> gesture::Config {
+    gesture::Config {
+        mm: w.points_per_mm(),
+        one_finger: if s.drag_pans { OneFinger::Pan } else { OneFinger::Box },
+        glide: s.glide,
+        two_finger: match s.two_finger {
+            TouchTwoFinger::Pan => TwoFinger::Pan,
+            TouchTwoFinger::Corners => TwoFinger::Corners,
+            TouchTwoFinger::Off => TwoFinger::Off,
+        },
+        pinch: s.pinch.unwrap_or_else(|| is_phone(w)),
+        menu_tap: s.menu_tap,
+        long_press_ms: s.long_press_ms,
+        arm_ms: s.arm_ms,
+        ..Default::default()
     }
 }
 
@@ -148,6 +208,8 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     let Some(w) = window else { return };
     let lb = w.letterbox();
     let ppmm = w.points_per_mm();
+    let extras = crate::game::extras(c);
+    let settings = extras.touch();
     let (hover, ghost) = if in_game {
         crate::game::touch_aim(c)
     } else {
@@ -164,12 +226,17 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         }
     };
     let cfg = gesture::Config {
-        mm: ppmm,
         view: if in_game { view_zone(c, w) } else { None },
         hover,
         ghost: ghost.map(to_zone),
-        ..Default::default()
+        ..gesture_config(&settings, w)
     };
+    let options = chrome::Options {
+        button_mm: settings.button_mm,
+        swap: settings.swap_bars,
+        idle_worker: extras.idle_worker(),
+    };
+    let tap_px = TAP_MM * ppmm * w.factor / lb.scale;
     let Core {
         touch: t,
         input,
@@ -180,8 +247,9 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     let ms = elapsed.as_secs_f32() * 1000.0;
 
     t.chrome
-        .layout(chrome::frame_of(lb.screen(), w.safe, w.factor, ppmm, in_game));
-    let mut keys: Vec<(Key, bool)> = Vec::new();
+        .layout(chrome::frame_of(lb.screen(), w.safe, w.factor, ppmm, in_game, options));
+    // The keys the chrome pressed last step come up first.
+    let mut keys: Vec<(Key, bool)> = std::mem::take(&mut t.queued);
     // The latched modifiers come up a frame after the click they were for.
     if std::mem::take(&mut t.release_mods) {
         for (on, k) in [
@@ -213,6 +281,9 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
             Fed::Pressed(ctl) => t.press(ctl, &mut keys),
         }
     }
+    for ctl in t.chrome.advance(ms) {
+        t.hold(ctl, &mut keys);
+    }
 
     // The gesture machine, one of its frames a game frame.
     t.gesture.update(elapsed, &passed, &cfg);
@@ -223,8 +294,24 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         }
     }
     let mut frame = t.gesture.pop();
-    // Right-click mode: a tap's click is the right button's.
-    if t.chrome.right_click
+    // The smart tap: decided at a tap's press, from the game's selection, unless the plain-click latch is on (it is
+    // spent on that tap either way).
+    if let Some(f) = &frame
+        && f.tap_press
+    {
+        let plain = std::mem::take(&mut t.chrome.plain);
+        let at = f.pointer.map(|p| lb.screen_of(p, w.factor));
+        t.tap_right = false;
+        if settings.smart_tap
+            && !plain
+            && let Some(at) = at
+        {
+            let right = crate::game::touch_smart_tap(c, at, tap_px);
+            c.touch.tap_right = right;
+        }
+    }
+    let Core { touch: t, input, .. } = c;
+    if t.tap_right
         && let Some(f) = &mut frame
         && (f.tap_press || f.tap)
     {
@@ -233,7 +320,10 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
                 *b = Button::Right;
             }
         }
-        f.tap = false;
+        if f.tap {
+            f.tap = false;
+            t.tap_right = false;
+        }
     }
     let mut released = false;
     match frame {
@@ -249,7 +339,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
                 t.pointer = t.gesture.hover_pointer();
             }
             if f.tap {
-                input.tap_radius = Some(TAP_MM * ppmm * w.factor / lb.scale);
+                input.tap_radius = Some(tap_px);
             }
             if let Some(p) = f.pulse.or(f.armed) {
                 t.pulse = Some((p, 0.0));
@@ -417,10 +507,77 @@ mod tests {
             [(Key::ShiftLeft, true), (Key::AltLeft, true), (Key::ShiftLeft, false)]
         );
         assert!(t.chrome.alt && !t.chrome.shift);
-        t.press(Control::RightClick, &mut keys);
+        t.press(Control::Plain, &mut keys);
         t.press(Control::Keyboard, &mut keys);
         t.press(Control::Pause, &mut keys);
-        assert!(t.chrome.right_click && t.chrome.keyboard);
+        assert!(t.chrome.plain && t.chrome.keyboard);
         assert!(t.take_pause() && !t.take_pause());
+    }
+
+    #[test]
+    fn the_key_buttons_press_now_and_let_go_at_the_next_step() {
+        let mut t = TouchState::new(true);
+        let mut keys = Vec::new();
+        t.press(Control::Group(3), &mut keys);
+        t.press(Control::Menu, &mut keys);
+        t.press(Control::IdleWorker, &mut keys);
+        assert_eq!(keys, [(Key::Digit(3), true), (Key::F(10), true), (Key::F(6), true)]);
+        assert_eq!(
+            t.queued,
+            [(Key::Digit(3), false), (Key::F(10), false), (Key::F(6), false)]
+        );
+        // A held group button sets the group: Ctrl and the digit, both up a step later.
+        let (mut keys, mut t) = (Vec::new(), TouchState::new(true));
+        t.hold(Control::Group(2), &mut keys);
+        assert_eq!(keys, [(Key::ControlLeft, true), (Key::Digit(2), true)]);
+        assert_eq!(t.queued, [(Key::Digit(2), false), (Key::ControlLeft, false)]);
+        // With Ctrl latched already, the latch keeps it.
+        let (mut keys, mut t) = (Vec::new(), TouchState::new(true));
+        t.chrome.ctrl = true;
+        t.hold(Control::Group(2), &mut keys);
+        assert_eq!(keys, [(Key::Digit(2), true)]);
+        assert_eq!(t.queued, [(Key::Digit(2), false)]);
+    }
+
+    #[test]
+    fn a_phone_is_a_screen_under_nine_centimetres_across() {
+        let at = |size: (u32, u32), factor: f32| WindowGeom {
+            ppi: 160.0 * factor,
+            ..WindowGeom::new(size, factor)
+        };
+        // A phone in portrait and landscape: 393 points is 62 mm at 160 points to the inch.
+        assert!(is_phone(at((1179, 2556), 3.0)));
+        assert!(is_phone(at((2556, 1179), 3.0)));
+        // A tablet: 820 points is 130 mm.
+        assert!(!is_phone(at((1640, 2360), 2.0)));
+    }
+
+    #[test]
+    fn the_touch_options_set_the_gesture_machine() {
+        let phone = WindowGeom {
+            ppi: 480.0,
+            ..WindowGeom::new((1179, 2556), 3.0)
+        };
+        let tablet = WindowGeom {
+            ppi: 320.0,
+            ..WindowGeom::new((1640, 2360), 2.0)
+        };
+        let s = crate::extras::ClientExtras::default().touch();
+        let (p, t) = (gesture_config(&s, phone), gesture_config(&s, tablet));
+        assert!(p.pinch && !t.pinch, "the pinch is on for phones only by default");
+        assert_eq!(p.one_finger, OneFinger::Pan);
+        assert!(p.glide && p.menu_tap);
+        assert_eq!(p.two_finger, TwoFinger::Pan);
+        assert_eq!((p.arm_ms, p.long_press_ms), (300.0, 450.0));
+        let s = TouchSettings {
+            drag_pans: false,
+            two_finger: TouchTwoFinger::Corners,
+            pinch: Some(true),
+            ..s
+        };
+        let t = gesture_config(&s, tablet);
+        assert!(t.pinch);
+        assert_eq!(t.one_finger, OneFinger::Box);
+        assert_eq!(t.two_finger, TwoFinger::Corners);
     }
 }

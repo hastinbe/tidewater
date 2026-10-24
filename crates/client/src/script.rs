@@ -709,7 +709,8 @@ fn finger_tap(x: f32, y: f32) -> [Cmd; 3] {
 }
 
 /// The game's first frames, then a tap a finger's width beside the first peasant, which selects it (the tap
-/// tolerance), and a tap on empty ground, which does not deselect it.
+/// tolerance), and a tap on empty ground, which sends it there (the smart tap: a right click with a unit of yours
+/// selected).
 fn touch_select() -> Vec<Cmd> {
     use Cmd::*;
     let mut v = vec![Until(AppState::Game), Wait(5), Shot("game")];
