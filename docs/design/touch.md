@@ -88,7 +88,7 @@ beside the picture (in the safe area). The left bar holds the tools, the right b
 | Pause | Two bars; a play triangle while the game is paused | Pauses or resumes, as the pause key does. |
 | Shift, Ctrl, Alt | ⇧, ⌃, ⌥ | A one-shot latch: the key is held for the next click, then let go a frame after that click's release (the rules that read Alt when the button comes up need it held through the release). |
 | Plain left click | A pointer with a click mark | The next tap on the map is a left click, whatever the smart tap would make of it. |
-| Keyboard | A keyboard | Opens or closes the system's soft keyboard (`SDL_StartTextInput`). |
+| Keyboard | A keyboard | Opens or closes the system's soft keyboard (`SDL_StartTextInput`). When the system hides it by itself (its own hide key, Android's Back), SDL's `SDL_EVENT_SCREEN_KEYBOARD_HIDDEN` turns the button off again (checked against `SDL_ScreenKeyboardShown`, so a hide followed at once by a show changes nothing), and the shell closes its text input to match. |
 | Groups | The digits 1 to 9 | A tap is the digit: recalls the group, and two taps centre on it, as the keys do. Held 450 ms it is Ctrl and the digit: the selection becomes that group (once, not again at the lift). |
 | Idle worker | A pickaxe with a "z" | F6: the next idle worker. Only with the option `idle-worker` on; it sends F6 whatever key that option is bound to. |
 
