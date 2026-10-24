@@ -110,7 +110,8 @@ pub(crate) fn extra_page(id: Id) -> Page {
         | Id::ControlGroupBar
         | Id::SmartAttackMove
         | Id::MinimapPing
-        | Id::AutoReplay => Page::Interface,
+        | Id::AutoReplay
+        | Id::MapZoom => Page::Interface,
         Id::VolumeVoices | Id::VolumeEffects | Id::VolumeMusic => Page::Sound,
         Id::RallyPoints | Id::ProductionQueue | Id::SelectionLimit | Id::SpeedLevels | Id::ShiftQueue => Page::Gameplay,
     }
@@ -233,6 +234,7 @@ pub(crate) const CHOICE_WORDS: &[(Id, &[&str])] = &[
     (Id::SpeedLevels, &["Off", "1 more", "2 more", "3 more"]),
     (Id::AutoReplay, &["Off", "Save from menu", "Always save"]),
     (Id::Widescreen, &["Off", "16:10", "16:9", "Auto"]),
+    (Id::MapZoom, &["Off", "Mouse wheel"]),
 ];
 
 /// The default of an item.
@@ -1482,7 +1484,8 @@ mod tests {
                 "group-bar",
                 "smart-attack-move",
                 "minimap-ping",
-                "auto-replay"
+                "auto-replay",
+                "map-zoom"
             ]
         );
         assert_eq!(names(Page::Sound), ["volume-voices", "volume-effects", "volume-music"]);

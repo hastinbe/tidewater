@@ -38,10 +38,11 @@ pub enum Id {
     ShiftQueue,
     AutoReplay,
     Widescreen,
+    MapZoom,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 17;
+pub const COUNT: usize = 18;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +102,12 @@ pub const REPLAY_SAVING: &[&str] = &["off", "menu", "always"];
 
 /// The values of `widescreen`: the original screen, a 16:10 or 16:9 one, or one matching the window.
 pub const WIDESCREEN_MODES: &[&str] = &["off", "16:10", "16:9", "auto"];
+
+/// The values of `map-zoom`: the mouse wheel does nothing to the map view, or magnifies it.
+pub const MAP_ZOOM_MODES: &[&str] = &["off", "wheel"];
+
+/// The most the magnifying zoom magnifies, in times the original's view (it never shows more map than the original).
+pub const MAP_ZOOM_MAX: f32 = 4.0;
 
 /// Every option. The order is the settings file's and the help text's.
 pub const REGISTRY: [Spec; COUNT] = [
@@ -256,6 +263,15 @@ pub const REGISTRY: [Spec; COUNT] = [
         default: 0,
         scope: Scope::ClientLobby,
         description: "A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3)",
+    },
+    Spec {
+        id: Id::MapZoom,
+        name: "map-zoom",
+        label: "Magnifying zoom",
+        kind: Kind::Choice(MAP_ZOOM_MODES),
+        default: 0,
+        scope: Scope::Client,
+        description: "`wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (a pinch does the same on touch devices)",
     },
 ];
 
@@ -481,6 +497,11 @@ impl ClientExtras {
             3 => Widescreen::Auto,
             _ => Widescreen::Off,
         }
+    }
+
+    /// Whether the mouse wheel magnifies the map view (option `map-zoom`).
+    pub fn map_zoom_wheel(&self) -> bool {
+        self.get(Id::MapZoom) == 1
     }
 
     pub fn game_clock(&self) -> ClockMode {
@@ -725,6 +746,22 @@ mod tests {
         assert_eq!(e.game_clock(), ClockMode::Off);
         // A volume's "off" leaves the sound alone.
         assert_eq!(e.trims(), crate::audio::Trims::default());
+    }
+
+    #[test]
+    fn the_magnifying_zoom_is_a_client_option_that_is_off_by_default() {
+        let mut e = ClientExtras::default();
+        assert!(!e.map_zoom_wheel());
+        assert_eq!(Id::MapZoom.spec().scope_mark(), "C");
+        assert_eq!(Id::MapZoom.spec().name, "map-zoom");
+        assert_eq!(Id::MapZoom.spec().values(), "off, wheel");
+        Args::parse_from(["tidewater", "--extra-map-zoom", "wheel"])
+            .extras
+            .apply(&mut e);
+        assert!(e.map_zoom_wheel() && e.sim().is_default());
+        assert!(Args::try_parse_from(["tidewater", "--extra-map-zoom", "pinch"]).is_err());
+        assert!(e.read_line("map-zoom", "off") && !e.map_zoom_wheel());
+        assert!(e.section_text().contains("map-zoom=off"));
     }
 
     #[test]

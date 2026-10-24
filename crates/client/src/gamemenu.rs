@@ -1398,8 +1398,14 @@ pub(crate) fn run_settings(c: &mut Core) {
             let values = ig.ui.values().clone();
             m.nav.close();
             close(commands);
+            let was_magnifying = extras.map_zoom_wheel();
             settings::commit(&values, &mut stored.0, extras, &mut c.audio);
+            let turned_off = was_magnifying && !extras.map_zoom_wheel();
             c.store_settings();
+            // Turned off while magnified: back to the original's view (a pinch's zoom is the player's own).
+            if turned_off {
+                game::reset_magnifying(c);
+            }
         }
         settings::Outcome::Cancel => {
             m.nav.close();

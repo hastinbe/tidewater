@@ -32,6 +32,7 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
 | `shift-queue` | `--extra-shift-queue` | on, off | S | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order |
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | C | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 | `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | C+L | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) |
+| `map-zoom` | `--extra-map-zoom VALUE` | off, wheel | C | off | `wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (a pinch does the same on touch devices) |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
   dialog sets it", so the original sound dialog keeps its look and meaning.
@@ -186,6 +187,18 @@ without new screen code. The file and the flags still work and are for power use
   `--touch-emulation`, and while touch is in use, where the pillarbox holds the touch buttons. Because the wider view
   is an edge, the lobby's value is used for everyone in a game with other players. The widths, the layout and the
   pointer mapping are in `docs/design/client-core.md`, "Widescreen"; the code is `widescreen.rs`.
+- **Magnifying zoom** (`map-zoom`, C). Off by default, which leaves the mouse wheel doing nothing over the map view, as in
+  the original. With `wheel`, a wheel step away from you over the map view zooms in around the pointer, 1 to 2 to 4
+  times, and a step toward you zooms back out to the original's view and stops there (`game::pan_and_zoom`,
+  `game::magnified`): it can only magnify, never show more map than the original, so it is fair in a game with other
+  players (client-only, no lobby setting). The zoom is the map view's own (`MapZoom`, `MapView::zoom`, map pixels per
+  screen pixel: 1, 1/2, 1/4), the machinery `--free-zoom` and a touch pinch (`game::touch_view`, 1 down to 1/4) already
+  use, so the pointer, selection, the minimap's view box and the edge scroll follow the zoomed view. Steps are powers of
+  two so map pixels stay whole blocks of screen pixels; a zoom a pinch left in between goes to the nearest step first.
+  The point under the pointer stays under it (to within the tile grid, which the view is kept on). The wheel over the
+  minimap or the interface does nothing. Turning the option off in the Settings screen during a game puts the view back
+  to the original's. `--free-zoom` stays a development aid with its own range (1/4 to 8, wheel anywhere) and wins when
+  both are on. The scene `extras-zoom` shows it.
 
 ## Rebindable keys
 

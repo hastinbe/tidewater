@@ -11,7 +11,8 @@
 //!   stops at the screen's edge: pushing it into the border scrolls the view.
 //! - **Zoom.** The map view draws one map pixel per screen pixel, as the original does. The `--free-zoom` development
 //!   option (not part of the original) zooms with the mouse wheel in powers of two, from [`MIN_ZOOM`] to [`MAX_ZOOM`]
-//!   map pixels per screen pixel.
+//!   map pixels per screen pixel. The `map-zoom` option (`game::pan_and_zoom`) is the player's version: the wheel over the
+//!   map view magnifies it from 1 to 4 times and back, never showing more map than the original.
 //! - **Mouse lock.** In a game the pointer is kept in the window, as a full-screen game's pointer can't leave the
 //!   screen, so pushing it against an edge scrolls the view however fast the mouse moves (as StarCraft's windowed
 //!   "W-Mode" and Diablo II: Resurrected's "lock cursor" option do). [`lock_wanted`] says when: only while a game runs (not while a game menu or the outcome dialog is

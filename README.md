@@ -183,7 +183,7 @@ original's main-menu buttons are unchanged.
 | Page | What it holds | Takes effect |
 |---|---|---|
 | **General** | Window or full screen (desktop), Scaling, Widescreen, Mouse lock (desktop), Intro video, Check for updates (desktop release builds), the imported game files with **Import game files again...**, and **Open settings folder** (desktop). | Window, Scaling and Mouse lock at once; Widescreen from the next game; Intro video and Check for updates the next time Tidewater starts |
-| **Interface** | Health bars, idle worker button, game clock, control group bar, smart attack-move, minimap ping, record replays. | At once or from the next game |
+| **Interface** | Health bars, idle worker button, game clock, control group bar, smart attack-move, minimap ping, record replays, magnifying zoom. | At once or from the next game |
 | **Sound** | Unit voices, sound effects and music, 0 to 100 percent in steps of 10. | At once |
 | **Gameplay** | Rally points, production queue, selection limit, extra game speeds, shift-queued orders. These change the game rules: they apply to single-player games you start, and in a multiplayer game the host chooses them in the lobby. | From the next game |
 | **Keys** | Every key you can rebind, in a scrolling list, with **Reset keys**. Desktop only (a phone has no keyboard to rebind). | At once |
@@ -239,6 +239,7 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 | `shift-queue` | `--extra-shift-queue` | on, off | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order (S) |
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 | `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) (C+L) |
+| `map-zoom` | `--extra-map-zoom VALUE` | off, wheel | off | `wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (a pinch does the same on touch devices) (C) |
 
 **C+L** marks an option that gives you an edge. It is meant to be set by the lobby for everyone in a game with other
 players; that is not built yet, so a network game uses each player's own setting. **S** marks an option that changes the simulation (rally points, the production queue, shift-queued orders,
@@ -278,7 +279,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 |---|---|
 | `--touch-emulation` | The mouse is one finger (Alt, Alt+Shift, Alt+Ctrl at the press add more), and the touch controls show beside the picture. See [Touch](#touch). |
 | `--touch-dpi <PPI>` | The screen's density in physical pixels per inch, for touch sizes (taps, slop, buttons). Default: 140 points to the inch. |
-| `--free-zoom` | The mouse wheel zooms the map view (1/4 to 8 map pixels per screen pixel). |
+| `--free-zoom` | Development aid: the mouse wheel zooms the map view anywhere (1/4 to 8 map pixels per screen pixel). The `map-zoom` option is the player's magnifying zoom. |
 | `--zoom <N>` | Starting zoom; implies `--free-zoom`. |
 | `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `single` (the single-player menu), `custom`, `settings` (the Settings screen), `multi` (the multiplayer menus), `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
 | `--demo-outcome <victory\|defeat>` | End the game at once, to see the dialog and score screen. |

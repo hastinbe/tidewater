@@ -246,6 +246,15 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[("rally-points", "on"), ("selection-limit", "12")],
             keys: "",
         },
+        // Magnifying zoom (`map-zoom`): the wheel over the map magnifies around the pointer up to 4 times and back, and
+        // does nothing over the interface.
+        Scene {
+            name: "extras-zoom",
+            start: vec![play(0)],
+            cmds: extras_zoom(),
+            extras: &[("map-zoom", "wheel")],
+            keys: "",
+        },
         // The multiplayer menus, up to the game list.
         Scene {
             name: "multi",
@@ -1091,6 +1100,27 @@ fn settings() -> Vec<Cmd> {
     v.extend([Wait(2), Shot("music-30")]);
     v.extend(click(523.0, 424.0));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
+}
+
+/// Magnifying zoom (`map-zoom`): wheel steps over the map view zoom in around the pointer (2 times, 4 times, and no
+/// further), the wheel over the minimap does nothing, and steps the other way come back to the original's view and stop
+/// there.
+fn extras_zoom() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(500.0, 250.0), Until(AppState::Game), Wait(30), Shot("normal")];
+    v.extend([Wheel(1.0), Wait(3), Shot("in-2x"), Wheel(1.0), Wait(3), Shot("in-4x")]);
+    v.extend([Wheel(1.0), Wait(3), Shot("in-4x-again")]);
+    v.extend([Move(90.0, 90.0), Wait(1), Wheel(1.0), Wait(3), Shot("over-the-minimap")]);
+    v.extend([Move(500.0, 250.0), Wait(1), Wheel(-1.0), Wait(3), Shot("out-2x")]);
+    v.extend([
+        Wheel(-1.0),
+        Wait(3),
+        Shot("out-1x"),
+        Wheel(-1.0),
+        Wait(3),
+        Shot("out-1x-again"),
+    ]);
     v
 }
 

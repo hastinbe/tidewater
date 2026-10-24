@@ -240,7 +240,8 @@ pub struct Art {
     pub shapes: fog::Shapes,
 }
 
-/// The map view's zoom in map pixels per screen pixel (`display`): 1, as the original, unless `--free-zoom`.
+/// The map view's zoom in map pixels per screen pixel (`display`): 1, as the original, unless `--free-zoom`, the
+/// `map-zoom` option's wheel or a touch pinch magnifies it.
 pub struct MapZoom {
     pub zoom: f32,
     pub free: bool,
@@ -1424,8 +1425,54 @@ pub(crate) fn pause_for_suspend(c: &mut Core) {
     }
 }
 
-/// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`).
+/// The magnifying zoom's range (option `map-zoom`): the original's view down to a quarter of it, in map pixels per
+/// screen pixel. Never above 1, so there is never more map in view than the original shows.
+const MAGNIFY: std::ops::RangeInclusive<f32> = (1.0 / crate::extras::MAP_ZOOM_MAX)..=1.0;
+
+/// The zoom a wheel step takes the magnifying zoom to from `zoom`: powers of two (whole blocks of screen pixels), in
+/// [`MAGNIFY`]. Positive steps (the wheel away from you) magnify.
+pub(crate) fn magnified(zoom: f32, steps: i32) -> f32 {
+    display::zoom_step(zoom, steps).clamp(*MAGNIFY.start(), *MAGNIFY.end())
+}
+
+/// Whether the screen pixel `at` is in the map view's place on the screen.
+fn over_view(view: &mapview::MapView, at: (f32, f32)) -> bool {
+    view.rect.is_some_and(|r| {
+        at.0 >= r.x as f32 && at.1 >= r.y as f32 && at.0 < (r.x + r.w as i32) as f32 && at.1 < (r.y + r.h as i32) as f32
+    })
+}
+
+/// Zooms the map view to `to` around the screen pixel `at`, which stays over the same map position (to within the tile
+/// grid, which `keep_on_map` then puts the view on). Returns whether `at` was over the view.
+fn zoom_around(view: &mut mapview::MapView, zoom: &mut MapZoom, to: f32, at: (f32, f32)) -> bool {
+    let (Some(r), Some(under)) = (view.rect, view.pointer_map(at)) else {
+        return false;
+    };
+    if !over_view(view, at) {
+        return false;
+    }
+    let (cx, cy) = (r.x as f32 + r.w as f32 / 2.0, r.y as f32 + r.h as f32 / 2.0);
+    view.centre = (under.0 - (at.0 - cx) * to, under.1 - (at.1 - cy) * to);
+    view.zoom = to;
+    zoom.zoom = to;
+    true
+}
+
+/// Puts the magnifying zoom back to the original's view, around the view's centre (the option `map-zoom` was turned
+/// off in the Settings screen).
+pub(crate) fn reset_magnifying(c: &mut Core) {
+    if let (Some(zoom), Some(view)) = (c.map_zoom.as_mut(), c.view.as_mut())
+        && !zoom.free
+    {
+        zoom.zoom = 1.0;
+        view.zoom = 1.0;
+    }
+}
+
+/// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`), and
+/// with the `map-zoom` option the wheel magnifies the view around the pointer ([`magnified`]).
 pub(crate) fn pan_and_zoom(c: &mut Core) {
+    let wheel_zoom = extras(c).map_zoom_wheel();
     let Core {
         input,
         map_size: Some(size),
@@ -1444,6 +1491,18 @@ pub(crate) fn pan_and_zoom(c: &mut Core) {
             zoom.zoom = display::zoom_step(zoom.zoom, steps);
             if input.window.is_some() {
                 view.zoom = zoom.zoom;
+            }
+        }
+    } else if wheel_zoom && input.scroll != 0.0 {
+        // Only over the map view: the wheel does nothing elsewhere, as without the option.
+        if let (Some(w), Some(p)) = (input.window, input.pointer) {
+            let at = w.letterbox().screen_of(p, w.factor);
+            if over_view(view, at) {
+                let steps = display::wheel_steps(&mut zoom.wheel, input.scroll, input.scroll_pixels);
+                let to = magnified(zoom.zoom, steps);
+                if steps != 0 && to != zoom.zoom {
+                    zoom_around(view, zoom, to, at);
+                }
             }
         }
     }
@@ -2659,6 +2718,78 @@ pub(crate) fn draw_hud(c: &mut Core) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_magnifying_zoom_goes_from_the_original_view_to_four_times_and_back_and_no_further() {
+        // Wheel steps away from you magnify, in powers of two.
+        assert_eq!(magnified(1.0, 1), 0.5);
+        assert_eq!(magnified(1.0, 2), 0.25);
+        assert_eq!(magnified(0.5, 1), 0.25);
+        // Four times is the most, and the original's view the least: never more map than the original shows.
+        assert_eq!(magnified(1.0, 5), 0.25);
+        assert_eq!(magnified(0.25, 1), 0.25);
+        assert_eq!(magnified(0.25, -1), 0.5);
+        assert_eq!(magnified(0.5, -1), 1.0);
+        assert_eq!(magnified(1.0, -1), 1.0);
+        assert_eq!(magnified(1.0, -9), 1.0);
+        // A zoom a pinch left in between goes to the nearest step first; one past the original's view goes to it.
+        assert_eq!(magnified(0.7, 0), 0.5);
+        assert_eq!(magnified(0.6, -1), 1.0);
+        assert_eq!(magnified(2.0, 0), 1.0);
+        assert_eq!(*MAGNIFY.start(), 1.0 / crate::extras::MAP_ZOOM_MAX);
+        assert_eq!(*MAGNIFY.end(), 1.0);
+    }
+
+    #[test]
+    fn a_wheel_zoom_keeps_the_map_under_the_pointer_and_only_acts_over_the_view() {
+        use crate::mapview::{MapView, ScreenRect};
+        let mut view = MapView::new((640.0, 640.0));
+        view.rect = Some(ScreenRect {
+            x: 176,
+            y: 16,
+            w: 448,
+            h: 448,
+        });
+        let mut zoom = MapZoom {
+            zoom: 1.0,
+            free: false,
+            wheel: 0.0,
+        };
+        // Before a frame has ended the view's drawn place is not known: nothing happens.
+        assert!(!zoom_around(&mut view, &mut zoom, 0.5, (500.0, 250.0)));
+        view.end_frame();
+        let at = (500.0, 250.0);
+        let under = view.pointer_map(at).unwrap();
+        assert!(zoom_around(&mut view, &mut zoom, 0.5, at));
+        assert_eq!((view.zoom, zoom.zoom), (0.5, 0.5));
+        view.end_frame();
+        let after = view.pointer_map(at).unwrap();
+        assert!(
+            (after.0 - under.0).abs() < 0.01 && (after.1 - under.1).abs() < 0.01,
+            "{under:?} {after:?}"
+        );
+        // And out again, around another point.
+        let at = (200.0, 40.0);
+        let under = view.pointer_map(at).unwrap();
+        assert!(zoom_around(&mut view, &mut zoom, 1.0, at));
+        view.end_frame();
+        let after = view.pointer_map(at).unwrap();
+        assert!((after.0 - under.0).abs() < 0.01 && (after.1 - under.1).abs() < 0.01);
+        assert_eq!(zoom.zoom, 1.0);
+        // The interface (the minimap, the resource bar, the edge of the view) is not the map view.
+        for p in [
+            (90.0, 90.0),
+            (400.0, 8.0),
+            (175.5, 240.0),
+            (624.0, 240.0),
+            (400.0, 464.0),
+        ] {
+            assert!(!over_view(&view, p), "{p:?}");
+            assert!(!zoom_around(&mut view, &mut zoom, 0.5, p));
+        }
+        assert!(over_view(&view, (176.0, 16.0)) && over_view(&view, (623.0, 463.0)));
+        assert_eq!(zoom.zoom, 1.0);
+    }
+
     use super::*;
 
     /// Entering placement sends Hold once; leaving it without a build sends Release; leaving it by placing sends
