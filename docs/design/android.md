@@ -17,7 +17,8 @@ The gestures are in [touch.md](touch.md), the import in [import.md](import.md) a
 | Import from the app's folder | Works (folder scan, game folders). CD images use the same code as iOS; not run on Android. |
 | Import with the system picker | Works for a folder (checked in the emulator). The file picker (CD image) is the same path; not run. |
 | GOG installer (`.exe`) | Not possible on Android (see [Limits](#limits)). |
-| Phone, signing, Play Store | Not tried; the debug APK uses Gradle's debug key. |
+| Release APK | Built by the release workflow (`build.sh --release`), signed with a release keystore from repository secrets; see [release.md](../release.md#android-apk). The debug APK uses Gradle's debug key. |
+| Phone, Play Store | Not tried. |
 
 ## How it is put together
 
@@ -110,5 +111,5 @@ whatever orientation it chooses, and the game returns to landscape afterwards.
   reader that works elsewhere.
 - **Storage.** Imported files are about 700 MB and the original stays; the picker needs the same again in cache.
 - **Network play** is untried on the phone.
-- **No app icon,** no release signing, no Play Store packaging.
+- **No app icon** and no Play Store packaging. The release APK is for sideloading and has no self-update.
 - **Sound** is untested in the emulator (it ran with `-no-audio`).

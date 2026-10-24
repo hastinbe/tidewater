@@ -4,6 +4,11 @@ plugins {
     id 'com.android.application'
 }
 
+// A release build (build.sh --release) passes the version as -PtidewaterVersionName / -PtidewaterVersionCode and the
+// signing key in environment variables; none of it is kept in the repository. Without a keystore the release APK is
+// signed with Gradle's debug key (fine to look at, but a different key on every machine, so never published).
+def keystoreFile = System.getenv('TIDEWATER_KEYSTORE_FILE')
+
 android {
     namespace = "dev.tidewater.client"
     compileSdk 35
@@ -12,13 +17,25 @@ android {
         applicationId "dev.tidewater.client"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode((findProperty('tidewaterVersionCode') ?: 1) as int)
+        versionName((findProperty('tidewaterVersionName') ?: "0.1.0") as String)
+    }
+
+    signingConfigs {
+        if (keystoreFile) {
+            release {
+                storeFile file(keystoreFile)
+                storePassword System.getenv('TIDEWATER_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('TIDEWATER_KEY_ALIAS')
+                keyPassword System.getenv('TIDEWATER_KEY_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig keystoreFile ? signingConfigs.release : signingConfigs.debug
         }
     }
 

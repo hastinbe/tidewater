@@ -1,5 +1,5 @@
 # Cuts a release when main moves: works out the next version from the conventional commits since the last v* tag
-# (.github/scripts/release.py), builds the downloads, then creates the tag and the GitHub release in this one workflow
+# (.github/scripts/release.py), builds the downloads (desktop, and the Android APK when its signing secrets are set), then creates the tag and the GitHub release in this one workflow
 # (a tag made with GITHUB_TOKEN would not start another one). How it works: docs/release.md. Tests run in ci.yml, not
 # here. Only the program is packaged: never any game data.
 name: Release
@@ -167,6 +167,85 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
+  # The Android APK (platform/android/build.sh --release). Signed with the release keystore from the repository secrets
+  # so every release updates the one before it in place (docs/release.md). Without the secrets a real release skips
+  # the APK with a note in the summary, and a dry run builds a debug-signed one to look at; neither fails the release.
+  android:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      TIDEWATER_VERSION: ${{ needs.plan.outputs.version }}
+      HAVE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+    steps:
+      - name: Decide whether to build
+        id: gate
+        env:
+          PUBLISH: ${{ needs.plan.outputs.publish }}
+        run: |
+          if [ "$HAVE_KEYSTORE" != true ] && [ "$PUBLISH" = true ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Android APK skipped"
+              echo
+              echo "The Android APK was skipped: the signing secrets (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) are not all set. The release goes out without it; see docs/release.md to set them."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$HAVE_KEYSTORE" != true ]; then
+            echo "No signing secrets: this dry run builds a debug-signed APK to look at; it is never published." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.skip != 'true'
+      - uses: actions/setup-java@v5
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install the pinned toolchain and the Android targets
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-linux-android x86_64-linux-android
+      - uses: taiki-e/install-action@v2
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          tool: cargo-ndk@4.1.2
+      - uses: Swatinem/rust-cache@v2
+        if: steps.gate.outputs.skip != 'true'
+      - name: Write the keystore
+        if: steps.gate.outputs.skip != 'true' && env.HAVE_KEYSTORE == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          # Outside the checkout, and removed with the runner; only its path goes to later steps.
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          echo "TIDEWATER_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      - name: Build the APK
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          TIDEWATER_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          TIDEWATER_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          TIDEWATER_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          platform/android/build.sh --release --version "$TIDEWATER_VERSION" \
+            --out "dist/tidewater-${TIDEWATER_VERSION}-android.apk"
+      - name: Check the signature
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          "$apksigner" verify --verbose --print-certs "dist/tidewater-${TIDEWATER_VERSION}-android.apk" | tee apksigner.txt
+          {
+            echo "## Android APK"
+            echo
+            echo "- Signing key: $([ "$HAVE_KEYSTORE" = true ] && echo 'release keystore' || echo 'debug key (dry run only)')"
+            grep -E 'certificate SHA-256 digest' apksigner.txt | head -n 1 | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: error
+
   # Installs the built setup program silently, checks the installed program starts and reports the build's version,
   # then uninstalls. Runs on dry runs too.
   windows-smoke:
@@ -201,7 +280,7 @@ jobs:
           echo "installed, ran and uninstalled"
 
   publish:
-    needs: [plan, linux, macos, windows, windows-smoke]
+    needs: [plan, linux, macos, windows, windows-smoke, android]
     if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     permissions:

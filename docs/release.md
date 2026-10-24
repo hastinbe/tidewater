@@ -38,7 +38,7 @@ version in `Cargo.toml` is not used.
 **What the workflow does, in order:**
 
 1. `plan`: runs the script's tests, computes the version and the notes.
-2. `linux`, `macos`, `windows`: build the downloads in parallel.
+2. `linux`, `macos`, `windows`, `android`: build the downloads in parallel.
 3. `windows-smoke`: installs the setup program silently on a clean Windows runner, runs `tidewater --version`, uninstalls.
 4. `publish` (only when a release is due, never on a dry run): writes `SHA256SUMS`, then `gh release create` makes the tag
    `vX.Y.Z` on the built commit and the release, with every file and notes grouped by type (breaking changes, features,
@@ -58,7 +58,8 @@ publishes from `main`.
 | `tidewater-X.Y.Z-windows-x64-setup.exe` | Inno Setup, `packaging/windows/tidewater.iss`. Per-user install (no administrator), Start menu entry, optional desktop shortcut, uninstaller. The uninstaller removes only the program; imported game files, saves and settings live in the user's data folders and stay. |
 | `tidewater-X.Y.Z-macos.dmg` | `packaging/macos/build-dmg.sh`: `Tidewater.app` (ad-hoc signed), an Applications link and a "Read me first" note. The binary joins the arm64 and x86_64 builds with `lipo`. |
 | `tidewater-X.Y.Z-linux-x64.tar.gz` | `packaging/linux/build-tarball.sh`: the program, `tidewater.desktop`, `README.txt`, the licence files. No AppImage yet. |
-| `SHA256SUMS` | `sha256sum` of the three files above. |
+| `tidewater-X.Y.Z-android.apk` | `platform/android/build.sh --release`: one APK with arm64-v8a and x86_64 libraries, signed with the release keystore (see [Android APK](#android-apk)). Left out, with a note in the run summary, while the signing secrets are not set. |
+| `SHA256SUMS` | `sha256sum` of every file above (`publish` sums `tidewater-*`, which covers the APK). |
 
 The asset names are what the update check looks for (`update.rs`), so keep them. Only the program is packaged, never game
 data.
@@ -76,6 +77,52 @@ what to do.
 | **macOS** | Gatekeeper refuses the first launch. The ad-hoc signature only lets Apple-silicon Macs run the code. | Right-click, Open, Open. On newer macOS: System Settings, Privacy & Security, Open Anyway. Or `xattr -dr com.apple.quarantine Tidewater.app`. |
 | **Windows** | SmartScreen says "Windows protected your PC" for the setup program. | More info, Run anyway. |
 | **Linux** | None. | `chmod +x` if the file manager dropped the executable bit. |
+| **Android** | The system asks to allow installs from the app that opened the APK (the browser or file manager). | Allow it for that app, then install. Not on Google Play. |
+
+## Android APK
+
+The `android` job builds the APK with the runner's NDK, `cargo-ndk` and JDK 21, then checks the signature with `apksigner`
+and prints the certificate's SHA-256 in the run summary (it must be the same on every release).
+
+**versionName and versionCode.** `versionName` is the release version. `versionCode` is `major * 10000 + minor * 100 +
+patch` (1.2.3 gives 10203), so it rises with every release; Android refuses to install a lower one over a higher one. Keep
+minor and patch under 100 (`build.sh` refuses a version that breaks that). A `0.0.0-dryrun` build gets 1.
+
+**Signing.** A sideloaded app updates in place only if every release has the same signing key, so the key is one keystore
+kept in repository secrets, never in the repository. `app/build.gradle` reads it from environment variables
+(`TIDEWATER_KEYSTORE_FILE`, `TIDEWATER_KEYSTORE_PASSWORD`, `TIDEWATER_KEY_ALIAS`, `TIDEWATER_KEY_PASSWORD`) that the job
+fills from the secrets.
+
+| Run | Secrets set | Secrets missing |
+|---|---|---|
+| Release (push to `main`) | Signed APK is published. | The APK is skipped and the run summary says so. The release still goes out. |
+| Dry run | Signed APK as a workflow artifact. | Debug-signed APK as a workflow artifact, to look at. |
+
+A dry run never publishes anything.
+
+### One-time setup
+
+1. **Make the keystore** (once, on your own machine; the validity is about 27 years):
+
+   ```sh
+   keytool -genkeypair -v -keystore tidewater-release.keystore -alias tidewater \
+     -keyalg RSA -keysize 4096 -validity 10000
+   ```
+
+2. **Back it up now,** with its passwords, somewhere other than your laptop (a password manager's file storage). **If the keystore is lost, nobody can update in place:** every player must uninstall the app (losing its imported game files and settings) and install the new one. Do not commit it.
+3. **Set the four secrets** (the key password is the keystore password if `keytool` was not given a separate one):
+
+   ```sh
+   base64 < tidewater-release.keystore | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64
+   gh secret set ANDROID_KEYSTORE_PASSWORD --body '<keystore password>'
+   gh secret set ANDROID_KEY_ALIAS --body 'tidewater'
+   gh secret set ANDROID_KEY_PASSWORD --body '<key password>'
+   ```
+
+4. Run the Release workflow as a dry run and read the run summary: it should say "release keystore" and show the certificate fingerprint. Note the fingerprint; later releases must show the same one.
+
+To build a signed APK locally, export the four `TIDEWATER_*` variables and run `platform/android/build.sh --release
+--version X.Y.Z --out tidewater.apk`. Without `TIDEWATER_KEYSTORE_FILE` it signs with Gradle's debug key and says so.
 
 ## Self-update
 
@@ -89,6 +136,7 @@ size must match the release's listed size; there is no other signature check.
 | Windows | Downloads the setup program and runs it silently (`/SILENT`); it starts the game again. |
 | macOS | Downloads the disk image, copies `Tidewater.app` beside the running one, swaps them, relaunches. Files fetched this way carry no quarantine mark, so the new copy opens without the Gatekeeper prompt. |
 | Linux | Opens the release page. |
+| Android | No self-update: `update.rs` has no code for Android (the check and the download are compiled out). Players download the newer APK and install it over the old one; it keeps their data because the signature matches. |
 
 **macOS: App Translocation.** An app run from the disk image, or from Downloads while still quarantined, runs from a
 read-only or randomised path (`/Volumes/...`, `.../AppTranslocation/...`) and can't replace itself. The main menu then says

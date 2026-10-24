@@ -19,6 +19,7 @@ Download the file for your system from the [latest release](../../releases/lates
 | **Windows** (x64) | `tidewater-<version>-windows-x64-setup.exe` | Run it. It installs for your user only, so it needs no administrator, and adds a Start menu entry (and, if you tick it, a desktop shortcut) and an uninstaller. Uninstalling removes the program only: your imported game files and your saved games and settings (see [Where your files go](#import-your-game-files)) stay, so a reinstall picks up where you left off; delete those folders by hand if you want them gone. Windows may say "Windows protected your PC" because the installer is not signed: choose **More info**, then **Run anyway**. |
 | **macOS** (Apple silicon and Intel) | `tidewater-<version>-macos.dmg` | Open it and **drag Tidewater to Applications**, then eject the disk image. The app is not signed, so the first time **right-click it, choose Open and confirm**. If macOS offers no Open button, open System Settings, Privacy & Security and click **Open Anyway**. After that it opens normally. |
 | **Linux** (x64) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. The archive has a `tidewater.desktop` menu entry to adapt and a `README.txt`. |
+| **Android** (7.0 or newer, early) | `tidewater-<version>-android.apk` | Download it on the device and open it; Android asks to allow installs from that browser or file manager, so allow it for that app. It is not on Google Play and does not update itself: to update, download the newer APK and install it over the old one (your game files and settings stay). Then [get your game files onto it](#android-early). A release may lack the APK until its signing key is set up. |
 
 ## Import your game files
 
@@ -159,7 +160,7 @@ adb install -r platform/android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n dev.tidewater.client/.TidewaterActivity
 ```
 
-`--abi arm64-v8a` builds one ABI; `--libs-only` stops before Gradle. The APK is signed with Gradle's debug key.
+`--abi arm64-v8a` builds one ABI; `--libs-only` stops before Gradle. This debug APK is signed with Gradle's debug key. The releases' APK is signed with a release key (see [docs/release.md](docs/release.md#android-apk)); `platform/android/build.sh --release --version X.Y.Z` builds that kind.
 
 **Get the game files onto it.** Either copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD image (`.iso`, `.bin`/`.cue`, `.mdf`, `.nrg`) into the app's folder with a computer, for example `adb push Warcraft2 /sdcard/Android/data/dev.tidewater.client/files/` (open the app once first so the folder exists), then tap Scan again on the first-run screen; or tap "Choose game folder..." or "Choose CD image..." to pick from the phone's storage, which Tidewater copies into its cache first. **A GOG installer (`.exe`) does not work on Android**, because unpacking it needs `innoextract`: unpack it on a computer, or install the game and copy the folder.
 
