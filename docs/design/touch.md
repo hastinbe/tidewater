@@ -86,14 +86,25 @@ beside the picture (in the safe area). The left bar holds the tools, the right b
 |---|---|---|
 | Menu | Three lines | F10: the game menu. |
 | Pause | Two bars; a play triangle while the game is paused | Pauses or resumes, as the pause key does. |
-| Shift, Ctrl, Alt | ⇧, ⌃, ⌥ | A one-shot latch: the key is held for the next click, then let go a frame after that click's release (the rules that read Alt when the button comes up need it held through the release). |
+| Shift, Ctrl, Alt | ⇧, ⌃, ⌥ | A one-shot latch: the key is held for the next click, then let go a frame after that click's release (the rules that read Alt when the button comes up need it held through the release). A second tap within 450 ms of the one that turned it on **locks** it: the key stays held through any number of clicks until one more tap lets it go. A tap after 450 ms, or after a click, turns a one-shot latch off as before. |
 | Plain left click | A pointer with a click mark | The next tap on the map is a left click, whatever the smart tap would make of it. |
 | Keyboard | A keyboard | Opens or closes the system's soft keyboard (`SDL_StartTextInput`). When the system hides it by itself (its own hide key, Android's Back), SDL's `SDL_EVENT_SCREEN_KEYBOARD_HIDDEN` turns the button off again (checked against `SDL_ScreenKeyboardShown`, so a hide followed at once by a show changes nothing), and the shell closes its text input to match. |
 | Groups | The digits 1 to 9 | A tap is the digit: recalls the group, and two taps centre on it, as the keys do. Held 450 ms it is Ctrl and the digit: the selection becomes that group (once, not again at the lift). |
 | Idle worker | A pickaxe with a "z" | F6: the next idle worker. Only with the option `idle-worker` on; it sends F6 whatever key that option is bound to. |
 
-A button that is on (a latch waiting for its click, the keyboard open, a button under a finger) is lit yellow with a
-dark icon; otherwise it is dark with a white icon.
+How a button looks says what it will do (`chrome::Look`):
+
+| Look | Means |
+|---|---|
+| Dark, white icon | Off. |
+| Dark, yellow outline and icon | Waiting for one click: a one-shot latch, or the plain click. |
+| Filled yellow, dark icon | On: the keyboard open, a button under a finger. |
+| Filled yellow, dark icon and a lock in the corner | A locked latch: held until tapped again. |
+
+**Picking units one by one.** The lock is for hand-picking units from a mixed group: double-tap Shift, then tap
+units to add them to the selection or take them out of it, and tap Shift once when done. It is only Shift held, as
+on a keyboard, so no rule changes. Losing the keyboard (the app going to the background) lets every latch go, locked
+or not, since the game lets go of every key then.
 
 **The icons** are our own SVGs, white strokes on a 24 x 24 grid with round caps and joins (2 units wide, the digits
 2.6), in `crates/client/assets/touch-icons/`; edit them there. No third-party icon set is used. The chrome

@@ -5,7 +5,7 @@
 //! |---|---|---|
 //! | Left | Menu | F10, the game menu |
 //! | Left | Pause | Pauses or resumes the game, as the pause key does |
-//! | Left | Shift, Ctrl, Alt | A latch: the key is held for the next click, then let go (one frame after that click's release, as the rules that read Alt when the button comes up need) |
+//! | Left | Shift, Ctrl, Alt | A latch: the key is held for the next click, then let go (one frame after that click's release, as the rules that read Alt when the button comes up need); a double tap locks it until the next tap ([`Latch`]) |
 //! | Left | Plain click | A latch: the next tap on the map is a plain left click, never a smart order |
 //! | Left | Keyboard | Opens or closes the system's soft keyboard (the shell calls `SDL_StartTextInput`) |
 //! | Right | 1 to 9 | A control group: a tap is the digit key (twice quickly centres the view, as the key does), a hold of [`HOLD_MS`] is Ctrl and the digit (assign) |
@@ -43,6 +43,8 @@ const MIN_GROUPS: u8 = 6;
 const MAX_GROUPS: u8 = 9;
 /// How much of a button's side its icon takes.
 const ICON_SHARE: f32 = 0.64;
+/// How much of a locked latch's side its lock mark takes.
+const LOCK_SHARE: f32 = 0.3;
 
 /// One control.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -66,6 +68,37 @@ impl Control {
         matches!(self, Control::Group(_))
     }
 }
+
+/// A modifier latch's state (Shift, Ctrl, Alt).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Latch {
+    #[default]
+    Off,
+    /// Held for the next click, then let go.
+    Once,
+    /// Held until the button is tapped again (a double tap locks it).
+    Locked,
+}
+
+impl Latch {
+    /// Whether the key is held.
+    pub fn held(self) -> bool {
+        self != Latch::Off
+    }
+
+    /// The latch after a tap on its button; `quick` is a tap within [`LOCK_MS`] of the one that turned it on, which
+    /// locks it.
+    pub fn tapped(self, quick: bool) -> Latch {
+        match self {
+            Latch::Off => Latch::Once,
+            Latch::Once if quick => Latch::Locked,
+            Latch::Once | Latch::Locked => Latch::Off,
+        }
+    }
+}
+
+/// A second tap on a latch this soon after the first locks it (the same window as a double tap on the map).
+pub const LOCK_MS: f32 = 450.0;
 
 /// A rectangle in logical points.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,6 +126,18 @@ pub enum Fed {
     Pressed(Control),
 }
 
+/// How a control is drawn ([`Chrome::look`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    Off,
+    /// For the next click only: a yellow outline and icon on the dark button.
+    Once,
+    /// On: filled yellow with a dark icon.
+    On,
+    /// A locked latch: filled, with a lock mark in the corner.
+    Locked,
+}
+
 /// The window's shape and the options for [`Chrome::layout`], in logical points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Frame {
@@ -118,9 +163,9 @@ pub struct Chrome {
     /// Where each control is now.
     items: Vec<(Control, Rect)>,
     /// The latched modifiers.
-    pub shift: bool,
-    pub ctrl: bool,
-    pub alt: bool,
+    pub shift: Latch,
+    pub ctrl: Latch,
+    pub alt: Latch,
     /// The next tap is a plain left click.
     pub plain: bool,
     /// The soft keyboard is open.
@@ -252,14 +297,34 @@ impl Chrome {
     /// Whether a control is on now (a latch, or a button a finger holds).
     pub fn is_on(&self, c: Control) -> bool {
         match c {
-            Control::Shift => self.shift,
-            Control::Ctrl => self.ctrl,
-            Control::Alt => self.alt,
+            Control::Shift | Control::Ctrl | Control::Alt => self.latch(c).is_some_and(Latch::held),
             Control::Plain => self.plain,
             Control::Keyboard => self.keyboard,
             Control::Menu | Control::Pause | Control::Group(_) | Control::IdleWorker => {
                 self.owned.iter().any(|&(_, o, _, _)| o == c)
             }
+        }
+    }
+
+    /// A modifier control's latch.
+    pub fn latch(&self, c: Control) -> Option<Latch> {
+        match c {
+            Control::Shift => Some(self.shift),
+            Control::Ctrl => Some(self.ctrl),
+            Control::Alt => Some(self.alt),
+            _ => None,
+        }
+    }
+
+    /// How a control is drawn: off, waiting for one click (a latch's or the plain click's: outlined), or on (filled;
+    /// a locked latch also gets a lock mark).
+    pub fn look(&self, c: Control) -> Look {
+        match (c, self.latch(c)) {
+            (_, Some(Latch::Locked)) => Look::Locked,
+            (_, Some(Latch::Once)) => Look::Once,
+            (Control::Plain, _) if self.plain => Look::Once,
+            _ if self.is_on(c) => Look::On,
+            _ => Look::Off,
         }
     }
 
@@ -319,27 +384,37 @@ impl Chrome {
             size,
             rgba: vec![0; size.0 as usize * size.1 as usize * 4],
         };
+        let line = (factor.round() as i32).max(1);
         for &(c, r) in &self.items {
-            let on = self.is_on(c);
+            let look = self.look(c);
             let (x0, y0) = ((r.x * factor).round() as i32, (r.y * factor).round() as i32);
             let (w, h) = ((r.w * factor).round() as i32, (r.h * factor).round() as i32);
-            let (fill, ink) = if on {
-                ([212, 168, 52, 235], [24, 16, 4, 255])
-            } else {
-                ([24, 28, 40, 170], [225, 225, 225, 255])
+            // (fill, border, border width, ink)
+            let (fill, edge, t, ink) = match look {
+                Look::Off => ([24, 28, 40, 170], [150, 150, 160, 220], line, [225, 225, 225, 255]),
+                Look::Once => ([40, 32, 10, 215], [255, 206, 72, 255], 2 * line, [255, 214, 90, 255]),
+                Look::On | Look::Locked => ([212, 168, 52, 235], [255, 224, 120, 255], line, [24, 16, 4, 255]),
             };
             o.fill(x0, y0, w, h, fill);
-            o.border(
-                x0,
-                y0,
-                w,
-                h,
-                (factor.round() as i32).max(1),
-                if on { [255, 224, 120, 255] } else { [150, 150, 160, 220] },
-            );
+            o.border(x0, y0, w, h, t, edge);
             // The icon takes most of the button, clear of the border.
             let side = (w.min(h) as f32 * ICON_SHARE).round() as i32;
-            o.icon(icon_svg(c, self.paused), x0 + w / 2, y0 + h / 2, side, ink);
+            if look == Look::Locked {
+                // The icon moves down and left a little to make room for the lock in the top right corner.
+                let mark = (w.min(h) as f32 * LOCK_SHARE).round() as i32;
+                let side = (w.min(h) as f32 * (ICON_SHARE - 0.06)).round() as i32;
+                o.icon(
+                    icon_svg(c, self.paused),
+                    x0 + w / 2 - mark / 5,
+                    y0 + h / 2 + mark / 5,
+                    side,
+                    ink,
+                );
+                let inset = 2 * t + mark / 2;
+                o.icon(icons::LOCK, x0 + w - inset, y0 + inset, mark, ink);
+            } else {
+                o.icon(icon_svg(c, self.paused), x0 + w / 2, y0 + h / 2, side, ink);
+            }
         }
         o
     }
@@ -368,6 +443,7 @@ mod icons {
     pub const PLAIN: &str = icon!("plain");
     pub const KEYBOARD: &str = icon!("keyboard");
     pub const IDLE: &str = icon!("idle");
+    pub const LOCK: &str = icon!("lock");
     pub const DIGITS: [&str; 9] = [
         icon!("digit-1"),
         icon!("digit-2"),
@@ -770,6 +846,7 @@ mod tests {
         all.extend((1..=9).map(Control::Group));
         let mut masks: Vec<Vec<u8>> = all.iter().map(|&c| icon_mask(icon_svg(c, false), 40)).collect();
         masks.push(icon_mask(icon_svg(Control::Pause, true), 40));
+        masks.push(icon_mask(icons::LOCK, 40));
         for (i, a) in masks.iter().enumerate() {
             let inked = a.iter().filter(|&&v| v > 128).count();
             // Something of each is drawn, and it is an icon, not a filled square.
@@ -808,12 +885,36 @@ mod tests {
         let r = rect_of(&c, Control::Ctrl);
         let (px, py) = (((r.x + 3.0) * 2.0) as usize, ((r.y + 3.0) * 2.0) as usize);
         let before = off.rgba[(py * 2000 + px) * 4..][..4].to_vec();
-        c.ctrl = true;
+        c.ctrl = Latch::Once;
         let on = c.overlay((2000, 1200), 2.0);
         assert_ne!(
             before,
             on.rgba[(py * 2000 + px) * 4..][..4].to_vec(),
             "a latched control looks different"
         );
+        c.ctrl = Latch::Locked;
+        let locked = c.overlay((2000, 1200), 2.0);
+        assert_ne!(on, locked, "a locked latch looks different again");
+    }
+
+    #[test]
+    fn a_double_tap_locks_a_latch_and_one_tap_unlocks_it() {
+        assert_eq!(Latch::Off.tapped(true), Latch::Once);
+        assert_eq!(Latch::Once.tapped(false), Latch::Off, "a slow second tap lets go");
+        assert_eq!(Latch::Once.tapped(true), Latch::Locked);
+        assert_eq!(Latch::Locked.tapped(true), Latch::Off);
+        assert_eq!(Latch::Locked.tapped(false), Latch::Off);
+        assert!(Latch::Once.held() && Latch::Locked.held() && !Latch::Off.held());
+        let mut c = Chrome::default();
+        assert_eq!(c.look(Control::Shift), Look::Off);
+        c.shift = Latch::Once;
+        assert_eq!(c.look(Control::Shift), Look::Once);
+        c.shift = Latch::Locked;
+        assert_eq!(c.look(Control::Shift), Look::Locked);
+        c.plain = true;
+        c.keyboard = true;
+        assert_eq!(c.look(Control::Plain), Look::Once);
+        assert_eq!(c.look(Control::Keyboard), Look::On);
+        assert_eq!(c.look(Control::Menu), Look::Off);
     }
 }
