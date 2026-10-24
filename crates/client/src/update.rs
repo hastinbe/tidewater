@@ -9,7 +9,8 @@
 //! "Update now" per platform: Windows downloads the Inno Setup installer and starts it silently; macOS downloads the
 //! disk image and swaps the running `.app` bundle; Linux has no download to install (the release is a tar.gz
 //! to unpack by hand), so it opens the release page. The page opens in the browser wherever the above doesn't apply too
-//! (a bundle in a read-only place, a build run from a source tree). A download's size is checked against the size the release lists; there is no other signing.
+//! (a bundle in a read-only place, a build run from a source tree). On the phones (the Android APK is sideloaded, so no
+//! store updates it) the check runs the same way and "Update now" hands the release page to the shell to open. A download's size is checked against the size the release lists; there is no other signing.
 //!
 //! **Testing without a release.** `TIDEWATER_UPDATE_FEED` replaces GitHub's `releases/latest` answer with a feed of the
 //! same shape: an `http(s)://` address or a path to a JSON file. With it set, the download and release-page address
@@ -193,7 +194,9 @@ enum State {
     /// The app can't update itself where it is (see [`needs_move`]); nothing else is going on. macOS only.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     MoveHint,
-    /// The update is installed (or its installer started): the program should end.
+    /// The update is installed (or its installer started): the program should end. Desktop only: a phone only opens the
+    /// release page.
+    #[cfg_attr(any(target_os = "ios", target_os = "android"), allow(dead_code))]
     Finished,
 }
 
@@ -212,12 +215,11 @@ impl Updater {
         f(&mut self.0.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
-    /// Starts the check in the background if [`enabled`] says so (and the system has the desktop's network code).
+    /// Starts the check in the background if [`enabled`] says so.
     pub fn start_check(&self, no_flag: bool, setting: bool, scripted: bool) {
         if !enabled(build_version(), no_flag, setting, scripted) {
             return;
         }
-        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             let this = self.clone();
             let current = build_version().unwrap_or_default().to_string();
@@ -233,8 +235,6 @@ impl Updater {
                 debug(&format!("no thread for the check: {e}"));
             }
         }
-        #[cfg(any(target_os = "ios", target_os = "android"))]
-        let _ = self;
     }
 
     /// macOS: if the app runs from a place it can't update itself in (the disk image, App Translocation, a read-only
@@ -277,17 +277,17 @@ impl Updater {
     }
 
     /// "Update now": installs in the background, or opens the release page where the system can't install by itself
-    /// (or when the install fails).
-    pub fn install(&self) {
-        let Some(release) = self.with(|s| match std::mem::replace(s, State::Busy) {
+    /// (or when the install fails). On the phones it returns the release page for the shell to open (`SDL_OpenURL`), as
+    /// the program can't start a browser there itself.
+    #[must_use]
+    pub fn install(&self) -> Option<String> {
+        let release = self.with(|s| match std::mem::replace(s, State::Busy) {
             State::Offer(r) => Some(r),
             other => {
                 *s = other;
                 None
             }
-        }) else {
-            return;
-        };
+        })?;
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             let this = self.clone();
@@ -310,21 +310,25 @@ impl Updater {
                 net::open_page(&page);
                 self.with(|s| *s = State::Idle);
             }
+            None
         }
         #[cfg(any(target_os = "ios", target_os = "android"))]
-        self.with(|s| *s = State::Idle);
+        {
+            self.with(|s| *s = State::Idle);
+            net::allowed(&release.page).then_some(release.page)
+        }
     }
 }
 
 /// Debug-level logging: shown only with `TIDEWATER_DEBUG` set, as the check must stay quiet.
-#[allow(dead_code, reason = "unused on the phones, which never check")]
 fn debug(msg: &str) {
     if std::env::var_os("TIDEWATER_DEBUG").is_some() {
         eprintln!("tidewater: update: {msg}");
     }
 }
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+// The phones use only the check and the page address; the downloads and installs are the desktop's.
+#[cfg_attr(any(target_os = "ios", target_os = "android"), allow(dead_code))]
 mod net {
     use std::io::{Read, Write};
     use std::path::{Path, PathBuf};
@@ -350,7 +354,7 @@ mod net {
     }
 
     /// Whether `url` may be downloaded or opened: on the release's repository, or anything while a test feed is set.
-    fn allowed(url: &str) -> bool {
+    pub(super) fn allowed(url: &str) -> bool {
         feed().is_some() || repo().is_some_and(|r| url.starts_with(&page_prefix(r)))
     }
 

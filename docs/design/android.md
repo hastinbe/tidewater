@@ -111,5 +111,5 @@ whatever orientation it chooses, and the game returns to landscape afterwards.
   reader that works elsewhere.
 - **Storage.** Imported files are about 700 MB and the original stays; the picker needs the same again in cache.
 - **Network play** is untried on the phone.
-- **No app icon** and no Play Store packaging. The release APK is for sideloading and has no self-update.
+- **No app icon** and no Play Store packaging. The release APK is for sideloading; when a newer release exists the main menu offers it, and **Update now** opens the release page to download the new APK (`update.rs`). The manifest asks only for `INTERNET`, for network games and that check.
 - **Sound** is untested in the emulator (it ran with `-no-audio`).

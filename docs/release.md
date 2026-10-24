@@ -136,7 +136,7 @@ size must match the release's listed size; there is no other signature check.
 | Windows | Downloads the setup program and runs it silently (`/SILENT`); it starts the game again. |
 | macOS | Downloads the disk image, copies `Tidewater.app` beside the running one, swaps them, relaunches. Files fetched this way carry no quarantine mark, so the new copy opens without the Gatekeeper prompt. |
 | Linux | Opens the release page. |
-| Android | No self-update: `update.rs` has no code for Android (the check and the download are compiled out). Players download the newer APK and install it over the old one; it keeps their data because the signature matches. |
+| Android | Opens the release page (the shell's `SDL_OpenURL`); players download the newer APK and install it over the old one, which keeps their data because the signature matches. The check runs as on the desktop. |
 
 **macOS: App Translocation.** An app run from the disk image, or from Downloads while still quarantined, runs from a
 read-only or randomised path (`/Volumes/...`, `.../AppTranslocation/...`) and can't replace itself. The main menu then says

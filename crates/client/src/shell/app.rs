@@ -121,10 +121,8 @@ fn run(l: host::Launch) -> Result<()> {
         ..
     } = l;
     let scripted = core.script.is_some();
-    // The phones' stores update their apps; the desktop looks for a newer release in the background (`update`).
-    if !MOBILE {
-        core.start_update_check();
-    }
+    // A newer release is looked for in the background (`update`); on a phone "Update now" opens the release page.
+    core.start_update_check();
     let sdl = sdl::Sdl::init(!scripted, DEVICE_FRAMES)?;
     let emulating = core.opts.touch_emulation;
     // A phone's screen is the main input: the fingers are read from the start, and the chrome shows.

@@ -1822,6 +1822,7 @@ fn run_menu(c: &mut Core) {
         jukebox: music,
         updater,
         stored,
+        open_requests,
         ..
     } = c
     else {
@@ -1886,7 +1887,8 @@ fn run_menu(c: &mut Core) {
         // Not in the original: Tidewater's Settings screen opens like the Custom Scenario screen, a fade out and in with
         // the music playing on.
         Some(SETTINGS_ITEM) => menu.closing = Some((cf::SoundThenBlack::new(fades::MENUS), MenuPick::Settings)),
-        Some(6) => updater.install(),
+        // A phone can't start a browser itself: the shell opens the release page (`update`).
+        Some(6) => open_requests.extend(updater.install()),
         Some(_) => updater.dismiss(),
         None => {}
     }
@@ -2355,7 +2357,7 @@ pub(crate) fn enter_settings(c: &mut Core) {
     screens.menu_picture = Some((dup(&bg), palette.clone()));
     let env = settings::Env {
         touch: touch.touch_only,
-        updates: !touch.touch_only && crate::update::build_version().is_some(),
+        updates: crate::update::build_version().is_some(),
         data: game_files_line(opts),
         in_game: false,
     };

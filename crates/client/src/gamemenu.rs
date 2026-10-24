@@ -1394,7 +1394,7 @@ pub(crate) fn run_settings(c: &mut Core) {
         let (_, palette) = frontend::menu_art(&mut front.install);
         let env = settings::Env {
             touch: touch_only,
-            updates: !touch_only && crate::update::build_version().is_some(),
+            updates: crate::update::build_version().is_some(),
             data,
             in_game: true,
         };

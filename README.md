@@ -54,13 +54,14 @@ Start Tidewater from the Start menu, Applications or `tidewater` on the command 
 
 ## Update
 
-On the desktop, Tidewater looks for a newer release in the background when it starts (one request to GitHub, nothing sent about you). If there is one, the main menu shows **Update now** and **Later**.
+Tidewater looks for a newer release in the background when it starts (one request to GitHub, nothing sent about you). If there is one, the main menu shows **Update now** and **Later**.
 
 | System | Update now |
 |---|---|
 | **Windows** | Downloads the installer, runs it silently and restarts the game. |
 | **macOS** | Replaces the app and restarts it. This needs the app in a folder you can write to, such as Applications: run from the disk image or straight from Downloads, the main menu says "Move Tidewater to Applications to enable updates." once, and Update now opens the release page. |
 | **Linux** | Opens the release page; download the new archive and unpack it over the old one. |
+| **Android, iOS** | Opens the release page; download the new APK and install it over the old one (your game files and saves stay). |
 
 Downloads are checked against the size the release lists; they are not signed. A failed check is ignored without a message, and development builds never check. Turn the check off with `update_check=0` in `settings.txt` or `--no-update-check` for one run. The main menu's version line and `tidewater --version` show the release you have. Branches, versioning and cutting a release: [docs/release.md](docs/release.md).
 

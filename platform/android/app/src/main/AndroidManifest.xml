@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- No permissions: the game files come from the app's own external files folder (reachable with adb or a computer)
-     or from the system's file picker, which grants access to the chosen item only. -->
+<!-- Only INTERNET (network games and the check for a newer release; granted at install, no prompt). The game files
+     come from the app's own external files folder (reachable with adb or a computer) or from the system's file picker,
+     which grants access to the chosen item only. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     android:installLocation="auto">
+
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />

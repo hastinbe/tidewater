@@ -168,9 +168,9 @@ pub struct Core {
     pub touch: crate::touch::TouchState,
     /// The start-up check for a newer release, and the install (`update`).
     pub updater: crate::update::Updater,
-    /// Addresses the core wants the system to open (the Settings screen's "Open settings folder"); the shell opens each
-    /// and clears the list ([`Core::take_open_requests`]).
-    open_requests: Vec<String>,
+    /// Addresses the core wants the system to open (the Settings screen's "Open settings folder", a phone's "Update
+    /// now"); the shell opens each and clears the list ([`Core::take_open_requests`]).
+    pub(crate) open_requests: Vec<String>,
 }
 
 impl Core {
@@ -283,7 +283,7 @@ impl Core {
     }
 
     /// Starts the background check for a newer release, unless `--no-update-check`, the `update_check` setting, a
-    /// development build or a scripted run says not to (`update`). The desktop shell calls it once, at start-up.
+    /// development build or a scripted run says not to (`update`). The shell calls it once, at start-up.
     pub fn start_update_check(&self) {
         self.updater.start_check(
             self.opts.no_update_check,

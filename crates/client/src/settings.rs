@@ -191,7 +191,7 @@ pub(crate) fn shown(item: Item, env: &Env) -> bool {
     match item {
         Item::Extra(_) | Item::IntroVideo => true,
         Item::Window | Item::MouseLock => !env.touch,
-        Item::UpdateCheck => !env.touch && env.updates,
+        Item::UpdateCheck => env.updates,
     }
 }
 
