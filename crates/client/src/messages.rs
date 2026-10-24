@@ -118,6 +118,13 @@ pub fn event_notice(e: &Event, human: u8) -> Option<Text> {
     }
 }
 
+/// [`event_notice`] on this machine. An observer is no player: it gets none of the watched player's own notices, and a
+/// game's end is told as it is to anyone else ("has been defeated", "The game has ended"), never as its own victory or
+/// defeat (its world's victory check is made for the player it watches from, who may have left).
+pub fn local_event_notice(e: &Event, human: u8, observing: bool) -> Option<Text> {
+    event_notice(e, if observing { u8::MAX } else { human })
+}
+
 /// A table entry with the player's name filled in: `%s` takes the name, and the text is cut before any other
 /// placeholder.
 pub fn fill_name(template: &str, name: &str) -> String {
@@ -552,6 +559,17 @@ mod tests {
         assert_eq!(event_notice(&full, 1), None);
         let cheat = |notice| Event::Cheat { sender: 0, notice };
         assert_eq!(event_notice(&cheat(CheatNotice::On), 0), Some(Text::Net(80)));
+        // An observer watching from player 0 is not player 0: no victory of its own, no shortage of the player's.
+        let won = Event::GameOver {
+            player: 0,
+            outcome: Outcome::Victory,
+        };
+        assert_eq!(local_event_notice(&won, 0, false), Some(Text::Own("Victory!".into())));
+        assert_eq!(
+            local_event_notice(&won, 0, true),
+            Some(Text::Own("The game has ended".into()))
+        );
+        assert_eq!(local_event_notice(&e, 0, true), None);
         assert_eq!(event_notice(&cheat(CheatNotice::Off), 0), Some(Text::Net(81)));
         assert_eq!(event_notice(&cheat(CheatNotice::B), 0), Some(Text::Net(72)));
         assert!(matches!(event_notice(&cheat(CheatNotice::A), 0), Some(Text::Own(_))));

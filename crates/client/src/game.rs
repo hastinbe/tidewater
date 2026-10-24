@@ -1044,7 +1044,12 @@ pub(crate) fn tick(c: &mut Core) -> bool {
     }
     cheat_queue.take_events(&events);
     // Each notice replaces the last on the notice line, so the latest wins.
-    if let Some(n) = events.iter().rev().find_map(|e| messages::event_notice(e, human)) {
+    let observing = sim.session.observing();
+    if let Some(n) = events
+        .iter()
+        .rev()
+        .find_map(|e| messages::local_event_notice(e, human, observing))
+    {
         sim.notices.push(n);
     }
     // Screen spec, "Counting up and down": once per cycle.

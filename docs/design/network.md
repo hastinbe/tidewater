@@ -295,7 +295,9 @@ observers):
   ghosts, and lets the mouse pick any unit. The sim itself reads only `rules.reveal_map`, because that setting changes
   which units are hidden and so what a command may target. An observer's game therefore stays in step with the players'.
 - **The interface.** The HUD is the host player's, the Surrender button is hidden on the end screen, and the victory and
-  defeat dialogs are not shown.
+  defeat dialogs are not shown. Its notice line tells a game's end as it does for anyone else ("The game has ended",
+  "Player N has been defeated"), never as a "Victory!" of its own, and shows none of the watched player's own notices
+  (`messages::local_event_notice`).
 
 What is left: joining after the game has started (an observer attaches only before the start), a view with the choice
 of player, and a spectator interface of its own.
