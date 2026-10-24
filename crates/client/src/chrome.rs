@@ -386,35 +386,9 @@ impl Chrome {
         };
         let line = (factor.round() as i32).max(1);
         for &(c, r) in &self.items {
-            let look = self.look(c);
             let (x0, y0) = ((r.x * factor).round() as i32, (r.y * factor).round() as i32);
             let (w, h) = ((r.w * factor).round() as i32, (r.h * factor).round() as i32);
-            // (fill, border, border width, ink)
-            let (fill, edge, t, ink) = match look {
-                Look::Off => ([24, 28, 40, 170], [150, 150, 160, 220], line, [225, 225, 225, 255]),
-                Look::Once => ([40, 32, 10, 215], [255, 206, 72, 255], 2 * line, [255, 214, 90, 255]),
-                Look::On | Look::Locked => ([212, 168, 52, 235], [255, 224, 120, 255], line, [24, 16, 4, 255]),
-            };
-            o.fill(x0, y0, w, h, fill);
-            o.border(x0, y0, w, h, t, edge);
-            // The icon takes most of the button, clear of the border.
-            let side = (w.min(h) as f32 * ICON_SHARE).round() as i32;
-            if look == Look::Locked {
-                // The icon moves down and left a little to make room for the lock in the top right corner.
-                let mark = (w.min(h) as f32 * LOCK_SHARE).round() as i32;
-                let side = (w.min(h) as f32 * (ICON_SHARE - 0.06)).round() as i32;
-                o.icon(
-                    icon_svg(c, self.paused),
-                    x0 + w / 2 - mark / 5,
-                    y0 + h / 2 + mark / 5,
-                    side,
-                    ink,
-                );
-                let inset = 2 * t + mark / 2;
-                o.icon(icons::LOCK, x0 + w - inset, y0 + inset, mark, ink);
-            } else {
-                o.icon(icon_svg(c, self.paused), x0 + w / 2, y0 + h / 2, side, ink);
-            }
+            o.button(c, self.look(c), self.paused, (x0, y0, w, h), line);
         }
         o
     }
@@ -491,7 +465,49 @@ pub fn icon_mask(svg: &str, px: u32) -> Vec<u8> {
     pixmap.data().chunks_exact(4).map(|p| p[3]).take(n).collect()
 }
 
+/// One control's button by itself, `side` pixels square with a 1-pixel border, as the bars draw it in `look` (the
+/// Touch Controls help shows them, `touchhelp`).
+pub fn button_picture(c: Control, look: Look, side: u32) -> Overlay {
+    let mut o = Overlay {
+        size: (side, side),
+        rgba: vec![0; side as usize * side as usize * 4],
+    };
+    o.button(c, look, false, (0, 0, side as i32, side as i32), 1);
+    o
+}
+
 impl Overlay {
+    /// A control's button on `r` (x, y, width, height) in `look`, its border `line` pixels wide.
+    fn button(&mut self, c: Control, look: Look, paused: bool, r: (i32, i32, i32, i32), line: i32) {
+        let (x0, y0, w, h) = r;
+        // (fill, border, border width, ink)
+        let (fill, edge, t, ink) = match look {
+            Look::Off => ([24, 28, 40, 170], [150, 150, 160, 220], line, [225, 225, 225, 255]),
+            Look::Once => ([40, 32, 10, 215], [255, 206, 72, 255], 2 * line, [255, 214, 90, 255]),
+            Look::On | Look::Locked => ([212, 168, 52, 235], [255, 224, 120, 255], line, [24, 16, 4, 255]),
+        };
+        self.fill(x0, y0, w, h, fill);
+        self.border(x0, y0, w, h, t, edge);
+        // The icon takes most of the button, clear of the border.
+        let side = (w.min(h) as f32 * ICON_SHARE).round() as i32;
+        if look == Look::Locked {
+            // The icon moves down and left a little to make room for the lock in the top right corner.
+            let mark = (w.min(h) as f32 * LOCK_SHARE).round() as i32;
+            let side = (w.min(h) as f32 * (ICON_SHARE - 0.06)).round() as i32;
+            self.icon(
+                icon_svg(c, paused),
+                x0 + w / 2 - mark / 5,
+                y0 + h / 2 + mark / 5,
+                side,
+                ink,
+            );
+            let inset = 2 * t + mark / 2;
+            self.icon(icons::LOCK, x0 + w - inset, y0 + inset, mark, ink);
+        } else {
+            self.icon(icon_svg(c, paused), x0 + w / 2, y0 + h / 2, side, ink);
+        }
+    }
+
     /// Whether anything is drawn.
     pub fn is_empty(&self) -> bool {
         self.rgba.chunks_exact(4).all(|p| p[3] == 0)

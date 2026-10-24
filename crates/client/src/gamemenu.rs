@@ -87,6 +87,8 @@ pub struct GameMenu {
     touch_help: bool,
     /// Text shown by the current screen (wrapped).
     lines: Vec<String>,
+    /// The Touch Controls pages' state (the `TouchHelp` screen).
+    help: crate::touchhelp::Pager,
     delay: menu::Delay,
     hot: Option<usize>,
     /// The focused button (the yellow ring): its index in the item list; `None` until the screen is next run, which
@@ -477,11 +479,8 @@ impl GameMenu {
                 b.button(Act::Back, "OK");
                 ("Keystroke Help", true)
             }
-            Screen::TouchHelp => {
-                b.lines(&self.lines);
-                b.button(Act::Back, "OK");
-                (crate::touchhelp::TITLE, true)
-            }
+            // The Touch Controls pages draw themselves (`touchhelp`).
+            Screen::TouchHelp => ("", false),
             Screen::Tips => {
                 b.lines(&self.lines);
                 b.button(Act::Back, "OK");
@@ -550,7 +549,7 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
             m.lines = wrap(front, text);
         }
         Screen::KeyHelp => m.lines = KEY_HELP.iter().map(|s| s.to_string()).collect(),
-        Screen::TouchHelp => m.lines = crate::touchhelp::LINES.iter().map(|s| s.to_string()).collect(),
+        Screen::TouchHelp => m.help = Default::default(),
         Screen::Refused(host) => {
             // Network entry 28 with the host's name; ours when the install has no such table.
             let template = front.net(REFUSED_ENTRY);
@@ -962,6 +961,7 @@ fn open_menu(
         no_exit: touch.touch_only,
         touch_help: touch.touch_only || touch.emulate || touch.active,
         lines: Vec::new(),
+        help: Default::default(),
         delay: menu::Delay::default(),
         hot: None,
         focus: None,
@@ -1059,6 +1059,22 @@ pub(crate) fn close_on_exit(c: &mut Core) {
     c.commands.queue(|c| c.menu = None);
 }
 
+/// The key the Touch Controls pages take this frame (`touchhelp::PageKey`).
+pub(crate) fn help_key(keys: &crate::input::Buttons<Key>) -> Option<crate::touchhelp::PageKey> {
+    use crate::touchhelp::PageKey;
+    if keys.just_pressed(Key::Escape) {
+        Some(PageKey::Close)
+    } else if keys.any_just_pressed([Key::Enter, Key::NumpadEnter]) {
+        Some(PageKey::Enter)
+    } else if keys.just_pressed(Key::Right) {
+        Some(PageKey::Next)
+    } else if keys.just_pressed(Key::Left) {
+        Some(PageKey::Back)
+    } else {
+        None
+    }
+}
+
 fn close(commands: &mut Commands) {
     remove_layers(commands, |e| e.role == Role::Menu);
     commands.queue(|c| c.menu = None);
@@ -1091,6 +1107,34 @@ pub(crate) fn run_menu(c: &mut Core) {
     let mouse_in = &input.mouse;
     // The save and load dialogs run in `run_saving`, the Settings screen in `run_settings`.
     if matches!(m.screen(), Screen::Saving(_) | Screen::Settings) {
+        return;
+    }
+    // The Touch Controls pages take their own input and draw themselves; OK or Esc goes back as the other dialogs do.
+    if m.screen() == Screen::TouchHelp {
+        let at = frontend::pointer(input, cam).map(|p| (p.x as i32, p.y as i32));
+        let feed = crate::touchhelp::Feed {
+            at,
+            down: mouse_in.just_pressed(Button::Left),
+            up: mouse_in.just_released(Button::Left),
+            key: help_key(keys),
+        };
+        match m.help.step(feed) {
+            crate::touchhelp::Outcome::Close => {
+                if m.nav.back() {
+                    close(commands);
+                } else {
+                    enter(m, front, stored, sim, flow, &folder.folder());
+                }
+            }
+            crate::touchhelp::Outcome::Redraw => m.dirty = true,
+            crate::touchhelp::Outcome::Same => {}
+        }
+        if m.dirty && m.screen() == Screen::TouchHelp {
+            m.dirty = false;
+            let mut p = frontend::blank();
+            m.help.draw(&mut p, &front.big, &front.font);
+            frontend::set_image(pictures, &m.image, p);
+        }
         return;
     }
     let kind = Kind::of(flow.game);
@@ -1610,6 +1654,7 @@ mod tests {
             no_exit: false,
             touch_help: false,
             lines: vec!["text".into()],
+            help: Default::default(),
             delay: menu::Delay::default(),
             hot: None,
             focus: None,
