@@ -1,29 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- Tidewater's app icon: a wave cresting against a stone tower under a full moon. Our own artwork (MPL-2.0, like
-       the rest of the repository), drawn by hand from plain shapes.
+  <!-- Tidewater's app icon: a square-sailed ship riding the waves at dusk. Our own artwork (MPL-2.0, like the rest of
+       the repository), drawn by hand from plain shapes.
 
-       The sky and the sea run 320 units past every edge of the 1024 square on purpose: Android's adaptive icon draws
-       the picture zoomed out (render.sh, its scale option) and needs the scene to carry on beyond the square. Every other
-       platform sees only the square.
+       The sky and the sea run 512 units past every edge of the 1024 square on purpose: Android's adaptive icon draws
+       the picture zoomed out (render.sh, its scale option) and needs the scene to carry on beyond the square. Every
+       other platform sees only the square.
 
        After changing this file run packaging/icon/render.sh, which redraws every platform's icon from it. -->
   <defs>
-    <linearGradient id="sky" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="760">
-      <stop offset="0" stop-color="#0c2136"/>
-      <stop offset="1" stop-color="#1d4d70"/>
+    <linearGradient id="sky" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="800">
+      <stop offset="0" stop-color="#1c2a48"/>
+      <stop offset="1" stop-color="#c0663f"/>
     </linearGradient>
   </defs>
-  <!-- sky and moon -->
-  <rect x="-320" y="-320" width="1664" height="1664" fill="url(#sky)"/>
-  <circle cx="300" cy="270" r="110" fill="#f1d38c"/>
-  <!-- the tower: four merlons, a shadowed parapet and one arched window -->
-  <path d="M560 300 V190 h64 v54 h48 v-54 h64 v54 h48 v-54 h64 V300 l-24 40 V1100 H584 V340 Z" fill="#cdb98f"/>
-  <path d="M560 300 h288 l-24 40 h-240 z" fill="#a38f67"/>
-  <path d="M668 560 v-110 a36 36 0 0 1 72 0 v110 z" fill="#102a43"/>
-  <!-- the wave's body, curling over towards the tower -->
-  <path d="M-320 1344 V800 C-200 790 -90 730 0 640 C120 520 300 470 440 520 C540 556 590 640 560 700 C540 740 490 744 470 712 C500 716 520 690 506 664 C470 610 380 620 330 680 C300 716 300 760 330 790 C480 790 760 760 1024 700 C1120 680 1240 670 1344 670 V1344 Z" fill="#2aa0b4"/>
-  <!-- its foam crest -->
-  <path d="M-320 800 C-200 790 -90 730 0 640 C120 520 300 470 440 520 C540 556 590 640 560 700 C540 740 490 744 470 712 C500 716 520 690 506 664 C440 560 220 560 0 730 C-110 815 -200 845 -320 850 Z" fill="#f2f8f7"/>
-  <!-- the deeper water in front -->
-  <path d="M-320 1344 V930 C-200 925 -120 905 0 880 C240 830 480 850 700 880 C840 900 940 890 1024 860 C1140 830 1240 830 1344 840 V1344 Z" fill="#11496b"/>
+  <!-- sky and the setting sun -->
+  <rect x="-512" y="-512" width="2048" height="2048" fill="url(#sky)"/>
+  <circle cx="512" cy="440" r="290" fill="#f2b85a"/>
+  <!-- mast and a square sail with a broad red stripe -->
+  <rect x="490" y="120" width="44" height="580" fill="#3a2414"/>
+  <path d="M262 200 Q512 160 762 200 Q796 400 762 590 Q512 550 262 590 Q228 400 262 200 Z" fill="#f7f0de"/>
+  <path d="M246 330 Q512 296 778 330 L784 470 Q512 438 240 470 Z" fill="#b3302a"/>
+  <!-- hull with raised ends -->
+  <path d="M120 580 h130 v44 H774 v-44 h130 L800 820 H224 Z" fill="#4e2e1a"/>
+  <!-- the sea: the foam crest, the wave under it and the deeper water in front -->
+  <path d="M-512 752 C-422 692 -342 692 -256 752 S-92 812 0 752 S164 692 256 752 S420 812 512 752 S676 692 768 752 S932 812 1024 752 S1188 692 1280 752 S1444 812 1536 752 V1536 H-512 Z" fill="#f2f8f7"/>
+  <path d="M-512 808 C-422 748 -342 748 -256 808 S-92 868 0 808 S164 748 256 808 S420 868 512 808 S676 748 768 808 S932 868 1024 808 S1188 748 1280 808 S1444 868 1536 808 V1536 H-512 Z" fill="#1f7898"/>
+  <path d="M-512 904 C-422 844 -342 844 -256 904 S-92 964 0 904 S164 844 256 904 S420 964 512 904 S676 844 768 904 S932 964 1024 904 S1188 844 1280 904 S1444 964 1536 904 V1536 H-512 Z" fill="#0f3c5a"/>
 </svg>

@@ -69,10 +69,10 @@ To try the packaging on your own machine: `packaging/macos/build-dmg.sh 0.0.0-te
 
 ### The app icon
 
-One drawing, `packaging/icon/tidewater.svg` (our own artwork, MPL-2.0: a wave cresting against a stone tower under the
-moon), is the icon everywhere. `packaging/icon/render.sh` redraws every platform's file from it with `twtool app-icon`;
-the results are committed, so the release builds don't draw anything. To change the icon, edit the SVG, run the script
-and commit what it writes.
+One drawing, `packaging/icon/tidewater.svg` (our own artwork, MPL-2.0: a square-sailed ship riding the waves at dusk),
+is the icon everywhere. `packaging/icon/render.sh` redraws every platform's file from it with `twtool app-icon`; the
+results are committed, so the release builds don't draw anything. To change the icon, edit the SVG, run the script and
+commit what it writes.
 
 | Platform | File | Used by |
 |---|---|---|
