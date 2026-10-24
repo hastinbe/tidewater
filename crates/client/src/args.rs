@@ -49,8 +49,8 @@ pub struct Args {
     pub join: Option<String>,
     /// With `--host`, the lobby's choices, comma separated: `humans=2` (2 to 8), `races=human/orc` (one per human, or
     /// `map`), `computers=N`, `fixed` (Fixed Order), `observers=0..4` (places for watchers, none by default),
-    /// `speed=0..8` (8, the fastest, by default), `row=0..15` (the network delay: 4, a turn of 12 cycles at speed 8, by
-    /// default; 3 gives 8), `seed=N` and `extras=NAME=VALUE/NAME=VALUE` (the client-only options that give an edge,
+    /// `speed=0..8` (8, the fastest, by default), `row=0..15` (the network delay: 3, a turn of 8 cycles at speed 8, by
+    /// default; 4 gives 12), `seed=N` and `extras=NAME=VALUE/NAME=VALUE` (the client-only options that give an edge,
     /// such as `extras=health-bars=always/widescreen=16:9`, which every player then plays with; the host's own settings
     /// stand for those not named). Classic rules, which are opt-in, and fog of war are
     /// `--setup custom:classic,fog=off`.
