@@ -54,6 +54,8 @@ const SCENES: &[&str] = &[
     "touch-pinch",
     "touch-pan",
     "touch-swipe",
+    "touch-help",
+    "touch-help-menu",
     "touch-menu",
 ];
 

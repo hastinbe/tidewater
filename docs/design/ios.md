@@ -11,7 +11,9 @@ The gestures are in [touch.md](touch.md) and the import in [import.md](import.md
 | Area | State |
 |---|---|
 | Build for the Simulator and a device | Works. Simulator checked; the device library builds but is not run. |
-| Touch, chrome buttons, safe area | On from the first frame; the picture fits inside the safe area. |
+| Touch, chrome buttons, safe area | On from the first frame; the picture fits inside the safe area. One-finger pan, hold-then-drag box, smart tap and the control-group bar ([touch.md](touch.md)); checked with `--touch-emulation` and the Simulator build, not on a device. |
+| Touch Controls help | Shows by itself at the first game, then under Help and on the main menu. |
+| Exit Program | Not offered (greyed out on the main menu, not in End Scenario, Ctrl+X does nothing): iOS closes apps itself. |
 | Background and foreground | The game pauses, sound stops, settings are written. |
 | Import from the shared folder | Works (folder scan, game folders, CD images). |
 | Import with the document picker | Written, **not tried**: the Simulator run could not tap. |

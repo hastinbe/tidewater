@@ -162,6 +162,14 @@ client-only options of `docs/design/extras.md` whose names start with `touch-`:
 The phone rule reads the window's size and the shell's density (`touch::is_phone`), so a desktop window under
 `--touch-emulation` counts as a phone when it is small (640 x 480 at 140 points to the inch is 87 mm high).
 
+## Help
+
+The **Touch Controls** page (`touchhelp`) sums up the gestures and the side bars on one page. A phone or tablet shows
+it by itself the first time a game starts (not a network game or a replay), once ever: the stored settings remember
+it with the `touch_help_seen` line (`prefs`). After that it is a button under **Help** in the game menu
+(`Screen::TouchHelp`, wherever touch is in use) and the **Touch controls** link on the main menu, above the Settings
+link, shown while touch is in use; there the page covers the menu until a tap, a click, Esc or Enter.
+
 ## Exit Program on phones and tablets
 
 iOS and Android close apps themselves, and an app that quits on its own looks like a crash there. On a touch-only
@@ -173,9 +181,10 @@ menu's End Scenario dialog, and Ctrl+X does nothing. Android's Back button is Es
 
 `script::Cmd::Finger(id, phase, x, y)` puts a finger event in at a screen pixel. The scenes `touch-select` (tap near a peasant, then a smart tap
 on the ground), `touch-order` (long press orders it), `touch-drag` (hold, then box select), `touch-pinch`, `touch-pan`,
-`touch-swipe` (one-finger pan and glide) and `touch-menu` (three-finger tap) run on the default density and have
-their own snapshots (`tests/snapshots/touch-*.txt`); no other snapshot changed. To look at the chrome and the
-fractional fit, run a scene in a larger window:
+`touch-swipe` (one-finger pan and glide), `touch-help` (a phone's first game shows the help, and the Help menu offers
+it), `touch-help-menu` (the main menu's link and page) and `touch-menu` (three-finger tap) run on the default density
+and have their own snapshots (`tests/snapshots/touch-*.txt`); `script::Cmd::TouchDevice` makes a run a phone's. To look
+at the chrome and the fractional fit, run a scene in a larger window:
 
 ```
 TIDEWATER_SCRIPT_WINDOW=1000x600 tidewater --script touch-order --script-out DIR --no-mouse-lock [--extra-scaling sharp]
