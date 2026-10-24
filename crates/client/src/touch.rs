@@ -25,7 +25,7 @@
 
 use std::time::Duration;
 
-use crate::chrome::{self, Chrome, Control, Fed, Overlay};
+use crate::chrome::{self, Chrome, Control, Fed, Latch, Overlay};
 use crate::core::{Core, game_running};
 use crate::extras::{TouchSettings, TouchTwoFinger};
 use crate::gesture::{self, Gesture, OneFinger, Pt, TwoFinger, Zone};
@@ -62,8 +62,11 @@ pub struct TouchState {
     /// Map pixels panned short of a tile (`game::touch_view`).
     pub view_acc: Pt,
     wheel_acc: f32,
-    /// The latched modifiers come up at the next step.
+    /// The one-shot latches come up at the next step (a locked one stays).
     release_mods: bool,
+    /// Milliseconds of touch steps so far, and the latch last turned on and when, for the double tap that locks it.
+    clock: f32,
+    latched_at: Option<(Control, f32)>,
     /// Keys the chrome pressed, let go at the next step.
     queued: Vec<(Key, bool)>,
     /// The tap whose press went out as a right click (the smart tap): its release does too.
@@ -140,17 +143,22 @@ impl TouchState {
 
     fn press(&mut self, c: Control, keys: &mut Vec<(Key, bool)>) {
         match c {
-            Control::Shift => {
-                self.chrome.shift = !self.chrome.shift;
-                keys.push((Key::ShiftLeft, self.chrome.shift));
-            }
-            Control::Ctrl => {
-                self.chrome.ctrl = !self.chrome.ctrl;
-                keys.push((Key::ControlLeft, self.chrome.ctrl));
-            }
-            Control::Alt => {
-                self.chrome.alt = !self.chrome.alt;
-                keys.push((Key::AltLeft, self.chrome.alt));
+            Control::Shift | Control::Ctrl | Control::Alt => {
+                let (latch, key) = match c {
+                    Control::Shift => (&mut self.chrome.shift, Key::ShiftLeft),
+                    Control::Ctrl => (&mut self.chrome.ctrl, Key::ControlLeft),
+                    _ => (&mut self.chrome.alt, Key::AltLeft),
+                };
+                // A second tap soon after the one that turned it on locks it (`chrome::Latch`).
+                let quick = self
+                    .latched_at
+                    .is_some_and(|(at, when)| at == c && self.clock - when < chrome::LOCK_MS);
+                let was = *latch;
+                *latch = latch.tapped(quick);
+                if *latch != was && was.held() != latch.held() {
+                    keys.push((key, latch.held()));
+                }
+                self.latched_at = (*latch == Latch::Once).then_some((c, self.clock));
             }
             Control::Plain => self.chrome.plain = !self.chrome.plain,
             Control::Pause => self.pause = true,
@@ -161,10 +169,25 @@ impl TouchState {
         }
     }
 
+    /// After a click: the one-shot latches let go; a locked one stays held.
+    fn release_latches(&mut self, keys: &mut Vec<(Key, bool)>) {
+        for (latch, k) in [
+            (&mut self.chrome.shift, Key::ShiftLeft),
+            (&mut self.chrome.ctrl, Key::ControlLeft),
+            (&mut self.chrome.alt, Key::AltLeft),
+        ] {
+            if *latch == Latch::Once {
+                *latch = Latch::Off;
+                keys.push((k, false));
+            }
+        }
+        self.latched_at = None;
+    }
+
     /// A control held long enough: a group button sets its group (Ctrl and the digit).
     fn hold(&mut self, c: Control, keys: &mut Vec<(Key, bool)>) {
         if let Control::Group(n) = c {
-            let ctrl = !self.chrome.ctrl;
+            let ctrl = !self.chrome.ctrl.held();
             if ctrl {
                 keys.push((Key::ControlLeft, true));
             }
@@ -258,17 +281,9 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         .layout(chrome::frame_of(lb.screen(), w.safe, w.factor, ppmm, in_game, options));
     // The keys the chrome pressed last step come up first.
     let mut keys: Vec<(Key, bool)> = std::mem::take(&mut t.queued);
-    // The latched modifiers come up a frame after the click they were for.
+    // The one-shot latches come up a frame after the click they were for; a locked one stays held.
     if std::mem::take(&mut t.release_mods) {
-        for (on, k) in [
-            (&mut t.chrome.shift, Key::ShiftLeft),
-            (&mut t.chrome.ctrl, Key::ControlLeft),
-            (&mut t.chrome.alt, Key::AltLeft),
-        ] {
-            if std::mem::take(on) {
-                keys.push((k, false));
-            }
-        }
+        t.release_latches(&mut keys);
     }
 
     // The fingers: the screen's, then the mouse's if emulated; the chrome takes its own.
@@ -277,6 +292,9 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         // The window lost the keyboard: whatever is held lets go.
         fingers.extend(t.emu.cancel());
         t.gesture.reset();
+        // The game lets go of every key then (`Input::focus_lost`), so the latches, locked or not, show it.
+        (t.chrome.shift, t.chrome.ctrl, t.chrome.alt) = (Latch::Off, Latch::Off, Latch::Off);
+        t.latched_at = None;
     }
     for m in mice {
         fingers.extend(t.emu.feed(m, lb.centre(w.factor), 5.0 * ppmm));
@@ -292,6 +310,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     for ctl in t.chrome.advance(ms) {
         t.hold(ctl, &mut keys);
     }
+    t.clock += ms;
 
     // The gesture machine, one of its frames a game frame.
     t.gesture.update(elapsed, &passed, &cfg);
@@ -514,12 +533,53 @@ mod tests {
             keys,
             [(Key::ShiftLeft, true), (Key::AltLeft, true), (Key::ShiftLeft, false)]
         );
-        assert!(t.chrome.alt && !t.chrome.shift);
+        assert!(t.chrome.alt.held() && !t.chrome.shift.held());
         t.press(Control::Plain, &mut keys);
         t.press(Control::Keyboard, &mut keys);
         t.press(Control::Pause, &mut keys);
         assert!(t.chrome.plain && t.chrome.keyboard);
         assert!(t.take_pause() && !t.take_pause());
+    }
+
+    #[test]
+    fn a_double_tapped_latch_stays_held_across_clicks_until_tapped_again() {
+        let mut t = TouchState::new(true);
+        let mut keys = Vec::new();
+        // Two quick taps: Shift goes down once and locks.
+        t.press(Control::Shift, &mut keys);
+        t.clock += 200.0;
+        t.press(Control::Shift, &mut keys);
+        assert_eq!(t.chrome.shift, Latch::Locked);
+        assert_eq!(keys, [(Key::ShiftLeft, true)]);
+        // Unit after unit: each click's release leaves it held, while a one-shot Ctrl beside it lets go.
+        t.clock += 1000.0;
+        t.press(Control::Ctrl, &mut keys);
+        keys.clear();
+        for _ in 0..3 {
+            t.release_latches(&mut keys);
+            t.clock += 500.0;
+        }
+        assert_eq!(keys, [(Key::ControlLeft, false)]);
+        assert_eq!((t.chrome.shift, t.chrome.ctrl), (Latch::Locked, Latch::Off));
+        // One tap unlocks it and lets the key go.
+        keys.clear();
+        t.press(Control::Shift, &mut keys);
+        assert_eq!(t.chrome.shift, Latch::Off);
+        assert_eq!(keys, [(Key::ShiftLeft, false)]);
+        // Two slow taps are on, then off: no lock.
+        keys.clear();
+        t.press(Control::Alt, &mut keys);
+        t.clock += chrome::LOCK_MS + 50.0;
+        t.press(Control::Alt, &mut keys);
+        assert_eq!(t.chrome.alt, Latch::Off);
+        assert_eq!(keys, [(Key::AltLeft, true), (Key::AltLeft, false)]);
+        // A click between the taps spends the latch: the next tap is a fresh one-shot, not a lock.
+        keys.clear();
+        t.press(Control::Shift, &mut keys);
+        t.release_latches(&mut keys);
+        t.clock += 100.0;
+        t.press(Control::Shift, &mut keys);
+        assert_eq!(t.chrome.shift, Latch::Once);
     }
 
     #[test]
@@ -559,7 +619,7 @@ mod tests {
         assert_eq!(t.queued, [(Key::Digit(2), false), (Key::ControlLeft, false)]);
         // With Ctrl latched already, the latch keeps it.
         let (mut keys, mut t) = (Vec::new(), TouchState::new(true));
-        t.chrome.ctrl = true;
+        t.chrome.ctrl = Latch::Once;
         t.hold(Control::Group(2), &mut keys);
         assert_eq!(keys, [(Key::Digit(2), true)]);
         assert_eq!(t.queued, [(Key::Digit(2), false)]);

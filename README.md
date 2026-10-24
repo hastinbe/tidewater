@@ -146,7 +146,11 @@ touchscreen or use `--touch-emulation`.
 paused), the Shift (⇧), Ctrl (⌃) and Alt (⌥) latches (held for your next click), a plain-click latch (a pointer
 with a click mark: the next tap selects, never orders) and the keyboard. The right bar holds the control groups,
 numbered 1 to 9: a tap recalls a group, two taps centre on it, and holding one makes the selection that group. With
-the `idle-worker` option on, a pickaxe button selects the next idle worker. A button that is on is lit yellow.
+the `idle-worker` option on, a pickaxe button selects the next idle worker. A latch waiting for its click is outlined
+in yellow; a button that is on is filled yellow.
+
+**Pick units one by one:** double-tap Shift to lock it (a lock shows in its corner), then tap units to add or remove
+them; tap Shift again to let go. Ctrl and Alt lock the same way.
 
 **Settings and help.** The Settings screen's Touch page changes how a drag, a tap, two fingers, the pinch and the
 holds work, the button size and which bar is which. The Touch Controls page sums all this up: a phone or tablet shows
