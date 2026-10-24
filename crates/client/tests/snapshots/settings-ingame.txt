@@ -1,0 +1,42 @@
+# frame and sound fingerprints of the scripted scene `settings-ingame` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	2ab4d7048026f340
+frames	4-10	c2e52e287af839f4
+shot	33	game	302f66d6801ce7bd
+frames	11-34	302f66d6801ce7bd
+shot	41	general	6adf1598341d41c1
+shot	62	general-later	6adf1598341d41c1
+frames	35-62	6adf1598341d41c1
+frames	63-63	740321ac7c5f8116
+frames	64-65	23f8756dfb13655b
+frames	66-66	2cbc1a17e68e8184
+frames	67-68	acbd6a5ef8be3883
+shot	70	health-list	b01d2107ed037a2e
+frames	69-70	b01d2107ed037a2e
+frames	71-71	823fe3c4985c2323
+frames	72-72	23e35e898552101c
+shot	74	health-always	3b055e78d618447a
+frames	73-74	3b055e78d618447a
+frames	75-75	30dfeec8eb01208a
+shot	78	gameplay	5f426d8c1b1ccdcf
+frames	76-78	5f426d8c1b1ccdcf
+frames	79-79	34e2dc922f39a5ad
+shot	82	gameplay-click	99c5b596b67c236f
+frames	80-82	99c5b596b67c236f
+frames	83-83	cbd6ed2eb40c8c9b
+frames	84-84	c130c5ad080cc87e
+frames	85-120	22204420bbc12765
+shot	124	applied	4eeee8ac3538594d
+shot	129	f2-view	4eeee8ac3538594d
+frames	121-129	4eeee8ac3538594d
+shot	134	options	db46baa407a5f81a
+frames	130-134	db46baa407a5f81a
+shot	136	options-link-hover	6d99636a7075db1f
+frames	135-136	6d99636a7075db1f
+frames	137-137	478b37b502242618
+shot	141	from-link	81ff4fb8acefd07b
+frames	138-141	81ff4fb8acefd07b
+frames	142-142	f83fba3eba2ab267
+shot	146	cancelled	4e54a5f61ea7b5ec
+frames	143-146	4e54a5f61ea7b5ec

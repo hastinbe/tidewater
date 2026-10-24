@@ -23,7 +23,7 @@
 //! are a bare letter or digit.
 //!
 //! **Conflicts.** The same key on two actions is refused with a message that names both; so is a key that an action you
-//! did not rebind still uses (a bare digit is a control group, F2 to F4 are the views, and so on). The refused line is
+//! did not rebind still uses (a bare digit is a control group, F2 to F4 are the views, Ctrl+G opens the Settings screen, and so on). The refused line is
 //! left out and the first line wins. Rebinding an action frees its original keys, so two actions can swap. Whatever
 //! the file holds is written back as it is, so a typo is never lost. Two command buttons that show at once with the
 //! same hotkey letter are not detected here (which buttons show depends on the selection); the first in panel order acts.
@@ -366,6 +366,9 @@ impl KeyMap {
                     "idle-worker".into(),
                 );
             }
+            // Ours: the key that opens the Settings screen in a game belongs to no action and cannot be given to one.
+            let (key, mods) = crate::gamemenu::SETTINGS_KEY;
+            taken.insert(Chord { key, mods }, "settings".into());
             for (_, bind, _) in &wanted {
                 match bind {
                     Bind::Game(a) => taken.retain(|_, owner| *owner != action_name(*a)),
@@ -688,6 +691,20 @@ mod tests {
         assert!(problems[2].contains("idle-worker"), "{}", problems[2]);
         assert!(problems[3].contains("keyboard-help"), "{}", problems[3]);
         assert!(map.is_default(), "nothing was taken");
+    }
+
+    #[test]
+    fn the_settings_key_cannot_be_given_to_an_action() {
+        let (map, problems) = parse("pause=ctrl+g");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("Ctrl+G") && problems[0].contains("settings"),
+            "{}",
+            problems[0]
+        );
+        assert!(map.is_default());
+        // Alt+G is free.
+        assert!(parse("pause=alt+g").1.is_empty());
     }
 
     #[test]

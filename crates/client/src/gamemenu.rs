@@ -55,6 +55,7 @@ use crate::savedlg::{self, SaveUi};
 use crate::savefile;
 use crate::savegame;
 use crate::saves::{self, SaveDir};
+use crate::settings;
 
 /// The stored settings in force.
 pub struct Stored(pub Prefs);
@@ -95,10 +96,20 @@ pub struct GameMenu {
     dirty: bool,
     /// The open save or load dialog (the `Saving` screen).
     save: Option<SaveUi>,
+    /// The open Settings screen (the `Settings` screen).
+    settings: Option<InGameSettings>,
     /// Something the dialog decided that needs the whole game: done by [`service_saving`].
     request: Option<saves::Step>,
     /// Opened from the victory dialog's Save.
     from_outcome: bool,
+}
+
+/// Tidewater's Settings screen over the game (`settings`): the screen, the clear picture it draws on (the game shows
+/// round the panel) and the menu picture's palette that its colours come from.
+struct InGameSettings {
+    ui: settings::Screen,
+    background: crate::scene::Picture,
+    palette: tidewater_formats::tileset::Palette,
 }
 
 /// The game menu's input state: the save dialog's input for this frame (collected by [`gather_saving_input`]), the
@@ -123,6 +134,20 @@ const PAD: i32 = 16;
 const ROW_H: u32 = 26;
 const ROW_GAP: i32 = 6;
 const INNER_W: u32 = BOX_W - 2 * PAD as u32;
+/// A text link's tap target.
+const LINK_W: u32 = 160;
+const LINK_H: u32 = 24;
+/// The key that opens the Settings screen in a game.
+pub(crate) const SETTINGS_KEY: (mouse::Key, mouse::KeyMods) = (
+    mouse::Key::Letter('G'),
+    mouse::KeyMods {
+        shift: false,
+        ctrl: true,
+        alt: false,
+    },
+);
+/// The Settings link's text, in the style of the main menu's version line and Settings link.
+const SETTINGS_LINK: &str = "Settings (Ctrl+G)";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Act {
@@ -134,6 +159,8 @@ enum Act {
     Ok,
     Cancel,
     Do(Confirm),
+    /// Opens Tidewater's Settings screen over the game; Back from it returns to the game, not to this menu.
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,6 +209,8 @@ enum Kinds {
     Slider(Slide, String, u8, u8, bool),
     Check(Tick, String, bool),
     Radio(Radio, String, bool),
+    /// A small text link of ours (not one of the original's buttons), drawn in the small font.
+    Link(Act, String),
 }
 
 struct Item {
@@ -220,6 +249,15 @@ impl Builder {
 
     fn button(&mut self, act: Act, label: &str) {
         self.row(ROW_H, Kinds::Button(act, label.to_string()));
+    }
+
+    /// A text link at the right end of a row, [`LINK_H`] high and [`LINK_W`] wide so a finger can hit it.
+    fn link(&mut self, act: Act, label: &str) {
+        self.items.push(Item {
+            r: Rect::new(BOX_X + PAD + (INNER_W - LINK_W) as i32, self.y, LINK_W, LINK_H),
+            kind: Kinds::Link(act, label.to_string()),
+        });
+        self.y += LINK_H as i32 + ROW_GAP;
     }
 
     /// Two buttons side by side (OK and Cancel).
@@ -276,6 +314,11 @@ impl Builder {
 }
 
 impl GameMenu {
+    /// Whether the Settings screen is the open one.
+    pub(crate) fn is_settings(&self) -> bool {
+        self.screen() == Screen::Settings
+    }
+
     fn screen(&self) -> Screen {
         self.nav.current().unwrap_or(Screen::Game)
     }
@@ -302,6 +345,7 @@ impl GameMenu {
                 b.button(Act::Open(Screen::Speed), "Speeds (F8)");
                 b.button(Act::Open(Screen::Prefs), "Preferences (F9)");
                 b.button(Act::Back, "Previous");
+                b.link(Act::Settings, SETTINGS_LINK);
                 ("Options", false)
             }
             Screen::Help => {
@@ -422,7 +466,7 @@ impl GameMenu {
                 )
             }
             // The save and load dialogs draw themselves (`savedlg`); this frame is only their place.
-            Screen::Saving(_) => ("", false),
+            Screen::Saving(_) | Screen::Settings => ("", false),
             Screen::KeyHelp => {
                 b.lines(&self.lines);
                 // Screen spec, "Focus" (round 75): the Keystroke Help dialog's button is OK.
@@ -492,6 +536,8 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
             m.lines = wrap(front, text);
         }
         Screen::KeyHelp => m.lines = KEY_HELP.iter().map(|s| s.to_string()).collect(),
+        // The Settings screen is made when its first frame runs (`run_settings`), from the whole game.
+        Screen::Settings => m.settings = None,
         Screen::Game | Screen::Options | Screen::Help | Screen::End => {}
     }
     m.dirty = true;
@@ -514,7 +560,7 @@ fn default_act(screen: Screen) -> Option<Act> {
         Screen::Options | Screen::Help | Screen::Objectives | Screen::End | Screen::KeyHelp | Screen::Tips => {
             Some(Act::Back)
         }
-        Screen::Saving(_) => None,
+        Screen::Saving(_) | Screen::Settings => None,
     }
 }
 
@@ -545,7 +591,7 @@ fn button_ring(focused: bool, default: bool) -> Option<[u8; 3]> {
 fn takes_focus(kind: &Kinds) -> bool {
     matches!(
         kind,
-        Kinds::Button(..) | Kinds::Slider(..) | Kinds::Check(..) | Kinds::Radio(..)
+        Kinds::Button(..) | Kinds::Slider(..) | Kinds::Check(..) | Kinds::Radio(..) | Kinds::Link(..)
     )
 }
 
@@ -580,7 +626,7 @@ fn slider_mark(track: Rect) -> Rect {
     Rect::new(track.x, track.y - 1, track.w, track.h + 2)
 }
 
-const KEY_HELP: [&str; 17] = [
+const KEY_HELP: [&str; 18] = [
     "+ and -   Game speed",
     "Ctrl+P   Pause or resume",
     "F10, Alt+M   Game menu",
@@ -598,6 +644,7 @@ const KEY_HELP: [&str; 17] = [
     "Ctrl+Q   Quit to the main menu",
     "Ctrl+X   Exit the program",
     "Ctrl+T   Tips",
+    "Ctrl+G   Tidewater settings",
 ];
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -649,6 +696,19 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
                     let x = track.x + (track.w as i32 - 6) * *v as i32 / *max as i32;
                     let knob = Rect::new(x, track.y - 2, 6, track.h + 4);
                     hud::fill(&mut p, knob, if *enabled { [220, 200, 130] } else { [110, 100, 70] });
+                }
+            }
+            Kinds::Link(_, label) => {
+                let small = &front.small;
+                let w = small.width(label.as_bytes());
+                let x = it.r.x + it.r.w as i32 - w as i32 - 2;
+                let y = it.r.y + (it.r.h as i32 - small.height as i32) / 2;
+                hud::text(&mut p, small, x, y, label);
+                if hot {
+                    hud::fill(&mut p, Rect::new(x, y + small.height as i32 + 1, w, 1), [220, 200, 130]);
+                }
+                if focused {
+                    hud::outline(&mut p, it.r, FOCUS_RGB);
                 }
             }
             Kinds::Check(_, label, on) => {
@@ -754,6 +814,12 @@ pub(crate) fn open_requests(c: &mut Core) {
             asked = Some(Screen::Game);
             continue;
         }
+        // Not in the original: Tidewater's Settings screen. F2 is the first remembered view's key, so it is Ctrl+G
+        // (`keymap` keeps the chord from being rebound to another action).
+        if key == SETTINGS_KEY.0 && m == SETTINGS_KEY.1 {
+            asked = Some(Screen::Settings);
+            continue;
+        }
         // The key map (`keymap`) turns a rebound key into its action's own chord; the pressed key without a `[keys]`
         // section.
         let Some(a) = stored
@@ -844,6 +910,7 @@ fn open_menu(
         drag: None,
         dirty: true,
         save: None,
+        settings: None,
         request: None,
         from_outcome,
     };
@@ -960,8 +1027,8 @@ pub(crate) fn run_menu(c: &mut Core) {
     };
     let keys = &input.keys;
     let mouse_in = &input.mouse;
-    // The save and load dialogs run in `run_saving`.
-    if matches!(m.screen(), Screen::Saving(_)) {
+    // The save and load dialogs run in `run_saving`, the Settings screen in `run_settings`.
+    if matches!(m.screen(), Screen::Saving(_) | Screen::Settings) {
         return;
     }
     let kind = Kind::of(flow.game);
@@ -992,7 +1059,7 @@ pub(crate) fn run_menu(c: &mut Core) {
     let screen = m.screen();
     let mut focus = m.focus.or_else(|| default_focus(&built, screen));
     if mouse_in.just_pressed(Button::Left)
-        && let Some(i) = hot.filter(|&i| matches!(built.items[i].kind, Kinds::Button(..)))
+        && let Some(i) = hot.filter(|&i| matches!(built.items[i].kind, Kinds::Button(..) | Kinds::Link(..)))
     {
         focus = Some(i);
     }
@@ -1041,7 +1108,7 @@ pub(crate) fn run_menu(c: &mut Core) {
     let mut act = None;
     if let Some(i) = released {
         match &built.items[i].kind {
-            Kinds::Button(a, _) => act = Some(*a),
+            Kinds::Button(a, _) | Kinds::Link(a, _) => act = Some(*a),
             Kinds::Check(id, _, on) => {
                 m.draft.set(id.bit(), !on);
                 changed(m, stored);
@@ -1067,7 +1134,7 @@ pub(crate) fn run_menu(c: &mut Core) {
     } else if keys.any_just_pressed([Key::Enter, Key::NumpadEnter]) {
         // Enter activates the focused button, as a click on it does.
         act = match m.focus.map(|i| &built.items[i].kind) {
-            Some(Kinds::Button(a, _)) => Some(*a),
+            Some(Kinds::Button(a, _) | Kinds::Link(a, _)) => Some(*a),
             _ => None,
         };
     } else if act.is_none() {
@@ -1097,6 +1164,11 @@ pub(crate) fn run_menu(c: &mut Core) {
         Act::CloseAll => {
             m.nav.close();
             close(commands);
+        }
+        Act::Settings => {
+            // Back from the Settings screen returns to the game, not to the Options dialog it was reached from.
+            m.nav.open(Screen::Settings);
+            enter(m, front, stored, sim, flow, &folder.folder());
         }
         Act::SaveReplay => {
             let text = match sim.session.save_replay() {
@@ -1267,6 +1339,81 @@ pub(crate) fn run_saving(c: &mut Core) {
     }
 }
 
+/// One frame of the Settings screen over the game (`settings`, not in the original; opened by Ctrl+G or the link in the
+/// Options dialog). It is made on its first frame from the whole game: the live options, the stored settings, the
+/// platform and the rules the game runs with. Volumes, health bars, the clock and the like apply at once when OK is
+/// pressed; the rules (the Gameplay page) are shown and cannot be changed. OK, Cancel and Esc return to the game.
+pub(crate) fn run_settings(c: &mut Core) {
+    if c.menu.as_ref().is_none_or(|m| m.screen() != Screen::Settings) {
+        return;
+    }
+    let (touch_only, no_intro, no_check) = (c.touch.touch_only, c.opts.no_intro, c.opts.no_update_check);
+    let data = frontend::game_files_line(&c.opts);
+    let Core {
+        commands,
+        menu: Some(m),
+        sim: Some(sim),
+        front,
+        pictures,
+        stored,
+        extras,
+        input,
+        front_screen: cam,
+        ..
+    } = c
+    else {
+        return;
+    };
+    if m.settings.is_none() {
+        let (_, palette) = frontend::menu_art(&mut front.install);
+        let env = settings::Env {
+            touch: touch_only,
+            updates: !touch_only && crate::update::build_version().is_some(),
+            data,
+            in_game: true,
+        };
+        let mut values = settings::Values::new(&stored.0, extras, no_intro, no_check);
+        values.show_game_rules(&sim.world.rules.extras);
+        m.settings = Some(InGameSettings {
+            ui: settings::Screen::new(env, values),
+            background: frontend::blank(),
+            palette,
+        });
+        m.dirty = true;
+    }
+    let Some(ig) = m.settings.as_mut() else { return };
+    let outcome = ig.ui.update(&frontend::custom_input(input, cam));
+    if ig.ui.take_changed() || m.dirty {
+        m.dirty = false;
+        let look = crate::customsetup::Look {
+            font: &front.font,
+            pal: &ig.palette,
+            faces: &front.button_faces,
+        };
+        frontend::set_image(pictures, &m.image, ig.ui.draw(&ig.background, &look, &front.small));
+    }
+    match outcome {
+        settings::Outcome::Stay | settings::Outcome::Reimport => {}
+        settings::Outcome::Ok => {
+            let values = ig.ui.values().clone();
+            m.nav.close();
+            close(commands);
+            settings::commit(&values, &mut stored.0, extras, &mut c.audio);
+            c.store_settings();
+        }
+        settings::Outcome::Cancel => {
+            m.nav.close();
+            close(commands);
+        }
+        settings::Outcome::OpenFolder => {
+            let file = crate::host::settings_path(&c.opts);
+            let dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+            let _ = std::fs::create_dir_all(&dir);
+            c.request_open(settings::folder_url(&dir));
+        }
+    }
+}
+
 /// Carries out a save or load the dialog asked for, at once: both need the whole game.
 pub(crate) fn service_saving(c: &mut Core) {
     let Some(req) = c.menu.as_mut().and_then(|m| m.request.take()) else {
@@ -1399,6 +1546,7 @@ mod tests {
             drag: None,
             dirty: false,
             save: None,
+            settings: None,
             request: None,
             from_outcome: false,
         }
@@ -1469,9 +1617,11 @@ mod tests {
         tab_stops(&b, s)
             .into_iter()
             .map(|i| match &b.items[i].kind {
-                Kinds::Button(_, l) | Kinds::Slider(_, l, ..) | Kinds::Check(_, l, _) | Kinds::Radio(_, l, _) => {
-                    l.clone()
-                }
+                Kinds::Button(_, l)
+                | Kinds::Link(_, l)
+                | Kinds::Slider(_, l, ..)
+                | Kinds::Check(_, l, _)
+                | Kinds::Radio(_, l, _) => l.clone(),
                 k => panic!("{k:?} takes no focus"),
             })
             .collect()
@@ -1510,6 +1660,64 @@ mod tests {
         // The other screens' buttons go from the top; text and headings never take the focus.
         assert_eq!(stop_names(Screen::Help), ["Keystroke Help", "Tips", "Previous"]);
         assert_eq!(stop_names(Screen::Confirm(Confirm::QuitToMenu)), ["OK", "Cancel"]);
+    }
+
+    #[test]
+    fn the_options_dialog_has_a_settings_link_a_finger_can_hit_that_overlaps_nothing() {
+        let b = menu_at(Screen::Options).build(20, 16, Kind::Campaign);
+        let link = b
+            .items
+            .iter()
+            .find(|it| matches!(it.kind, Kinds::Link(Act::Settings, _)))
+            .expect("the link");
+        assert!(link.r.w >= 24 && link.r.h >= 24, "{:?}", link.r);
+        assert!(matches!(&link.kind, Kinds::Link(_, t) if t.contains("Ctrl+G")));
+        for it in b.items.iter().filter(|it| !std::ptr::eq(*it, link)) {
+            let (a, o) = (link.r, it.r);
+            assert!(
+                a.y + a.h as i32 <= o.y
+                    || o.y + o.h as i32 <= a.y
+                    || a.x + a.w as i32 <= o.x
+                    || o.x + o.w as i32 <= a.x,
+                "the link overlaps {:?}",
+                it.kind
+            );
+        }
+        // Inside the dialog's frame, and the dialog still fits the screen.
+        let f = b.frame;
+        assert!(link.r.x >= f.x && link.r.x + link.r.w as i32 <= f.x + f.w as i32);
+        assert!(link.r.y + link.r.h as i32 <= f.y + f.h as i32 && f.y >= 0 && f.y + f.h as i32 <= 480);
+        // The Tab order reaches it last, after Previous; the F10 menu has no link.
+        assert_eq!(
+            stop_names(Screen::Options).last().map(String::as_str),
+            Some(SETTINGS_LINK)
+        );
+        assert!(
+            !menu_at(Screen::Game)
+                .build(20, 16, Kind::Campaign)
+                .items
+                .iter()
+                .any(|it| matches!(it.kind, Kinds::Link(..)))
+        );
+    }
+
+    #[test]
+    fn f2_stays_the_first_remembered_view_and_the_settings_key_is_free_in_the_original_table() {
+        let none = mouse::KeyMods::default();
+        // F2 (the key the main menu uses) is a game key: the first view.
+        assert_eq!(
+            mouse::key_action(mouse::Key::F(2), none, false, true, false),
+            Some(mouse::KeyAction::GotoView(0))
+        );
+        for enhanced in [false, true] {
+            for multiplayer in [false, true] {
+                assert_eq!(
+                    mouse::key_action(SETTINGS_KEY.0, SETTINGS_KEY.1, false, enhanced, multiplayer),
+                    None,
+                    "Ctrl+G does nothing in the original"
+                );
+            }
+        }
     }
 
     #[test]

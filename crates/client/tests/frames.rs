@@ -35,6 +35,7 @@ const SCENES: &[&str] = &[
     "flow",
     "custom",
     "settings-screen",
+    "settings-ingame",
     "multi",
     "lobby",
     "extras",

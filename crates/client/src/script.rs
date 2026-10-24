@@ -236,6 +236,16 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        // Tidewater's Settings screen over a game: Ctrl+G opens it (F2 is the first remembered view), the Gameplay page
+        // shows the game's own rules and cannot change them, a value is changed and OK applies it; the Options
+        // dialog's link opens it too.
+        Scene {
+            name: "settings-ingame",
+            start: vec![play(0)],
+            cmds: settings_ingame(),
+            extras: &[("rally-points", "on"), ("selection-limit", "12")],
+            keys: "",
+        },
         // The multiplayer menus, up to the game list.
         Scene {
             name: "multi",
@@ -1062,6 +1072,45 @@ fn settings() -> Vec<Cmd> {
     v.extend([Wait(2), Shot("music-30")]);
     v.extend(click(523.0, 424.0));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
+}
+
+/// The Settings screen over a game (`gamemenu::run_settings`): Ctrl+G opens it over the running game, the pages are
+/// looked at, a value is changed and OK applies it at once, and the link in the Options dialog opens it again.
+fn settings_ingame() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(30), Shot("game")];
+    v.extend(ctrl_tap(K::Letter('G')));
+    v.extend([Wait(3), Shot("general")]);
+    // The game stands still while it is open.
+    v.extend([Wait(20), Shot("general-later")]);
+    // Interface: Health bars (the first row) to Always.
+    v.extend(click(263.0, 76.0));
+    v.extend([Wait(2)]);
+    v.extend(click(460.0, 114.0));
+    v.extend([Wait(2), Move(460.0, 195.0), Wait(1), Shot("health-list")]);
+    v.extend(click(460.0, 192.0));
+    v.extend([Wait(2), Shot("health-always")]);
+    // Gameplay: the game's rules, greyed, and a click on one does nothing.
+    v.extend(click(491.0, 76.0));
+    v.extend([Wait(2), Shot("gameplay")]);
+    v.extend(click(460.0, 114.0));
+    v.extend([Wait(2), Shot("gameplay-click")]);
+    // OK applies and returns to the game, which runs again with health bars on.
+    v.extend(click(523.0, 424.0));
+    v.extend([Wait(40), Shot("applied")]);
+    // F2 is still the first remembered view.
+    v.extend(tap(K::F(2)));
+    v.extend([Wait(3), Shot("f2-view")]);
+    // The Options dialog's link, then Esc back to the game.
+    v.extend(tap(K::F(5)));
+    v.extend([Wait(3), Shot("options")]);
+    v.extend([Move(410.0, 322.0), Wait(1), Shot("options-link-hover")]);
+    v.extend(click(410.0, 322.0));
+    v.extend([Wait(3), Shot("from-link")]);
+    v.extend(tap(K::Escape));
+    v.extend([Wait(3), Shot("cancelled")]);
     v
 }
 

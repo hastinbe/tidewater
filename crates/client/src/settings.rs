@@ -156,6 +156,9 @@ pub(crate) struct Env {
     /// The line about the imported game files, `None` when there is nothing to manage (`--install` reads the files in
     /// place): without it there are no game-files row and no "Import game files again..." button.
     pub data: Option<String>,
+    /// The screen is open over a running game (`gamemenu`): the Gameplay page shows the rules the game started with and
+    /// cannot change them, and there is no "Import game files again...".
+    pub in_game: bool,
 }
 
 /// Whether the row is shown here.
@@ -165,6 +168,12 @@ pub(crate) fn shown(item: Item, env: &Env) -> bool {
         Item::Window | Item::MouseLock => !env.touch,
         Item::UpdateCheck => !env.touch && env.updates,
     }
+}
+
+/// Whether the row is shown but cannot be changed here: during a game the Gameplay page's options are the game's rules
+/// (`Rules::extras`), fixed when it started.
+pub(crate) fn read_only(item: Item, env: &Env) -> bool {
+    env.in_game && matches!(item, Item::Extra(id) if extra_page(id) == Page::Gameplay)
 }
 
 /// A button that is not a drop-down.
@@ -273,11 +282,18 @@ impl Values {
         self.touched[index(item)] = true;
     }
 
-    /// Every shown row back to its default.
+    /// Shows the rules of the running game on the Gameplay rows (they are not touched, so OK never writes them).
+    pub(crate) fn show_game_rules(&mut self, rules: &tidewater_sim::Extras) {
+        for (id, v) in ClientExtras::of_sim(rules) {
+            self.v[id as usize] = v;
+        }
+    }
+
+    /// Every shown row that can be changed back to its default.
     fn defaults(&mut self, env: &Env) {
         for i in 0..ITEMS {
             let item = item_at(i);
-            if shown(item, env) {
+            if shown(item, env) && !read_only(item, env) {
                 self.set(item, default_of(item));
             }
         }
@@ -310,6 +326,9 @@ pub(crate) fn commit(values: &Values, stored: &mut Prefs, live: &mut ClientExtra
 
 // ---------------------------------------------------------------------------------------------------------------
 // Descriptions
+
+/// The note on the Gameplay page during a game.
+pub(crate) const GAMEPLAY_NOTE_IN_GAME: &str = "Fixed for this game: they were set when it started.";
 
 /// The note on the Gameplay page.
 const GAMEPLAY_NOTE: &str = "These options change the game rules. They apply to single-player games you start; in a \
@@ -485,11 +504,14 @@ fn layout(page: Page, env: &Env) -> Layout {
             texts.push((line.clone(), Rect::new(LABEL_X, y + 2, ROW_W - 16, TEXT_LINE as u32)));
             y += TEXT_LINE + 6;
         }
-        let actions: Vec<Action> = [(!env.touch, Action::OpenFolder), (env.data.is_some(), Action::Reimport)]
-            .into_iter()
-            .filter(|(on, _)| *on)
-            .map(|(_, a)| a)
-            .collect();
+        let actions: Vec<Action> = [
+            (!env.touch, Action::OpenFolder),
+            (env.data.is_some() && !env.in_game, Action::Reimport),
+        ]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, a)| a)
+        .collect();
         for (i, a) in actions.into_iter().enumerate() {
             targets.push((
                 Target::Action(a),
@@ -499,7 +521,12 @@ fn layout(page: Page, env: &Env) -> Layout {
     }
     if page == Page::Gameplay {
         texts.push((
-            GAMEPLAY_NOTE.to_string(),
+            if env.in_game {
+                GAMEPLAY_NOTE_IN_GAME
+            } else {
+                GAMEPLAY_NOTE
+            }
+            .to_string(),
             Rect::new(LABEL_X, y + 6, ROW_W - 16, 3 * TEXT_LINE as u32),
         ));
     }
@@ -653,6 +680,7 @@ impl Screen {
                 self.page = p;
                 self.focus = Target::Tab(p);
             }
+            Target::Row(item) if read_only(item, &self.env) => {}
             Target::Row(item) => self.open_list(item),
             Target::Action(Action::OpenFolder) => return Outcome::OpenFolder,
             Target::Action(Action::Reimport) => return Outcome::Reimport,
@@ -710,6 +738,9 @@ impl Screen {
 
     /// The value of the focused drop-down moved by `by` places, wrapping.
     fn cycle(&mut self, item: Item, by: isize) {
+        if read_only(item, &self.env) {
+            return;
+        }
         let current = self.values.get(item);
         let opts = options(item, current);
         let at = opts.iter().position(|(n, _)| *n == current).unwrap_or(0);
@@ -791,6 +822,7 @@ impl Screen {
             Target::Row(item) => describe(item),
             Target::Action(a) => describe_action(a).to_string(),
             Target::Ok => "Apply the changes and save them.".to_string(),
+            Target::Cancel if self.env.in_game => "Throw the changes away and go back to the game.".to_string(),
             Target::Cancel => "Throw the changes away and go back to the main menu.".to_string(),
             Target::Defaults => {
                 "Set every setting on every page to its default. Cancel still throws the change away.".to_string()
@@ -838,27 +870,27 @@ impl Screen {
                         Item::UpdateCheck => "Check for updates",
                     };
                     let b = drop_rect(r);
-                    look.label(
-                        &mut p,
-                        (LABEL_X, b.y + (DROP_H as i32 - look.font.height as i32) / 2),
-                        label,
-                    );
+                    let at = (LABEL_X, b.y + (DROP_H as i32 - look.font.height as i32) / 2);
+                    if read_only(item, &self.env) {
+                        look.text(&mut p, at, label, menuscreen::GREY);
+                    } else {
+                        look.label(&mut p, at, label);
+                    }
                     let cur = self.values.get(item);
                     let word = options(item, cur)
                         .into_iter()
                         .find(|(n, _)| *n == cur)
                         .map(|(_, w)| w)
                         .unwrap_or_default();
-                    look.drop(
-                        &mut p,
-                        b,
-                        &word,
-                        DropState::of(
-                            !modal && self.ptr.is_hot(t),
-                            !modal && self.focus == t,
-                            !modal && self.ptr.pressed(t),
-                        ),
+                    let mut ds = DropState::of(
+                        !modal && self.ptr.is_hot(t),
+                        !modal && self.focus == t,
+                        !modal && self.ptr.pressed(t),
                     );
+                    if read_only(item, &self.env) {
+                        ds = ds.dim();
+                    }
+                    look.drop(&mut p, b, &word, ds);
                 }
                 Target::Action(a) => menuscreen::draw_button(
                     &mut p,
@@ -941,6 +973,7 @@ mod tests {
             touch,
             updates: !touch,
             data: (!touch).then(|| "Game files: GOG installer, 156 files, 41 maps, imported 2026-10-23".to_string()),
+            in_game: false,
         }
     }
 
@@ -1049,6 +1082,88 @@ mod tests {
             ]
         );
         assert_eq!(items_on(Page::General).first(), Some(&Item::Window));
+    }
+
+    fn in_game_env() -> Env {
+        Env {
+            in_game: true,
+            ..env(false)
+        }
+    }
+
+    /// A screen opened over a game started with rally points, a selection limit of 12 and two extra speeds.
+    fn in_game_screen() -> Screen {
+        let mut v = Values::new(&Prefs::default(), &ClientExtras::default(), false, false);
+        v.show_game_rules(&tidewater_sim::Extras {
+            rally_points: true,
+            selection_limit: 12,
+            extra_speeds: 2,
+            ..Default::default()
+        });
+        Screen::new(in_game_env(), v)
+    }
+
+    #[test]
+    fn in_a_game_the_gameplay_page_shows_the_games_rules_and_cannot_change_them() {
+        let mut s = in_game_screen();
+        click(&mut s, Target::Tab(Page::Gameplay));
+        let v = &s.values;
+        assert_eq!(v.get(Item::Extra(Id::RallyPoints)), 1);
+        assert_eq!(v.get(Item::Extra(Id::SelectionLimit)), 1);
+        assert_eq!(v.get(Item::Extra(Id::SpeedLevels)), 2);
+        assert_eq!(v.get(Item::Extra(Id::ProductionQueue)), 0);
+        // Clicking, Enter and the arrows do nothing to them.
+        click(&mut s, Target::Row(Item::Extra(Id::RallyPoints)));
+        assert!(s.open.is_none(), "no list opens");
+        s.focus = Target::Row(Item::Extra(Id::SpeedLevels));
+        key(&mut s, Key::Enter);
+        key(&mut s, Key::Right);
+        key(&mut s, Key::Left);
+        assert!(s.open.is_none());
+        assert_eq!(s.values.get(Item::Extra(Id::SpeedLevels)), 2);
+        // Defaults leaves them (and every row of the other pages goes to its default), and OK writes none of them.
+        click(&mut s, Target::Defaults);
+        assert_eq!(s.values.get(Item::Extra(Id::RallyPoints)), 1);
+        let (mut stored, mut live, mut audio) = (Prefs::default(), ClientExtras::default(), Audio::default());
+        commit(s.values(), &mut stored, &mut live, &mut audio);
+        assert!(stored.extras.sim().is_default() && live.sim().is_default());
+        // The note says why, and the other pages stay editable.
+        let note = layout(Page::Gameplay, &in_game_env()).texts;
+        assert_eq!(note[0].0, GAMEPLAY_NOTE_IN_GAME);
+        assert!(GAMEPLAY_NOTE_IN_GAME.starts_with("Fixed for this game"));
+        let mut s = in_game_screen();
+        s.page = Page::Interface;
+        pick(&mut s, Item::Extra(Id::HealthBars), 2);
+        assert_eq!(s.values.get(Item::Extra(Id::HealthBars)), 2);
+        assert!(!read_only(Item::Extra(Id::HealthBars), &in_game_env()));
+        assert!(read_only(Item::Extra(Id::ShiftQueue), &in_game_env()));
+        assert!(!read_only(Item::Extra(Id::ShiftQueue), &env(false)));
+    }
+
+    #[test]
+    fn in_a_game_import_again_is_hidden_and_everything_else_stays() {
+        let actions = |e: &Env| -> Vec<Action> {
+            layout(Page::General, e)
+                .targets
+                .into_iter()
+                .filter_map(|(t, _)| if let Target::Action(a) = t { Some(a) } else { None })
+                .collect()
+        };
+        assert_eq!(actions(&in_game_env()), [Action::OpenFolder]);
+        assert_eq!(
+            layout(Page::General, &in_game_env()).texts.len(),
+            1,
+            "the game files line stays"
+        );
+        let rows = |e: &Env| layout(Page::General, e).targets.len();
+        assert_eq!(rows(&in_game_env()) + 1, rows(&env(false)));
+        // OK, Cancel and Esc all leave; the Cancel text says where.
+        let mut s = in_game_screen();
+        assert_eq!(click(&mut s, Target::Ok), Outcome::Ok);
+        assert_eq!(click(&mut s, Target::Cancel), Outcome::Cancel);
+        assert_eq!(key(&mut s, Key::Escape), Outcome::Cancel);
+        s.focus = Target::Cancel;
+        assert!(s.described().contains("game"));
     }
 
     #[test]

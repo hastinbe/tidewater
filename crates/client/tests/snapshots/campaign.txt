@@ -402,8 +402,8 @@ shot	1322	cycle-300	c8cd9e50b9789276
 frames	1319-1322	c8cd9e50b9789276
 shot	1327	game-menu	7fb7256dbaf78b5e
 frames	1323-1328	7fb7256dbaf78b5e
-shot	1332	options	91ef284e6a7ce5b0
-frames	1329-1333	91ef284e6a7ce5b0
+shot	1332	options	ed279b6b6360347d
+frames	1329-1333	ed279b6b6360347d
 shot	1337	back-to-menu	7fb7256dbaf78b5e
 frames	1334-1337	7fb7256dbaf78b5e
 frames	1338-1338	dc0b57bbd75853f9

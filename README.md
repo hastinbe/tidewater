@@ -89,7 +89,7 @@ Downloads are checked against the size the release lists; they are not signed. A
 | **Game screen** | Map view with fog of war, minimap, resource bar, selection and unit information panel, command buttons and hotkeys, building placement, messages and the status bar. |
 | **Game rules** | Movement and pathfinding, combat, spells, harvesting, construction, training and research, repair, transports, walls, rescue, victory and defeat, and computer players that build, train, attack and cast. |
 | **Custom games** | The Custom Scenario screen (see below), or any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog). |
-| **Settings** | Tidewater's own Settings screen (F2 on the main menu): the optional improvements, the window, the mouse lock, the intro video, the update check and the game files. See [Settings](#settings). |
+| **Settings** | Tidewater's own Settings screen (F2 on the main menu, Ctrl+G in a game): the optional improvements, the window, the mouse lock, the intro video, the update check and the game files. See [Settings](#settings). |
 | **Menus** | Main menu (Single Player Game, Multi Player Game, Replay Introduction, Show Credits, Exit Program), single-player menu (New Campaign, Load Game, Custom Scenario), new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
 | **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
@@ -186,6 +186,12 @@ original's main-menu buttons are unchanged.
 | **Interface** | Health bars, idle worker button, game clock, control group bar, smart attack-move, minimap ping, record replays. | At once or from the next game |
 | **Sound** | Unit voices, sound effects and music, 0 to 100 percent in steps of 10. | At once |
 | **Gameplay** | Rally points, production queue, selection limit, extra game speeds, shift-queued orders. These change the game rules: they apply to single-player games you start, and in a multiplayer game the host chooses them in the lobby. | From the next game |
+
+**During a game, press Ctrl+G** (F2 is the first remembered view there) **or tap "Settings (Ctrl+G)" in the Options dialog**
+(F10, Options). It opens over the game, which stops while it is open, as for the game menu; in a network game it keeps
+running, so nobody waits for you. Everything works as on the main menu, and your volumes, health bars, clock and the
+like apply at once on OK. The **Gameplay** page is read-only there, because those rules were set when the game started.
+**Import game files again...** is hidden. OK, Cancel and Esc return to the game.
 
 Rows that make no sense on a phone (window, mouse lock, update check, settings folder) are hidden there. **Import game files
 again...** opens the import screen over the running program; Esc there leaves everything as it was and returns to the

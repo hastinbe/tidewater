@@ -346,7 +346,7 @@ impl Core {
         c.time.accumulate();
         while c.time.expend() {
             // A network game waiting for a turn does not spend the step (a short wait is caught up).
-            if game_running(c) && !game::frozen_by_focus(c) && game::tick(c) {
+            if game_ticking(c) && !game::frozen_by_focus(c) && game::tick(c) {
                 c.time.unspend();
                 break;
             }
@@ -428,6 +428,18 @@ impl Core {
 /// game is being left for the main menu).
 pub fn game_running(c: &Core) -> bool {
     c.states.get() == AppState::Game && c.dialog.is_none() && c.menu.is_none() && c.quitting.is_none()
+}
+
+/// Whether the game's cycles run: the game screen running, or a network game under the Settings screen, which opens
+/// over such a game without pausing it (the other players do not wait for this one's menu). The game's input stays off
+/// while the screen is up ([`game_running`]).
+fn game_ticking(c: &Core) -> bool {
+    game_running(c)
+        || (c.states.get() == AppState::Game
+            && c.dialog.is_none()
+            && c.quitting.is_none()
+            && c.menu.as_ref().is_some_and(GameMenu::is_settings)
+            && c.sim.as_ref().is_some_and(|s| s.session.is_network()))
 }
 
 fn in_game(c: &Core) -> bool {
@@ -539,6 +551,12 @@ fn frame_systems(c: &mut Core) {
             c.apply_commands();
             game::update_messages(c);
         }
+        if !game_running(c) && game_ticking(c) {
+            // The game goes on under the Settings screen: its sounds and messages are not let pile up.
+            game::play_sounds(c);
+            c.apply_commands();
+            game::update_messages(c);
+        }
         game::cycle_palette(c);
         game::redraw_terrain(c);
         game::draw_view(c);
@@ -564,6 +582,10 @@ fn frame_systems(c: &mut Core) {
     c.apply_commands();
     if c.menu.is_some() {
         gamemenu::run_saving(c);
+    }
+    c.apply_commands();
+    if c.menu.is_some() {
+        gamemenu::run_settings(c);
     }
     c.apply_commands();
     if c.menu.is_some() {

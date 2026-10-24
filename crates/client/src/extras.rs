@@ -443,6 +443,28 @@ impl ClientExtras {
         }
     }
 
+    /// The registry values of the sim options a running game has (`tidewater_sim::Extras`), the inverse of [`ClientExtras::sim`]:
+    /// what the Settings screen shows, read-only, on its Gameplay page during a game. A selection limit the registry
+    /// has no step for shows as the nearest step below it.
+    pub fn of_sim(sim: &tidewater_sim::Extras) -> [(Id, u8); 5] {
+        use tidewater_sim::extras::UNLIMITED;
+        [
+            (Id::RallyPoints, u8::from(sim.rally_points)),
+            (Id::ProductionQueue, u8::from(sim.production_queue)),
+            (
+                Id::SelectionLimit,
+                match sim.selection_limit {
+                    UNLIMITED => 3,
+                    18.. => 2,
+                    12.. => 1,
+                    _ => 0,
+                },
+            ),
+            (Id::SpeedLevels, sim.extra_speeds.min(3)),
+            (Id::ShiftQueue, u8::from(sim.order_queue)),
+        ]
+    }
+
     /// What is done with every game's recording (client-only).
     pub fn replay_saving(&self) -> ReplaySaving {
         match self.get(Id::AutoReplay) {
@@ -748,6 +770,28 @@ mod tests {
             assert_eq!(e.sim().selection_limit, limit);
         }
         assert_eq!(local_sim_extras(&e), e.sim());
+    }
+
+    #[test]
+    fn a_games_sim_options_show_as_registry_values_and_back() {
+        let mut e = ClientExtras::default();
+        for (id, v) in ClientExtras::of_sim(&e.sim()) {
+            assert_eq!(v, id.spec().default, "{}", id.spec().name);
+        }
+        e.set(Id::RallyPoints, 1);
+        e.set(Id::SelectionLimit, 2);
+        e.set(Id::SpeedLevels, 3);
+        e.set(Id::ShiftQueue, 1);
+        let mut back = ClientExtras::default();
+        for (id, v) in ClientExtras::of_sim(&e.sim()) {
+            back.set(id, v);
+        }
+        assert_eq!(back.sim(), e.sim());
+        for v in 0..4 {
+            e.set(Id::SelectionLimit, v);
+            let shown = ClientExtras::of_sim(&e.sim());
+            assert_eq!(shown[2], (Id::SelectionLimit, v));
+        }
     }
 
     #[test]

@@ -68,6 +68,17 @@ without new screen code. The file and the flags still work and are for power use
   `SDL_OpenURL`. **Import game files again...** opens the first-run screen (`FirstRun::returning`) over the running
   program, letting go of the game files first; Esc or Back returns to the main menu.
 
+- **In a game.** Ctrl+G opens the screen over the game (`gamemenu::run_settings`, the game menu's `Screen::Settings`).
+  F2 is the first remembered view's key (and Alt+F2 a network game's drop key), so it cannot be used; Ctrl+G is a chord
+  the original's key table leaves unused, and `keymap` reserves it so a `[keys]` line cannot give it to an action. The
+  Options dialog (F10, Options) has a small "Settings (Ctrl+G)" text link under Previous, 160 x 24 tap target, in the
+  small font like the main menu's link; it opens the screen with the game as the place Back returns to. The menu
+  stops a single-player game while it is open; a network game keeps running (`core::game_ticking`) with the game's own
+  input off, as the original keeps a network game running under its menus. The Gameplay rows show the rules the game
+  runs with (`ClientExtras::of_sim` from `Rules::extras`), greyed and unchangeable, under the note "Fixed for this
+  game: they were set when it started."; Defaults leaves them, OK never writes them. "Import game files again..." is
+  hidden; every other row works as on the main menu.
+
 ## What each one does
 
 - **Health bars** (`health-bars`). A three-row bar over a unit's selection box, as wide as the box, filled in the
@@ -271,6 +282,6 @@ choices is not built. Tests: `a_non_local_session_sets_the_c_plus_l_options_and_
 ## Checks that keep the defaults honest
 
 - The frame snapshot (`crates/client/tests/frames.rs`) runs its original scenes with every extra off and is never
-  re-blessed for an extra (the main menu's frames changed once, for the Settings link, which is not an extra); the scenes `extras`, `extras-bars`, `extras-groups`, `extras-attack` and `extras-keys` turn options on and have their own entries; the scene `settings-screen` shows the Settings screen.
+  re-blessed for an extra (the main menu's frames changed once, for the Settings link, which is not an extra); the scenes `extras`, `extras-bars`, `extras-groups`, `extras-attack` and `extras-keys` turn options on and have their own entries; the scene `settings-screen` shows the Settings screen and `settings-ingame` the Settings screen over a game.
 - `Trims::default()` leaves the mixed sound identical; the audio snapshot of the original scenes shows it.
 - The oracle traces and the whole-map snapshot run on the sim, which an empty `Extras` does not change.
