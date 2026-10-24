@@ -1045,7 +1045,12 @@ pub(crate) fn tick(c: &mut Core) -> bool {
     }
     cheat_queue.take_events(&events);
     // Each notice replaces the last on the notice line, so the latest wins.
-    if let Some(n) = events.iter().rev().find_map(|e| messages::event_notice(e, human)) {
+    let observing = sim.session.observing();
+    if let Some(n) = events
+        .iter()
+        .rev()
+        .find_map(|e| messages::local_event_notice(e, human, observing))
+    {
         sim.notices.push(n);
     }
     // Screen spec, "Counting up and down": once per cycle.
@@ -2565,6 +2570,7 @@ pub(crate) fn update_messages(c: &mut Core) {
         panel_ui: Some(ui),
         info_panel: Some(info_panel),
         screen_ui: Some(scr),
+        script,
         ..
     } = c
     else {
@@ -2572,9 +2578,12 @@ pub(crate) fn update_messages(c: &mut Core) {
     };
     let now = (time.elapsed_secs_f64() * 1000.0) as u64;
     for n in std::mem::take(&mut sim.notices) {
-        scr.messages.notice(&text_of(hud, &n), 0, now);
+        let text = text_of(hud, &n);
+        crate::script::note_message(script, &text);
+        scr.messages.notice(&text, 0, now);
     }
     for line in std::mem::take(&mut sim.chat) {
+        crate::script::note_message(script, &line);
         scr.messages
             .add(&line, messages::CHAT_COLOUR, messages::TTL, now, &|s| {
                 hud.art.text_width(s)

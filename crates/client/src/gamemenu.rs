@@ -3,7 +3,8 @@
 //! with its confirmations. The rules are in [`crate::menu`] and [`crate::prefs`]; this module draws the dialogs on the
 //! front end's layer (as the victory and defeat dialogs are) and applies what they decide.
 //!
-//! While a menu is open the game doesn't advance (single player; [`crate::frontend::game_running`] is false).
+//! While a menu is open the game doesn't advance in single player ([`crate::core::game_running`] is false). A network
+//! game goes on underneath ([`crate::core::game_ticking`]), with the menu holder's game input off.
 //!
 //! Choices where the spec leaves a gap:
 //! - The dialog files (`gamemenu.bin` and the others) have no spec, so the layouts, the labels and the texts of the
@@ -314,11 +315,6 @@ impl Builder {
 }
 
 impl GameMenu {
-    /// Whether the Settings screen is the open one.
-    pub(crate) fn is_settings(&self) -> bool {
-        self.screen() == Screen::Settings
-    }
-
     fn screen(&self) -> Screen {
         self.nav.current().unwrap_or(Screen::Game)
     }

@@ -243,6 +243,8 @@ frozen state, not the save (a load releases every unit).
 - **Pause and Resume** are separate synced commands (`Command::Pause`, `Command::Resume`), so a pause while paused and
   a resume while running do nothing. The pause key, button and the phone's background pause send Resume while the game
   is paused.
+- **The game menu does not stop a network game** (`ui/game-menu.md`, "Multiplayer"): the game goes on underneath for
+  the player who opened it, with that player's game input off (`core::game_ticking`), so nobody waits for them.
 - **Enhanced multiplayer gives each player 3 pauses** (`World::pauses`). A pause with none left does nothing. The counts
   join the state hash in that mode only, and Enhanced saves keep them.
 - **Notices** (Enhanced multiplayer only): network entry 86 with the pauser's name and the pauses left, and entry 87 with
@@ -295,7 +297,9 @@ observers):
   ghosts, and lets the mouse pick any unit. The sim itself reads only `rules.reveal_map`, because that setting changes
   which units are hidden and so what a command may target. An observer's game therefore stays in step with the players'.
 - **The interface.** The HUD is the host player's, the Surrender button is hidden on the end screen, and the victory and
-  defeat dialogs are not shown.
+  defeat dialogs are not shown. Its notice line tells a game's end as it does for anyone else ("The game has ended",
+  "Player N has been defeated"), never as a "Victory!" of its own, and shows none of the watched player's own notices
+  (`messages::local_event_notice`).
 
 What is left: joining after the game has started (an observer attaches only before the start), a view with the choice
 of player, and a spectator interface of its own.
@@ -337,7 +341,38 @@ of player, and a spectator interface of its own.
 - **Observer tests** are in `net/tcp.rs` (the handshake, the refusals, relayed turns, an observer not heard),
   `net/lockstep.rs` (two players and an observer stay in step and the observer sends nothing), `net/lobby.rs`,
   `net/room.rs` and `sim/vision.rs` (the observer's view changes nothing the sim hides).
+- **`crates/client/tests/mp_e2e.rs`** is the end-to-end check: separate `tidewater` programs on one machine, each in
+  its own folder (a data folder linking to the game files, its own settings, saves and recordings), each running a
+  scripted scene (`mp-*` in `script.rs`) through the real menus, headless. Five games, one after another: Local Network
+  found on the game list (two players), Direct IP with the address typed, Classic rules with Ready, an observer joining
+  a two-player game with Watch Game, and three players where one leaves and the others play on. In each the creator
+  picks a map and sets rally points and smart attack-move in the Extras box; everyone gives orders, chat goes both
+  ways and a player leaves. The test then checks each program's `<scene>-events.txt` (the screens it reached, its seat,
+  the options in force, the messages it showed) and compares the recordings cycle by cycle as `twtool desync-diff`
+  does. Below, "Running the end-to-end check".
 - **`crates/client/tests/net.rs`** plays real games between two machines in one process over loopback TCP on the smallest
   installed map, with scripted commands from both sides: hashes at every turn, recordings compared with the same
   checks as `twtool desync-diff`, a forced divergence, a delayed peer, a joiner with a different map, and Classic
   rules. It needs `TIDEWATER_INSTALL` and does nothing without it.
+
+### Running the end-to-end check
+
+```sh
+TIDEWATER_INSTALL=<data>/game cargo test --release -p tidewater-client --test mp_e2e
+```
+
+- **About 30 seconds in a release build.** A debug build draws every frame unoptimised, so the same five games take
+  about four minutes there (they run with the other client tests). `TIDEWATER_MP_E2E_TIMEOUT` (seconds) changes how
+  long a game may take.
+- **Skipped without game files** (`TIDEWATER_INSTALL` unset), which is how CI runs it. The Local Network games also
+  skip, with a message, when a broadcast beacon does not come back to this machine (a container with no broadcast
+  route); Direct IP still runs there.
+- **It uses the real ports**, TCP and UDP 6112, so the games run one at a time and nothing else on the machine may
+  hold port 6112. While a lobby is open its beacon goes out on the machine's network like any Local Network game's.
+- **What a run leaves**, in `target/tmp/mp-e2e/<game>/<scene>/`: `out/<scene>-events.txt`, the shots as
+  `out/<shot>-composed.png` (the game list, the lobbies, the game on each side), `out/save/replays/*.twrep` and the
+  program's `log.txt`. A failure prints every program's events and log.
+- **By hand**, each scene runs on its own: start the creator's first, then the others, each with its own data folder
+  (holding `game`) and output folder, for example
+  `TIDEWATER_SCRIPT_PICTURES=shots tidewater --data-dir A --script mp-lan-host --script-out A/out --headless --record-replay`
+  and the same with `mp-lan-join` and `B`. Leave out `--headless` to watch them in windows.

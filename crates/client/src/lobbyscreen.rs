@@ -321,6 +321,15 @@ impl Lobby {
         }
     }
 
+    /// Where the lobby stands, for a scripted run to wait on (`script`).
+    pub(crate) fn progress(&self) -> crate::script::LobbyProgress {
+        crate::script::LobbyProgress {
+            humans: self.view.rows.iter().filter(|r| r.state == RowState::Human).count(),
+            watchers: self.view.watchers.len(),
+            startable: self.is_host() && self.button_enabled(T::Start),
+        }
+    }
+
     fn is_host(&self) -> bool {
         matches!(self.back, Some(Backend::Host(_)))
     }

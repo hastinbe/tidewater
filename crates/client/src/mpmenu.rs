@@ -415,6 +415,15 @@ impl Mp {
         }
     }
 
+    /// How many games the game list shows (a scripted run waits on it).
+    pub(crate) fn listed_games(&self) -> usize {
+        if self.stage == Stage::Games {
+            self.games.len()
+        } else {
+            0
+        }
+    }
+
     /// Whether the picture needs drawing again, and forget it does.
     pub(crate) fn take_changed(&mut self) -> bool {
         std::mem::take(&mut self.changed)
@@ -500,7 +509,7 @@ impl Mp {
     }
 
     /// Whether Watch Game shows: the selected game may have a place for an observer.
-    fn watch_offered(&self) -> bool {
+    pub(crate) fn watch_offered(&self) -> bool {
         self.games.get(self.game_sel).is_some_and(|g| g.watch != Some(0))
     }
 
