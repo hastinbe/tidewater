@@ -236,6 +236,25 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        // Tidewater's Settings screen over a game: Ctrl+G opens it (F2 is the first remembered view), the Gameplay page
+        // shows the game's own rules and cannot change them, a value is changed and OK applies it; the Options
+        // dialog's link opens it too.
+        Scene {
+            name: "settings-ingame",
+            start: vec![play(0)],
+            cmds: settings_ingame(),
+            extras: &[("rally-points", "on"), ("selection-limit", "12")],
+            keys: "",
+        },
+        // Magnifying zoom (`map-zoom`): the wheel over the map magnifies around the pointer up to 4 times and back, and
+        // does nothing over the interface.
+        Scene {
+            name: "extras-zoom",
+            start: vec![play(0)],
+            cmds: extras_zoom(),
+            extras: &[("map-zoom", "wheel")],
+            keys: "",
+        },
         // The multiplayer menus, up to the game list.
         Scene {
             name: "multi",
@@ -1038,14 +1057,14 @@ fn settings() -> Vec<Cmd> {
     v.extend(click(460.0, 187.0));
     v.extend([Wait(2), Shot("scaling-sharp")]);
     // The tabs.
-    v.extend(click(263.0, 76.0));
+    v.extend(click(212.0, 76.0));
     v.extend([Wait(2), Shot("interface")]);
-    v.extend(click(377.0, 76.0));
+    v.extend(click(320.0, 76.0));
     v.extend([Wait(2), Shot("sound")]);
     v.extend(click(460.0, 174.0));
     v.extend([Wait(2), Shot("music-list")]);
     v.extend(tap(K::Escape));
-    v.extend(click(491.0, 76.0));
+    v.extend(click(428.0, 76.0));
     v.extend([Wait(2), Shot("gameplay")]);
     // The keyboard: Tab to the first row, Enter opens its list, Down and Enter pick.
     v.extend(tap(K::Tab));
@@ -1055,7 +1074,26 @@ fn settings() -> Vec<Cmd> {
     v.extend(tap(K::Down));
     v.extend(tap(K::Enter));
     v.extend([Wait(2), Shot("rally-on")]);
+    // The Keys page: the list, a click on Pause asks for a key, Ctrl+U binds it, Ctrl+S is refused (it is Sound effects
+    // on or off), the wheel scrolls, Backspace puts a key back and Reset keys every key.
+    v.extend(click(536.0, 76.0));
+    v.extend([Wait(2), Shot("keys")]);
+    v.extend(click(300.0, 160.0));
+    v.extend([Wait(2), Shot("keys-press")]);
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('U')));
+    v.extend([Release(K::ControlLeft), Wait(2), Shot("keys-bound")]);
+    v.extend(click(300.0, 184.0));
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('S')));
+    v.extend([Release(K::ControlLeft), Wait(2), Shot("keys-conflict")]);
+    v.extend([Wheel(-5.0), Wait(2), Shot("keys-scrolled")]);
+    v.extend(tap(K::Tab));
+    v.extend(tap(K::Enter));
+    v.extend([Wait(2), Shot("keys-reset")]);
     // Defaults resets every row; Esc leaves without applying anything.
+    v.extend(click(428.0, 76.0));
+    v.extend([Wait(2)]);
     v.extend(click(117.0, 424.0));
     v.extend([Wait(2), Shot("defaults")]);
     v.extend(tap(K::Escape));
@@ -1063,7 +1101,7 @@ fn settings() -> Vec<Cmd> {
     // The link opens it again; the music volume is set to 30% and OK applies it.
     v.extend(click(560.0, 462.0));
     v.extend([Until(AppState::Settings), Wait(25), Shot("again"), Wait(2)]);
-    v.extend(click(377.0, 76.0));
+    v.extend(click(320.0, 76.0));
     v.extend([Wait(2), Shot("again-sound")]);
     v.extend(click(460.0, 174.0));
     v.extend([Wait(2), Move(460.0, 250.0), Wait(1)]);
@@ -1071,6 +1109,75 @@ fn settings() -> Vec<Cmd> {
     v.extend([Wait(2), Shot("music-30")]);
     v.extend(click(523.0, 424.0));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
+}
+
+/// Magnifying zoom (`map-zoom`): wheel steps over the map view zoom in around the pointer (2 times, 4 times, and no
+/// further), the wheel over the minimap does nothing, and steps the other way come back to the original's view and stop
+/// there.
+fn extras_zoom() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(500.0, 250.0), Until(AppState::Game), Wait(30), Shot("normal")];
+    v.extend([Wheel(1.0), Wait(3), Shot("in-2x"), Wheel(1.0), Wait(3), Shot("in-4x")]);
+    v.extend([Wheel(1.0), Wait(3), Shot("in-4x-again")]);
+    v.extend([Move(90.0, 90.0), Wait(1), Wheel(1.0), Wait(3), Shot("over-the-minimap")]);
+    v.extend([Move(500.0, 250.0), Wait(1), Wheel(-1.0), Wait(3), Shot("out-2x")]);
+    v.extend([
+        Wheel(-1.0),
+        Wait(3),
+        Shot("out-1x"),
+        Wheel(-1.0),
+        Wait(3),
+        Shot("out-1x-again"),
+    ]);
+    v
+}
+
+/// The Settings screen over a game (`gamemenu::run_settings`): Ctrl+G opens it over the running game, the pages are
+/// looked at, a value is changed and OK applies it at once, and the link in the Options dialog opens it again.
+fn settings_ingame() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(30), Shot("game")];
+    v.extend(ctrl_tap(K::Letter('G')));
+    v.extend([Wait(3), Shot("general")]);
+    // The game stands still while it is open.
+    v.extend([Wait(20), Shot("general-later")]);
+    // Interface: Health bars (the first row) to Always.
+    v.extend(click(212.0, 76.0));
+    v.extend([Wait(2)]);
+    v.extend(click(460.0, 114.0));
+    v.extend([Wait(2), Move(460.0, 195.0), Wait(1), Shot("health-list")]);
+    v.extend(click(460.0, 192.0));
+    v.extend([Wait(2), Shot("health-always")]);
+    // Gameplay: the game's rules, greyed, and a click on one does nothing.
+    v.extend(click(428.0, 76.0));
+    v.extend([Wait(2), Shot("gameplay")]);
+    v.extend(click(460.0, 114.0));
+    v.extend([Wait(2), Shot("gameplay-click")]);
+    // Keys: Pause is given Ctrl+U, which OK applies at once (the game's key table reads the stored keys every frame).
+    v.extend(click(536.0, 76.0));
+    v.extend(click(300.0, 160.0));
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('U')));
+    v.extend([Release(K::ControlLeft), Wait(2), Shot("keys")]);
+    // OK applies and returns to the game, which runs again with health bars on.
+    v.extend(click(523.0, 424.0));
+    v.extend([Wait(40), Shot("applied")]);
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('U')));
+    v.extend([Release(K::ControlLeft), Wait(10), Shot("new-pause-key")]);
+    // F2 is still the first remembered view.
+    v.extend(tap(K::F(2)));
+    v.extend([Wait(3), Shot("f2-view")]);
+    // The Options dialog's link, then Esc back to the game.
+    v.extend(tap(K::F(5)));
+    v.extend([Wait(3), Shot("options")]);
+    v.extend([Move(410.0, 322.0), Wait(1), Shot("options-link-hover")]);
+    v.extend(click(410.0, 322.0));
+    v.extend([Wait(3), Shot("from-link")]);
+    v.extend(tap(K::Escape));
+    v.extend([Wait(3), Shot("cancelled")]);
     v
 }
 

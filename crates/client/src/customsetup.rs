@@ -341,6 +341,9 @@ pub(crate) struct Input {
     /// Keys that went down this frame.
     pub keys: Vec<Key>,
     pub shift: bool,
+    /// Ctrl or Alt held (the Settings screen's Keys page reads the chord a key press makes).
+    pub ctrl: bool,
+    pub alt: bool,
     /// Wheel lines, positive away from the user.
     pub wheel: i32,
     /// The key events that went down this frame in order, with the text each types: for the screens with a text box.
@@ -1137,6 +1140,8 @@ pub(crate) struct DropState {
     hover: bool,
     focused: bool,
     pressed: bool,
+    /// Shown but not changeable: grey text and no arrow.
+    dim: bool,
 }
 
 impl DropState {
@@ -1145,7 +1150,13 @@ impl DropState {
             hover,
             focused,
             pressed,
+            dim: false,
         }
+    }
+
+    /// The box of a setting that cannot be changed now.
+    pub(crate) fn dim(self) -> Self {
+        DropState { dim: true, ..self }
     }
 }
 
@@ -1176,9 +1187,18 @@ impl Look<'_> {
         if s.pressed {
             hud::fill(dst, Rect::new(r.x + 2, r.y + 2, r.w - 4, r.h - 4), rgb(162));
         }
-        let map = if s.hover { menuscreen::WHITE } else { menuscreen::GOLD };
+        let map = if s.dim {
+            menuscreen::GREY
+        } else if s.hover {
+            menuscreen::WHITE
+        } else {
+            menuscreen::GOLD
+        };
         let y = r.y + (r.h as i32 - self.font.height as i32) / 2;
         self.text(dst, (r.x + 4, y), &fit(self.font, text, r.w - 14), map);
+        if s.dim {
+            return;
+        }
         let (cx, cy) = (r.x + r.w as i32 - 8, r.y + r.h as i32 / 2 - 2);
         for i in 0..4 {
             hud::fill(

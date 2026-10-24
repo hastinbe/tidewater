@@ -32,6 +32,7 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
 | `shift-queue` | `--extra-shift-queue` | on, off | S | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order |
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | C | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 | `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | C+L | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) |
+| `map-zoom` | `--extra-map-zoom VALUE` | off, wheel | C | off | `wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (a pinch does the same on touch devices) |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
   dialog sets it", so the original sound dialog keeps its look and meaning.
@@ -67,6 +68,17 @@ without new screen code. The file and the flags still work and are for power use
 - **Open settings folder** asks the shell (`Core::take_open_requests`) to open a `file://` address with SDL's
   `SDL_OpenURL`. **Import game files again...** opens the first-run screen (`FirstRun::returning`) over the running
   program, letting go of the game files first; Esc or Back returns to the main menu.
+
+- **In a game.** Ctrl+G opens the screen over the game (`gamemenu::run_settings`, the game menu's `Screen::Settings`).
+  F2 is the first remembered view's key (and Alt+F2 a network game's drop key), so it cannot be used; Ctrl+G is a chord
+  the original's key table leaves unused, and `keymap` reserves it so a `[keys]` line cannot give it to an action. The
+  Options dialog (F10, Options) has a small "Settings (Ctrl+G)" text link under Previous, 160 x 24 tap target, in the
+  small font like the main menu's link; it opens the screen with the game as the place Back returns to. The menu
+  stops a single-player game while it is open; a network game keeps running (`core::game_ticking`) with the game's own
+  input off, as the original keeps a network game running under its menus. The Gameplay rows show the rules the game
+  runs with (`ClientExtras::of_sim` from `Rules::extras`), greyed and unchangeable, under the note "Fixed for this
+  game: they were set when it started."; Defaults leaves them, OK never writes them. "Import game files again..." is
+  hidden; every other row works as on the main menu.
 
 ## What each one does
 
@@ -175,11 +187,23 @@ without new screen code. The file and the flags still work and are for power use
   `--touch-emulation`, and while touch is in use, where the pillarbox holds the touch buttons. Because the wider view
   is an edge, the lobby's value is used for everyone in a game with other players. The widths, the layout and the
   pointer mapping are in `docs/design/client-core.md`, "Widescreen"; the code is `widescreen.rs`.
+- **Magnifying zoom** (`map-zoom`, C). Off by default, which leaves the mouse wheel doing nothing over the map view, as in
+  the original. With `wheel`, a wheel step away from you over the map view zooms in around the pointer, 1 to 2 to 4
+  times, and a step toward you zooms back out to the original's view and stops there (`game::pan_and_zoom`,
+  `game::magnified`): it can only magnify, never show more map than the original, so it is fair in a game with other
+  players (client-only, no lobby setting). The zoom is the map view's own (`MapZoom`, `MapView::zoom`, map pixels per
+  screen pixel: 1, 1/2, 1/4), the machinery `--free-zoom` and a touch pinch (`game::touch_view`, 1 down to 1/4) already
+  use, so the pointer, selection, the minimap's view box and the edge scroll follow the zoomed view. Steps are powers of
+  two so map pixels stay whole blocks of screen pixels; a zoom a pinch left in between goes to the nearest step first.
+  The point under the pointer stays under it (to within the tile grid, which the view is kept on). The wheel over the
+  minimap or the interface does nothing. Turning the option off in the Settings screen during a game puts the view back
+  to the original's. `--free-zoom` stays a development aid with its own range (1/4 to 8, wheel anywhere) and wins when
+  both are on. The scene `extras-zoom` shows it.
 
 ## Rebindable keys
 
 Not an option with a switch: the `[keys]` section of `settings.txt` rebinds the game's keys and the command buttons'
-keys. With no `[keys]` section every key is the original's (`keymap.rs`: the key table `mouse::key_action`, the buttons'
+keys. The Settings screen's **Keys** page edits the section (see "The Keys page" below); the file stays the format. With no `[keys]` section every key is the original's (`keymap.rs`: the key table `mouse::key_action`, the buttons'
 hotkeys from the string table, F6 for the idle worker). The game writes the section back exactly as it found it, so a
 mistake in it is never lost.
 
@@ -209,10 +233,37 @@ idle-worker=ctrl+i
 - **Conflicts.** A key on two actions, or a key an action you did not rebind still uses, is refused: the game prints
   `settings: [keys] pause=Ctrl+S: Ctrl+S is already used by toggle-sounds; the line is ignored` at start-up and the
   action keeps its original key. The first line wins; a second line for the same action is refused too. Rebinding an
-  action frees its original keys, so two actions can swap. Two buttons that show at the same time with the same
+  action frees its original keys, so two actions can swap (in the file; the Keys page binds one at a time). Two buttons that show at the same time with the same
   hotkey letter are not caught (which buttons show depends on the selection); the first in panel order acts.
 - **Checks.** Rules and messages: `keymap.rs` tests. With no section the key map hands every key on unchanged (a test
   tries every key and modifier). The frame scene `extras-keys` rebinds Move, pause and the idle key.
+
+### The Keys page
+
+The fifth page of the Settings screen (`settings.rs`, hidden on touch-only platforms, `Env::touch`) lists every
+action the section can name (`keymap::rows`: 19 game keys and dialogs, 6 views, 30 control-group keys, the idle worker,
+13 command buttons and the 9 panel places, 78 rows) in the Select scenario dialog's list and scroll bar look, 8 rows
+of 24 pixels, scrolled by the wheel, the bar or the arrow keys. A row shows the key the file gives it in gold, else the
+original's in grey (`own letter` for a command button, `-` for a panel place).
+
+- **Choosing a key.** A click, or Enter (or Space) on the focused list, puts the screen in "Press a key... (Esc
+  cancels)"; the next key that is not a modifier alone binds the selected row. The chord is the key with Ctrl, Alt and
+  Shift as held (`keymap::Chord::pressed`, the same key names the file reads).
+- **The rules are the file's.** The new line goes through `KeyMap::parse` last (`keymap::with_binding`), so it is the
+  one that is refused: another action's key, a key a not-rebound action still uses, the Settings key (Ctrl+G, which
+  `keymap` reserves) and a wrong shape (a bare letter for a game key, a chord for a button) all leave the lines as they
+  were and say why in the description area, naming the action that has the key. **There is no one-step swap**: because
+  an action keeps its original key until it is rebound, `speed-up=minus` is refused while `speed-down` still has minus.
+  A swap takes two steps through a spare key; rebinding an action frees its original keys.
+- **Backspace** on the list removes the row's line (its own key again). **Reset keys** removes every line for an
+  action and keeps comments and lines that name no action, as the file keeps whatever it holds (`keymap::reset_lines`).
+- **OK and Cancel.** The page edits a copy of the section's lines (`Values::keys`). OK parses them into the prefs'
+  `keys` (`Prefs::keys`, read by the game every frame), so `settings.txt` holds the lines exactly as the file's text
+  format has them; a Keys page that was not touched leaves the section as the file had it, typos included. Cancel and
+  Esc discard. Defaults on the other pages leaves the keys alone.
+- **Checks.** Unit tests in `keymap.rs` (every row is a name the file reads, a chord prints as it parses, binding and
+  refusing) and `settings.rs` (capture, conflict, shape, reset, scrolling, the round trip through `Prefs::to_text` and
+  `Prefs::from_text`); the frame scenes `settings-screen` and `settings-ingame` show the page.
 
 ## Sim options
 
@@ -288,6 +339,6 @@ for the C+L options that set wins over the local settings; the C options stay ea
 ## Checks that keep the defaults honest
 
 - The frame snapshot (`crates/client/tests/frames.rs`) runs its original scenes with every extra off and is never
-  re-blessed for an extra (the main menu's frames changed once, for the Settings link, which is not an extra); the scenes `extras`, `extras-bars`, `extras-groups`, `extras-attack` and `extras-keys` turn options on and have their own entries; the scene `settings-screen` shows the Settings screen.
+  re-blessed for an extra (the main menu's frames changed once, for the Settings link, which is not an extra); the scenes `extras`, `extras-bars`, `extras-groups`, `extras-attack` and `extras-keys` turn options on and have their own entries; the scene `settings-screen` shows the Settings screen and `settings-ingame` the Settings screen over a game.
 - `Trims::default()` leaves the mixed sound identical; the audio snapshot of the original scenes shows it.
 - The oracle traces and the whole-map snapshot run on the sim, which an empty `Extras` does not change.

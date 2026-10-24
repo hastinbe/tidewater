@@ -1427,7 +1427,7 @@ fn menu_items(labels: &[(&str, Option<char>)]) -> Vec<MenuItem> {
 }
 
 /// The menu picture as RGBA, with its palette (black and an all-black palette if the install lacks it).
-fn menu_art(install: &mut Install) -> (Picture, Palette) {
+pub(crate) fn menu_art(install: &mut Install) -> (Picture, Palette) {
     let pal = install
         .read(cf::MENU_PICTURE)
         .ok()
@@ -2216,7 +2216,7 @@ fn run_custom_close(c: &mut Core) -> bool {
 }
 
 /// The frame's input for the screen: the pointer in screen pixels, the left button and the keys that went down.
-fn custom_input(input: &crate::input::Input, cam: &FrontScreen) -> customsetup::Input {
+pub(crate) fn custom_input(input: &crate::input::Input, cam: &FrontScreen) -> customsetup::Input {
     let lines = if input.scroll_pixels {
         input.scroll / 40.0
     } else {
@@ -2228,6 +2228,8 @@ fn custom_input(input: &crate::input::Input, cam: &FrontScreen) -> customsetup::
         up: input.mouse.just_released(Button::Left),
         keys: input.keys.get_just_pressed().copied().collect(),
         shift: input.keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]),
+        ctrl: input.keys.any_pressed([Key::ControlLeft, Key::ControlRight]),
+        alt: input.keys.any_pressed([Key::AltLeft, Key::AltRight]),
         wheel: lines.round() as i32,
         ..Default::default()
     }
@@ -2310,7 +2312,7 @@ struct SettingsScreen {
 
 /// The line about the imported game files for the Settings screen; `None` when the files are read in place
 /// (`--install`), so there is nothing to import again.
-fn game_files_line(opts: &crate::args::Args) -> Option<String> {
+pub(crate) fn game_files_line(opts: &crate::args::Args) -> Option<String> {
     if opts.install.is_some() {
         return None;
     }
@@ -2343,6 +2345,7 @@ pub(crate) fn enter_settings(c: &mut Core) {
         touch: touch.touch_only,
         updates: !touch.touch_only && crate::update::build_version().is_some(),
         data: game_files_line(opts),
+        in_game: false,
     };
     let values = settings::Values::new(&stored.0, extras, opts.no_intro, opts.no_update_check);
     let ui = settings::Screen::new(env, values);

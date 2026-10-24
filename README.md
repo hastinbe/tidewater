@@ -90,7 +90,7 @@ Downloads are checked against the size the release lists; they are not signed. A
 | **Game screen** | Map view with fog of war, minimap, resource bar, selection and unit information panel, command buttons and hotkeys, building placement, messages and the status bar. |
 | **Game rules** | Movement and pathfinding, combat, spells, harvesting, construction, training and research, repair, transports, walls, rescue, victory and defeat, and computer players that build, train, attack and cast. |
 | **Custom games** | The Custom Scenario screen (see below), or any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog). |
-| **Settings** | Tidewater's own Settings screen (F2 on the main menu): the optional improvements, the window, the mouse lock, the intro video, the update check and the game files. See [Settings](#settings). |
+| **Settings** | Tidewater's own Settings screen (F2 on the main menu, Ctrl+G in a game): the optional improvements, the window, the mouse lock, the intro video, the update check and the game files. See [Settings](#settings). |
 | **Menus** | Main menu (Single Player Game, Multi Player Game, Replay Introduction, Show Credits, Exit Program), single-player menu (New Campaign, Load Game, Custom Scenario), new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
 | **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
@@ -184,16 +184,31 @@ original's main-menu buttons are unchanged.
 | Page | What it holds | Takes effect |
 |---|---|---|
 | **General** | Window or full screen (desktop), Scaling, Widescreen, Mouse lock (desktop), Intro video, Check for updates (desktop release builds), the imported game files with **Import game files again...**, and **Open settings folder** (desktop). | Window, Scaling and Mouse lock at once; Widescreen from the next game; Intro video and Check for updates the next time Tidewater starts |
-| **Interface** | Health bars, idle worker button, game clock, control group bar, smart attack-move, minimap ping, record replays. | At once or from the next game |
+| **Interface** | Health bars, idle worker button, game clock, control group bar, smart attack-move, minimap ping, record replays, magnifying zoom. | At once or from the next game |
 | **Sound** | Unit voices, sound effects and music, 0 to 100 percent in steps of 10. | At once |
 | **Gameplay** | Rally points, production queue, selection limit, extra game speeds, shift-queued orders. These change the game rules: they apply to single-player games you start, and in a multiplayer game the host chooses them in the lobby. | From the next game |
+| **Keys** | Every key you can rebind, in a scrolling list, with **Reset keys**. Desktop only (a phone has no keyboard to rebind). | At once |
+
+**During a game, press Ctrl+G** (F2 is the first remembered view there) **or tap "Settings (Ctrl+G)" in the Options dialog**
+(F10, Options). It opens over the game, which stops while it is open, as for the game menu; in a network game it keeps
+running, so nobody waits for you. Everything works as on the main menu, and your volumes, health bars, clock and the
+like apply at once on OK. The **Gameplay** page is read-only there, because those rules were set when the game started.
+**Import game files again...** is hidden. OK, Cancel and Esc return to the game.
+
+**Rebinding a key:** open the **Keys** page, choose an action (click it, or move with the arrow keys and press Enter),
+then press the new key (Esc gives up). Your own keys show in gold, the original's in grey; Backspace puts a row's
+original key back, **Reset keys** every key. A key that another action has is not bound, and the description says which
+action has it: give that action another key first (two actions swap in two steps). A game key needs Ctrl or Alt with a
+letter, a command button a bare letter or digit; a letter, a digit, F1 to F12, minus and equal can be used, and F10,
+Esc, Enter, Space and the arrow keys cannot. **OK** writes the keys into the `[keys]` section of `settings.txt` and the
+game uses them at once; Cancel discards them. Ctrl+G always opens the Settings screen in a game.
 
 Rows that make no sense on a phone (window, mouse lock, update check, settings folder) are hidden there. **Import game files
 again...** opens the import screen over the running program; Esc there leaves everything as it was and returns to the
 main menu. It is hidden when the game files are read in place with `--install`.
 
-**Power users** can still edit `settings.txt` (the keys are rebound in its `[keys]` section; **Open settings folder**
-finds it) or give a flag. A flag lasts for one run: a choice you make on the screen replaces the run's flag for that
+**Power users** can still edit `settings.txt` (its `[keys]` section holds the keys the Keys page sets; **Open settings
+folder** finds it) or give a flag. A flag lasts for one run: a choice you make on the screen replaces the run's flag for that
 option, and `--no-mouse-lock`, `--no-intro` and `--no-update-check` still win over the screen's rows for the run.
 `--goto settings` opens the screen directly.
 
@@ -225,6 +240,7 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 | `shift-queue` | `--extra-shift-queue` | on, off | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order (S) |
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 | `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) (C+L) |
+| `map-zoom` | `--extra-map-zoom VALUE` | off, wheel | off | `wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (a pinch does the same on touch devices) (C) |
 
 **C+L** marks an option that gives you an edge (health bars, smart attack-move, widescreen). In a game with other players the host chooses it in the lobby's "Extras" box (from the command line, `--lobby extras=health-bars=always/widescreen=16:9`; the host's own settings stand for the ones not named) and every player, observers included, plays with the host's choice, whatever their own setting. In single-player games and replays you get your own. **S** marks an option that changes the simulation (rally points, the production queue, shift-queued orders,
 the selection limit and the extra speed levels): the flag or the setting starts a single-player game with it, and in a
@@ -263,7 +279,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 |---|---|
 | `--touch-emulation` | The mouse is one finger (Alt, Alt+Shift, Alt+Ctrl at the press add more), and the touch controls show beside the picture. See [Touch](#touch). |
 | `--touch-dpi <PPI>` | The screen's density in physical pixels per inch, for touch sizes (taps, slop, buttons). Default: 140 points to the inch. |
-| `--free-zoom` | The mouse wheel zooms the map view (1/4 to 8 map pixels per screen pixel). |
+| `--free-zoom` | Development aid: the mouse wheel zooms the map view anywhere (1/4 to 8 map pixels per screen pixel). The `map-zoom` option is the player's magnifying zoom. |
 | `--zoom <N>` | Starting zoom; implies `--free-zoom`. |
 | `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `single` (the single-player menu), `custom`, `settings` (the Settings screen), `multi` (the multiplayer menus), `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
 | `--demo-outcome <victory\|defeat>` | End the game at once, to see the dialog and score screen. |

@@ -50,6 +50,8 @@ pub enum Screen {
     Saving(Saving),
     KeyHelp,
     Tips,
+    /// Tidewater's own Settings screen over the game (`settings`, not in the original).
+    Settings,
 }
 
 /// The open screens, from the first one opened to the current one. Only the last is shown.

@@ -51,7 +51,7 @@ before writing any code, and follow it exactly.
   `session.rs` is the `Session` trait between the game screen and the sim (`LocalSession`, `ReplaySession`); `net/` is network play (`proto`: messages and identity, `tcp`, `lockstep`: `NetSession`, `lobby`: the command-line host and join, `room`: the menu lobby's host and guest ends with map transfer, `beacon`: the LAN game-list UDP packet; `docs/design/network.md`).
   `mpmenu.rs` is the multiplayer menus (Multi Player Game to the game list and Direct IP), `mpwidgets.rs` their edit boxes and pop-ups, `lobbyscreen.rs` the game setup lobby; `chat.rs` is the in-game chat line, sent as `Msg::Chat` outside the turns.
   `extras.rs` is the optional improvements' registry, settings and flags (`docs/design/extras.md`); `settings.rs` is the Settings
-  screen (SDL-free: its rules and drawing, generated from the registry; opened by F2 or the link on the main menu, `AppState::Settings`, `--goto settings`); `update.rs` is the desktop self-update
+  screen (SDL-free: its rules and drawing, generated from the registry; opened by F2 or the link on the main menu, `AppState::Settings`, `--goto settings`; in a game by Ctrl+G or the Options dialog's link, as the game menu's `Screen::Settings`); `update.rs` is the desktop self-update
   (the release check, "Update now"; `docs/release.md`).
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.

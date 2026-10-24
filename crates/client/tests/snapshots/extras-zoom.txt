@@ -1,0 +1,21 @@
+# frame and sound fingerprints of the scripted scene `extras-zoom` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	6bc9cd2c048fcbed
+frames	4-10	dde26bfdd30b6f29
+shot	33	normal	a70cd8e91af19b21
+frames	11-33	a70cd8e91af19b21
+shot	37	in-2x	f02578b5e1f47cbc
+frames	34-37	f02578b5e1f47cbc
+shot	41	in-4x	d46014ed03617342
+frames	38-44	d46014ed03617342
+shot	45	in-4x-again	a999afe9eab4a281
+frames	45-45	a999afe9eab4a281
+shot	50	over-the-minimap	d99f39e7d96d8a54
+frames	46-50	d99f39e7d96d8a54
+frames	51-51	a999afe9eab4a281
+shot	55	out-2x	f786b4c7b66a238b
+frames	52-55	f786b4c7b66a238b
+shot	59	out-1x	4d41d57f4857a0f2
+shot	63	out-1x-again	4d41d57f4857a0f2
+frames	56-63	4d41d57f4857a0f2
