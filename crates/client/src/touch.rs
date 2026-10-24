@@ -237,6 +237,8 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         idle_worker: extras.idle_worker(),
     };
     let tap_px = TAP_MM * ppmm * w.factor / lb.scale;
+    // The Pause button shows play while the game is paused.
+    c.touch.chrome.paused = in_game && c.sim.as_ref().is_some_and(|s| s.world.paused);
     let Core {
         touch: t,
         input,

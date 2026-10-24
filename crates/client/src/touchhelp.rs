@@ -25,7 +25,7 @@ pub const LINES: [&str; 15] = [
     "Minimap   Tap or drag to look, hold to order",
     "Building   Drag the outline, tap it to place",
     "Left bar   Menu, pause, Shift, Ctrl, Alt,",
-    "   L: the next tap selects, K: keyboard",
+    "   pointer: next tap selects, keyboard",
     "Right bar   Groups: a tap recalls,",
     "   two taps centre, a hold makes the group",
     "Settings   The Touch page changes all this",
