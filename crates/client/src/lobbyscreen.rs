@@ -1502,7 +1502,7 @@ mod tests {
         assert_eq!(l.view.scenario[0], "Custom scenario");
         assert_eq!(l.view.rows[0].state, RowState::Human);
         assert_eq!(l.view.rows[1].state, RowState::Available);
-        assert!(!l.button_enabled(T::Start), "nobody has joined");
+        assert!(!l.button_enabled(T::Start), "the creator alone");
         assert!(l.button_enabled(T::Select));
         assert!(!l.stops().is_empty());
     }
@@ -1518,7 +1518,8 @@ mod tests {
         l.update(&key(Key::Down), &mut ctx);
         l.update(&key(Key::Enter), &mut ctx);
         assert_eq!(l.view.rows[2].state, RowState::Computer);
-        // A joiner enters row 1; the Start button wakes.
+        assert!(l.button_enabled(T::Start), "the creator and a Computer are enough");
+        // A joiner enters row 1.
         let hs = join(&mut l, &mut ctx, port, "Ann");
         assert_eq!(hs.slot, 1);
         let mut g = hs.accept().unwrap();

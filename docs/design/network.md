@@ -15,7 +15,7 @@ Main menu, **Multi Player Game**: choose Enhanced or Classic, enter a name, then
   listens. **Battle.net** is drawn greyed out and cannot be chosen; there is no Modem row.
 - **Create Game** opens the game setup lobby: the scenario, the eight rows (yourself, other players as they join,
   computers, closed rows), each player's race and chat box, and Classic mode's Ready boxes. **Start Game** is grey until
-  at least two humans are in, every joiner has the map and, in Classic mode, everyone is ready.
+  at least two participants (the creator plus joiners or Computer rows; Available rows are ignored) are in, every joiner has the map and, in Classic mode, everyone is ready.
 - **A joiner** picks a game (or types an address), is shown the host's map and rules in the lobby and takes the
   host's choices; it changes only its own race, Ready box and chat line.
 - Code: `mpmenu.rs` (the menus), `mpwidgets.rs` (edit boxes and pop-ups), `lobbyscreen.rs` (the lobby), `net/room.rs`
@@ -374,7 +374,7 @@ of player, and a spectator interface of its own.
 - **Entry 63** shows when a leaving player has nothing left, judged on the machine that shows it at the time the leave
   notice appears; the victory check still reads the local player in places (the open questions in
   `multiplayer-determinism.md`).
-- **Lobby gaps.** Start needs at least two humans; the Cheat Codes box is cosmetic; Random races are settled by the host
+- **Lobby gaps.** Start needs at least two participants, so the creator alone with one Computer row can start (the turn engine runs with no peer and opens no hand-over table); the Cheat Codes box is cosmetic; Random races are settled by the host
   from the seed; rows are packed into slots even in Fixed Order; a network game starts without the sound fade; the lobby
   reuses the menu art, so the logo shows behind the rows and the version line is hidden; Start is greyed, not hidden,
   when it cannot be used.
@@ -398,10 +398,10 @@ of player, and a spectator interface of its own.
   `net/room.rs` and `sim/vision.rs` (the observer's view changes nothing the sim hides).
 - **`crates/client/tests/mp_e2e.rs`** is the end-to-end check: separate `tidewater` programs on one machine, each in
   its own folder (a data folder linking to the game files, its own settings, saves and recordings), each running a
-  scripted scene (`mp-*` in `script.rs`) through the real menus, headless. Five games, one after another: Local Network
+  scripted scene (`mp-*` in `script.rs`) through the real menus, headless. Seven games, one after another: Local Network
   found on the game list (two players), Direct IP with the address typed, Classic rules with Ready, an observer joining
   a two-player game with Watch Game, and three players where the host leaves first, the two joiners hand the game on
-  and play on together, and then the new host leaves. In each the creator
+  and play on together, and then the new host leaves; the creator alone with one Computer row; and two players with a Computer. In each the creator
   picks a map and sets rally points and smart attack-move in the Extras box; everyone gives orders, chat goes both
   ways and a player leaves. The test then checks each program's `<scene>-events.txt` (the screens it reached, its seat,
   the options in force, the messages it showed) and compares the recordings cycle by cycle as `twtool desync-diff`
@@ -421,7 +421,7 @@ of player, and a spectator interface of its own.
 TIDEWATER_INSTALL=<data>/game cargo test --release -p tidewater-client --test mp_e2e
 ```
 
-- **About 30 seconds in a release build.** A debug build draws every frame unoptimised, so the same five games take
+- **About 30 seconds in a release build.** A debug build draws every frame unoptimised, so the same seven games take
   about four minutes there (they run with the other client tests). `TIDEWATER_MP_E2E_TIMEOUT` (seconds) changes how
   long a game may take.
 - **Skipped without game files** (`TIDEWATER_INSTALL` unset), which is how CI runs it. The Local Network games also

@@ -9,7 +9,7 @@
 //! container with no broadcast route. The games use the real ports (TCP and UDP 6112), so the tests take turns, and a
 //! Local Network game is announced on the machine's network while its lobby is open.
 //!
-//! A debug build draws every frame slowly: the five games take about four minutes. `cargo test --release -p
+//! A debug build draws every frame slowly: the seven games take about four minutes. `cargo test --release -p
 //! tidewater-client --test mp_e2e` takes about a minute. `docs/design/network.md`, "Tests", says how to look at the
 //! pictures and logs a run leaves.
 
@@ -387,4 +387,35 @@ fn three_programs_play_a_local_network_game_from_the_menus() {
             .any(|p| p == slot);
         assert!(late, "no command from slot {slot} after the host left");
     }
+}
+
+/// The creator alone with one Computer row: Start Game is enabled with the other rows Available, the game runs with no
+/// peer on the wire, the Computer plays, and the recording replays.
+#[test]
+fn the_creator_and_a_computer_play_a_network_game_from_the_menus() {
+    let Some((install, _turn)) = ready(true) else { return };
+    let ps = play("solo", &install, &["mp-solo-host"]);
+    check(&install, &ps, "enhanced");
+    let host = &ps[0];
+    let r = host.replay();
+    assert!(r.cycles >= 500, "only {} cycles", r.cycles);
+    let lobby = r.header.lobby.as_ref().expect("a lobby game");
+    assert_eq!(lobby.humans.len(), 1, "one human");
+    assert_eq!(lobby.computers.len(), 1, "and a Computer");
+}
+
+/// Two humans and a Computer: both stay in step, the Computer plays on both machines, and the creator keeps playing
+/// after the joiner leaves.
+#[test]
+fn two_programs_and_a_computer_play_a_network_game_from_the_menus() {
+    let Some((install, _turn)) = ready(true) else { return };
+    let ps = play("mixed", &install, &["mp-mixed-host", "mp-mixed-join"]);
+    check(&install, &ps, "enhanced");
+    let (host, joiner) = (&ps[0], &ps[1]);
+    assert!(host.saw("Joiner: hello from the joiner"), "{}", host.report());
+    assert!(joiner.saw("Hosty: hello from the host"), "{}", joiner.report());
+    assert!(host.saw("Joiner left the game"), "{}", host.report());
+    let r = host.replay();
+    let lobby = r.header.lobby.as_ref().expect("a lobby game");
+    assert_eq!((lobby.humans.len(), lobby.computers.len()), (2, 1));
 }

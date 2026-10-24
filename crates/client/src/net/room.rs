@@ -205,8 +205,8 @@ pub enum RowChoice {
 pub enum StartError {
     /// No scenario is chosen.
     NoMap,
-    /// Nobody has joined. Gap-fill for `ui/game-setup-lobby.md` trace request LB1: Tidewater starts a network game
-    /// only with another human in it.
+    /// The creator is the only participant (no joiner, no Computer row). Gap-fill for `ui/game-setup-lobby.md` trace
+    /// request LB1: a game needs at least two participants; Available rows are ignored.
     Alone,
     /// More rows are filled than the map has slots (network entry 21).
     TooMany,
@@ -469,7 +469,7 @@ impl HostRoom {
         if v.map_name.is_empty() {
             return Err(StartError::NoMap);
         }
-        if v.humans() < 2 {
+        if v.participants().len() < 2 {
             return Err(StartError::Alone);
         }
         if v.participants().len() > usize::from(v.map_players) {
@@ -1228,9 +1228,25 @@ mod tests {
     }
 
     #[test]
+    fn the_creator_and_a_computer_can_start_and_available_rows_are_ignored() {
+        let mut room = host(true);
+        assert_eq!(room.can_start(), Err(StartError::Alone));
+        room.set_row(2, RowChoice::Computer);
+        assert_eq!(room.view().humans(), 1);
+        assert_eq!(
+            room.can_start(),
+            Ok(()),
+            "the creator and one Computer; the other rows stay Available"
+        );
+        let n = room.start(7).unwrap();
+        assert_eq!(n.me, 0);
+        assert_eq!(n.config.lobby.humans.len(), 1, "one human, the other slot a Computer");
+    }
+
+    #[test]
     fn start_needs_a_map_a_joiner_room_and_in_classic_mode_ready_boxes() {
         let mut room = host(false);
-        assert_eq!(room.can_start(), Err(StartError::Alone));
+        assert_eq!(room.can_start(), Err(StartError::Alone), "the creator alone");
         let mut g = join(&mut room, "Ann");
         assert_eq!(
             room.can_start(),
