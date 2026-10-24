@@ -97,7 +97,7 @@ Downloads are checked against the size the release lists; they are not signed. A
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
 | **Multiplayer** | Early LAN and Direct IP games for two to eight players, with observers (see [Multiplayer](#multiplayer-early)). |
 | **Cheats** | The original cheat codes, typed into the chat line. |
-| **Display** | A 640 x 480 picture drawn in software and shown at the largest whole-number scale that fits your monitor, with a black border. `--ui-scale N` picks a scale. |
+| **Display** | A 640 x 480 picture drawn in software, with a black border. By default it is shown at the largest whole-number scale that fits, or scaled to fill the screen with crisp pixels when a whole number would leave much of it empty (Settings, Scaling). `--ui-scale N` picks the window's size. |
 
 ### Playing a custom game
 
