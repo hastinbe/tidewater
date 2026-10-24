@@ -346,7 +346,7 @@ impl Core {
         c.time.accumulate();
         while c.time.expend() {
             // A network game waiting for a turn does not spend the step (a short wait is caught up).
-            if game_running(c) && !game::frozen_by_focus(c) && game::tick(c) {
+            if game_ticking(c) && !game::frozen_by_focus(c) && game::tick(c) {
                 c.time.unspend();
                 break;
             }
@@ -428,6 +428,22 @@ impl Core {
 /// game is being left for the main menu).
 pub fn game_running(c: &Core) -> bool {
     c.states.get() == AppState::Game && c.dialog.is_none() && c.menu.is_none() && c.quitting.is_none()
+}
+
+/// Whether the game's cycles run this frame: whenever the game screen runs ([`game_running`]), and in a network game
+/// also under the game menu and its dialogs (`ui/game-menu.md`, "Multiplayer": opening a menu doesn't stop the game,
+/// only pause does), so the other players never wait for the one who opened it. The menu holder's game input stays off
+/// meanwhile, as [`game_running`] is still false. Single player stops under the menu.
+pub fn game_ticking(c: &Core) -> bool {
+    let screen = c.states.get() == AppState::Game && c.dialog.is_none() && c.quitting.is_none();
+    let network = c.sim.as_ref().is_some_and(|s| s.session.is_network());
+    ticks_under(screen, c.menu.is_some(), network)
+}
+
+/// [`game_ticking`]'s rule: the game screen shows with no outcome dialog and isn't being left, and either no menu is
+/// open or the game is a network one.
+fn ticks_under(screen: bool, menu: bool, network: bool) -> bool {
+    screen && (!menu || network)
 }
 
 fn in_game(c: &Core) -> bool {
@@ -535,6 +551,9 @@ fn frame_systems(c: &mut Core) {
             game::keys_input(c);
             game::mouse_input(c);
             game::pan_and_zoom(c);
+        }
+        // The cycles' sounds and messages, under a network game's menu too (`game_ticking`).
+        if game_ticking(c) {
             game::play_sounds(c);
             c.apply_commands();
             game::update_messages(c);
@@ -749,4 +768,22 @@ fn compose_screen(c: &mut Core) {
     // The system's pointer shows only where the screen wants a pointer and has none of its own.
     c.cursor_visible = !hud_draws && !hidden && arrow.is_none();
     c.frame = frame;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ticks_under;
+
+    #[test]
+    fn a_network_game_ticks_under_the_menu_and_single_player_stops() {
+        // No menu: the game runs, single player or network.
+        assert!(ticks_under(true, false, false));
+        assert!(ticks_under(true, false, true));
+        // The menu open: single player stops, a network game goes on (`ui/game-menu.md`, "Multiplayer").
+        assert!(!ticks_under(true, true, false));
+        assert!(ticks_under(true, true, true));
+        // An outcome dialog, leaving the game, or another screen: nothing ticks.
+        assert!(!ticks_under(false, false, true));
+        assert!(!ticks_under(false, true, true));
+    }
 }
