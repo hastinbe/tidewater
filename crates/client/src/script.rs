@@ -2168,6 +2168,10 @@ enum Way {
     /// Enhanced rules, Local Network, three players: the creator leaves first and the joiners play on with the first
     /// joiner as the new host (`docs/design/network.md`, "When the host leaves").
     Three,
+    /// Enhanced rules, Local Network: the creator alone with one Computer row (Start without another human).
+    Solo,
+    /// Enhanced rules, Local Network: the creator, one joiner and one Computer row.
+    Mixed,
 }
 
 /// The names the players type, so each can wait for the other's chat line.
@@ -2199,6 +2203,9 @@ fn mp_scenes() -> Vec<Scene> {
         scene("mp-three-host", mp_host(Way::Three), host_extras),
         scene("mp-three-join", mp_join(Way::Three, Role::Joiner), &[]),
         scene("mp-three-second", mp_join(Way::Three, Role::Second), &[]),
+        scene("mp-solo-host", mp_host(Way::Solo), host_extras),
+        scene("mp-mixed-host", mp_host(Way::Mixed), host_extras),
+        scene("mp-mixed-join", mp_join(Way::Mixed, Role::Joiner), &[]),
     ]
 }
 
@@ -2228,7 +2235,7 @@ fn mp_menus(way: Way, name: &'static str) -> Vec<Cmd> {
             v.extend(tap(K::Letter('C')));
             v.extend([Wait(3)]);
         }
-        Way::Lan | Way::Watched | Way::Three => {
+        Way::Lan | Way::Watched | Way::Three | Way::Solo | Way::Mixed => {
             v.extend(tap(K::Letter('E')));
             v.extend([Wait(3)]);
             v.extend(click(100.0, 242.0));
@@ -2333,8 +2340,19 @@ fn mp_host(way: Way) -> Vec<Cmd> {
         v.push(Wait(3));
     }
     v.push(Shot("options"));
+    if matches!(way, Way::Solo | Way::Mixed) {
+        // Row 2 (the third) becomes a Computer: its name box, then the drop-down's second line.
+        v.extend(click(100.0, 97.0));
+        v.extend([Wait(3), Shot("row-list")]);
+        v.extend(click(100.0, 141.0));
+        v.extend([Wait(3), Shot("computer")]);
+    }
     let watchers = usize::from(way == Way::Watched);
-    let humans = if way == Way::Three { 3 } else { 2 };
+    let humans = match way {
+        Way::Three => 3,
+        Way::Solo => 1,
+        _ => 2,
+    };
     v.extend([
         UntilLobby(humans, watchers),
         UntilStartable,
@@ -2345,6 +2363,12 @@ fn mp_host(way: Way) -> Vec<Cmd> {
     v.extend([Until(AppState::Game), Move(400.0, 240.0), Wait(30), Shot("game")]);
     v.extend(mp_orders());
     v.extend([UntilCycle(200), Shot("cycle-200")]);
+    if way == Way::Solo {
+        // Nobody to talk to, nobody to wait for: the Computer plays and the cycles run.
+        v.extend([UntilCycle(500), Shot("last-cycle")]);
+        v.extend(mp_leave());
+        return v;
+    }
     v.extend(chat("hello from the host"));
     v.push(UntilMessage("Joiner: hello from the joiner"));
     if way == Way::Three {
@@ -2356,6 +2380,9 @@ fn mp_host(way: Way) -> Vec<Cmd> {
         v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
         v.extend([UntilOutcome, Wait(5), Shot("outcome")]);
         return v;
+    }
+    if way == Way::Mixed {
+        v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
     }
     // Three players: the creator leaves first, and the joiners hand the game on and play on.
     let end = if way == Way::Three { 300 } else { 400 };
@@ -2472,6 +2499,12 @@ fn mp_join(way: Way, role: Role) -> Vec<Cmd> {
         v.extend([Wait(4), Shot("chat-after")]);
         v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
         v.extend([UntilOutcome, Wait(5), Shot("outcome")]);
+        return v;
+    }
+    if way == Way::Mixed {
+        // The Computer is still in the game, so no victory: the joiner leaves, and the creator sees it and leaves later.
+        v.extend([UntilCycle(330), Shot("last-cycle")]);
+        v.extend(mp_leave());
         return v;
     }
     // The creator leaves; the joiner, the only human left in, wins at the next victory check (LV1).
