@@ -230,7 +230,7 @@ The idle-worker key is F6; keys can be rebound on the Settings screen's Keys pag
 | `volume-voices` | `--extra-volume-voices VALUE` | 0 to 100 | 100 | Unit voices, in percent of the sound volume (100 leaves them as the game sets them) |
 | `volume-effects` | `--extra-volume-effects VALUE` | 0 to 100 | 100 | Sound effects, in percent of the sound volume |
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | 100 | Music, in percent of the music volume |
-| `scaling` | `--extra-scaling VALUE` | integer, sharp | integer | How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp) |
+| `scaling` | `--extra-scaling VALUE` | auto, integer, sharp | auto | How the picture fits the window: automatic (whole-number scales unless they leave wide borders, then any size drawn sharp bilinear), only whole-number scales, or always any size, sharp (touch platforms always use sharp) |
 | `rally-points` | `--extra-rally-points` | on, off | off | Right-click with a training building selected to set a rally point: the units it trains go there (S) |
 | `production-queue` | `--extra-production-queue` | on, off | off | Buildings queue up to five jobs, paid when queued; Cancel removes the last (S) |
 | `selection-limit` | `--extra-selection-limit VALUE` | 9, 12, 18, unlimited | 9 | How many units you can select and command at once: nine as in the original, 12, 18 or no limit (S) |

@@ -108,7 +108,7 @@ no touch is frame for frame what it was.
 - **Drawing.** The long-press pulse is drawn into the 640 x 480 frame after it is composed (so it is in snapshots). The
   chrome is not: it is an RGBA overlay of the window's size (`TouchState::overlay`) that the shell blends over the
   picture, rebuilt only when `TouchState::revision` changes.
-- **Scaling.** `WindowGeom::letterbox` fits the picture in the safe area, by a whole number or (`fractional`) by any
+- **Scaling.** `WindowGeom::letterbox` fits the picture in the safe area, by a whole number or (`fit`: `auto`, `sharp`) by any
   fraction; the shell draws a fractional fit sharp bilinear (`display`, "Fractional scale").
 - **The shell.** `shell/sdl.rs` reads finger events from screens the user touches directly, turns SDL's mouse-from-touch
   events off when it does, reports the safe area, and draws the overlay and the sharp-bilinear pass. With
@@ -224,7 +224,8 @@ a window resize does not jump the map.
 
 **The window.** The window keeps whatever width a game gave it. When the screen widens and the window shows whole-number
 scales, it grows to hold the screen at the scale it had (`fit_window`), if the display has room, and the smallest size
-follows the screen; a window that fits any size (`--extra-scaling sharp`, touch) only changes its letterbox. After a
+follows the screen; a window that fills at any size (`--extra-scaling sharp`, touch, or `auto` where the whole scale fits poorly, as in a
+full screen) only changes its letterbox. After a
 game ends the 640 screen sits in the middle of the wider window with black beside it.
 
 **Touch.** On a touch device the pillarbox beside the 4:3 picture holds the touch buttons (`chrome`), so the option

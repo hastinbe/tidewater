@@ -89,7 +89,7 @@ pub const HEALTH_BAR_MODES: &[&str] = &["off", "hovered", "selected", "always"];
 pub const CLOCK_MODES: &[&str] = &["off", "clock", "clock-apm"];
 
 /// The picture scaling modes (option `scaling`).
-pub const SCALING_MODES: &[&str] = &["integer", "sharp"];
+pub const SCALING_MODES: &[&str] = &["auto", "integer", "sharp"];
 
 /// The selection limits (option `selection-limit`): the original nine, 12, 18, or no limit.
 pub const SELECTION_LIMITS: &[&str] = &["9", "12", "18", "unlimited"];
@@ -190,7 +190,7 @@ pub const REGISTRY: [Spec; COUNT] = [
         kind: Kind::Choice(SCALING_MODES),
         default: 0,
         scope: Scope::Client,
-        description: "How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp)",
+        description: "How the picture fits the window: automatic (whole-number scales unless they leave wide borders, then any size drawn sharp bilinear), only whole-number scales, or always any size, sharp (touch platforms always use sharp)",
     },
     Spec {
         id: Id::RallyPoints,
@@ -376,6 +376,8 @@ pub enum ClockMode {
 /// How the picture is fitted to the window (option `scaling`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scaling {
+    /// Whole numbers when they fill the safe area well, otherwise as `Sharp` (`display::Fit::Auto`).
+    Auto,
     /// Whole numbers of window pixels per screen pixel, black around.
     Integer,
     /// Any size inside the window's safe area, drawn sharp bilinear (`display`, "Fractional scale").
@@ -421,8 +423,9 @@ impl ClientExtras {
 
     pub fn scaling(&self) -> Scaling {
         match self.get(Id::Scaling) {
-            1 => Scaling::Sharp,
-            _ => Scaling::Integer,
+            1 => Scaling::Integer,
+            2 => Scaling::Sharp,
+            _ => Scaling::Auto,
         }
     }
 
@@ -784,6 +787,24 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
+
+    #[test]
+    fn scaling_is_stored_by_name_so_older_settings_files_keep_their_meaning() {
+        let mut e = ClientExtras::default();
+        assert_eq!(e.scaling(), Scaling::Auto, "auto is the default");
+        assert!(e.read_line("scaling", "integer"));
+        assert_eq!(e.scaling(), Scaling::Integer);
+        assert!(e.read_line("scaling", "sharp"));
+        assert_eq!(e.scaling(), Scaling::Sharp);
+        assert!(e.section_text().contains("\nscaling=sharp\n"));
+        assert!(e.read_line("scaling", "auto"));
+        assert_eq!(e.scaling(), Scaling::Auto);
+        assert_eq!(
+            lobby_specs().filter(|s| s.name == "scaling").count(),
+            0,
+            "scaling is not a lobby option"
+        );
+    }
 
     #[test]
     fn the_lobby_carries_only_the_c_plus_l_values_that_differ_and_reads_back_what_it_knows() {

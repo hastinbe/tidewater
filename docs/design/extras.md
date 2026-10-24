@@ -23,7 +23,7 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
 | `volume-voices` | `--extra-volume-voices VALUE` | 0 to 100 | C | 100 | Unit voices, in percent of the sound volume (100 leaves them as the game sets them) |
 | `volume-effects` | `--extra-volume-effects VALUE` | 0 to 100 | C | 100 | Sound effects, in percent of the sound volume |
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | C | 100 | Music, in percent of the music volume |
-| `scaling` | `--extra-scaling VALUE` | integer, sharp | C | integer | How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp) |
+| `scaling` | `--extra-scaling VALUE` | auto, integer, sharp | C | auto | How the picture fits the window: automatic (whole-number scales unless they leave wide borders, then any size drawn sharp bilinear), only whole-number scales, or always any size, sharp (touch platforms always use sharp) |
 | `rally-points` | `--extra-rally-points` | on, off | S | off | Right-click with a training building selected to set a rally point: the units it trains go there |
 | `production-queue` | `--extra-production-queue` | on, off | S | off | Buildings queue up to five jobs, paid when queued; Cancel removes the last |
 | `selection-limit` | `--extra-selection-limit VALUE` | 9, 12, 18, unlimited | S | 9 | How many units you can select and command at once: nine as in the original, 12, 18 or no limit |
@@ -111,10 +111,16 @@ without new screen code. The file and the flags still work and are for power use
   digital and music volumes, applied in the mixer (`audio.rs`, `Trims`). Voices are unit speech and acknowledgements;
   effects are every other sound (a screen's sounds and narration included); music is the jukebox. At 100 the mixer
   does exactly what it did before (the gain is not touched). The original sound dialog is unchanged.
-- **Fractional scaling** (`scaling`, C). `integer` (the default) draws the 640 × 480 screen at the largest whole number
-  of window pixels that fits, as always. `sharp` fits it by a fraction of the window's safe area: the picture is scaled
-  up by the next whole number with the nearest texel and then scaled linearly down, so pixels stay crisp. Touch
-  platforms use `sharp` whatever the setting says (`docs/design/touch.md`). Rules in `display.rs` (`Letterbox::fit_area`).
+- **Fractional scaling** (`scaling`, C). `auto` (the default) uses the largest whole number of window pixels per screen
+  pixel when it covers at least 90 % of the limiting dimension of the window's safe area (width or height, whichever
+  binds), and otherwise fills the area by a fraction, drawn sharp bilinear: so a window sized to a whole scale (the
+  default window, a scripted run) looks as it always did, while a full screen on a notched laptop or a resized window
+  with a poor whole fit fills. `integer` always draws at the largest whole number that fits, with black around.
+  `sharp` always fits by a fraction of the safe area: the picture is scaled up by the next whole number with the
+  nearest texel and then scaled linearly down, so pixels stay crisp. Touch platforms use `sharp` whatever the setting
+  says (`docs/design/touch.md`). The settings file stores the value by name, so a file written before `auto` existed
+  (`scaling=integer`, `scaling=sharp`) reads as it did. Rules in `display.rs` (`Fit`, `fractional_for`,
+  `Letterbox::fit_with`).
 - **Rally points** (`rally-points`, S). With a training building of yours selected (a town hall, barracks or
   another building that trains units, not a research-only one), a right-click on the map sets its rally point: on
   open ground, the units it trains walk there; on a gold mine or a tree, workers harvest it; on a friendly unit they

@@ -229,7 +229,7 @@ impl Action {
 pub(crate) const CHOICE_WORDS: &[(Id, &[&str])] = &[
     (Id::HealthBars, &["Off", "Hovered", "Selected", "Always"]),
     (Id::GameClock, &["Off", "Clock", "Clock and APM"]),
-    (Id::Scaling, &["Whole numbers", "Any size, sharp"]),
+    (Id::Scaling, &["Automatic", "Whole numbers", "Sharp (fills)"]),
     (Id::SelectionLimit, &["9 (original)", "12", "18", "Unlimited"]),
     (Id::SpeedLevels, &["Off", "1 more", "2 more", "3 more"]),
     (Id::AutoReplay, &["Off", "Save from menu", "Always save"]),
