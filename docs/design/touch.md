@@ -61,7 +61,7 @@ targeting; otherwise a lifted finger leaves no cursor to scroll the map's edge.
 units (within the 6 mm tap tolerance) is a right click, press and release: ground moves there, an enemy is attacked,
 a mine or a forest is worked, as the right-click rules decide (`mouse::smart_tap`). A tap on your own unit or
 building still selects it, and so does any tap with nothing of yours selected (an enemy you are looking at gives no
-orders). The **plain-click** button (**L**) makes the next tap on the map an ordinary left click, for the rare case the smart
+orders). The **plain-click** button (the pointer with a click mark) makes the next tap on the map an ordinary left click, for the rare case the smart
 tap guesses wrong; the option `touch-smart-tap` turns it off.
 
 **Sizes in millimetres.** Slop, pan and pinch thresholds, the tap tolerance and the chrome's buttons are millimetres,
@@ -82,15 +82,27 @@ A touchscreen has no Shift, Ctrl or Alt, no pause key and no number keys. The ch
 beside the picture (in the safe area). The left bar holds the tools, the right bar the control groups (the option
 `touch-swap-bars` swaps them):
 
-| Control | Does |
-|---|---|
-| **≡** (menu) | F10: the game menu. |
-| **II** (pause) | Pauses or resumes, as the pause key does. |
-| **S**, **C**, **A** (Shift, Ctrl, Alt) | A one-shot latch: the key is held for the next click, then let go a frame after that click's release (the rules that read Alt when the button comes up need it held through the release). |
-| **L** (plain left click) | The next tap on the map is a left click, whatever the smart tap would make of it. |
-| **K** (keyboard) | Opens or closes the system's soft keyboard (`SDL_StartTextInput`). |
-| **1** to **9** (groups) | A tap is the digit: recalls the group, and two taps centre on it, as the keys do. Held 450 ms it is Ctrl and the digit: the selection becomes that group (once, not again at the lift). |
-| **I** (idle worker) | F6: the next idle worker. Only with the option `idle-worker` on; it sends F6 whatever key that option is bound to. |
+| Control | Icon | Does |
+|---|---|---|
+| Menu | Three lines | F10: the game menu. |
+| Pause | Two bars; a play triangle while the game is paused | Pauses or resumes, as the pause key does. |
+| Shift, Ctrl, Alt | ⇧, ⌃, ⌥ | A one-shot latch: the key is held for the next click, then let go a frame after that click's release (the rules that read Alt when the button comes up need it held through the release). |
+| Plain left click | A pointer with a click mark | The next tap on the map is a left click, whatever the smart tap would make of it. |
+| Keyboard | A keyboard | Opens or closes the system's soft keyboard (`SDL_StartTextInput`). |
+| Groups | The digits 1 to 9 | A tap is the digit: recalls the group, and two taps centre on it, as the keys do. Held 450 ms it is Ctrl and the digit: the selection becomes that group (once, not again at the lift). |
+| Idle worker | A pickaxe with a "z" | F6: the next idle worker. Only with the option `idle-worker` on; it sends F6 whatever key that option is bound to. |
+
+A button that is on (a latch waiting for its click, the keyboard open, a button under a finger) is lit yellow with a
+dark icon; otherwise it is dark with a white icon.
+
+**The icons** are our own SVGs, white strokes on a 24 x 24 grid with round caps and joins (2 units wide, the digits
+2.6), in `crates/client/assets/touch-icons/`; edit them there. No third-party icon set is used. The chrome
+rasterises them with [resvg](https://github.com/linebender/resvg) (pure Rust, Apache-2.0 OR MIT; its renderer
+`tiny-skia` is BSD-3-Clause, listed in `THIRD_PARTY_NOTICES.md`) at each button's size in physical pixels whenever
+the overlay is rebuilt, so they are crisp at any density and button size, anti-aliased, and nothing is prescaled.
+That was simpler than committing pre-rendered masks plus a tool to regenerate them, and it builds for every target
+(no C code, no system libraries); the SVGs are compiled in (`include_str!`), and resvg's text, font and raster-image
+features are off.
 
 Outside a game only the keyboard button shows. A bar shows at least six group buttons (up to nine as the bar's
 height allows), and the buttons are laid out in a grid of 9 mm squares (7 or 11 with `touch-buttons`), shrunk to fit

@@ -41,6 +41,8 @@ pub const HOLD_MS: f32 = 450.0;
 /// The group buttons: at least this many, and at most nine.
 const MIN_GROUPS: u8 = 6;
 const MAX_GROUPS: u8 = 9;
+/// How much of a button's side its icon takes.
+const ICON_SHARE: f32 = 0.64;
 
 /// One control.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -123,6 +125,8 @@ pub struct Chrome {
     pub plain: bool,
     /// The soft keyboard is open.
     pub keyboard: bool,
+    /// The game is paused: the Pause button shows a play triangle.
+    pub paused: bool,
     /// Fingers the chrome owns: the control each went down on, how long it has been down (ms), and whether its hold
     /// already acted.
     owned: Vec<(u64, Control, f32, bool)>,
@@ -333,7 +337,9 @@ impl Chrome {
                 (factor.round() as i32).max(1),
                 if on { [255, 224, 120, 255] } else { [150, 150, 160, 220] },
             );
-            o.glyph(c, x0, y0, w, h, ink);
+            // The icon takes most of the button, clear of the border.
+            let side = (w.min(h) as f32 * ICON_SHARE).round() as i32;
+            o.icon(icon_svg(c, self.paused), x0 + w / 2, y0 + h / 2, side, ink);
         }
         o
     }
@@ -346,29 +352,67 @@ pub struct Overlay {
     pub rgba: Vec<u8>,
 }
 
-/// A control's mark: a 3 × 5 cell pattern, `#` drawn.
-pub fn glyph_rows(c: Control) -> [&'static str; 5] {
-    match c {
-        Control::Menu => ["###", "...", "###", "...", "###"],
-        Control::Pause => ["#.#", "#.#", "#.#", "#.#", "#.#"],
-        Control::Shift => ["###", "#..", "###", "..#", "###"],
-        Control::Ctrl => ["###", "#..", "#..", "#..", "###"],
-        Control::Alt => [".#.", "#.#", "###", "#.#", "#.#"],
-        Control::Plain => ["#..", "#..", "#..", "#..", "###"],
-        Control::Keyboard => ["#.#", "#.#", "##.", "#.#", "#.#"],
-        Control::IdleWorker => ["###", ".#.", ".#.", ".#.", "###"],
-        Control::Group(n) => match n {
-            1 => [".#.", "##.", ".#.", ".#.", "###"],
-            2 => ["##.", "..#", ".#.", "#..", "###"],
-            3 => ["##.", "..#", ".#.", "..#", "##."],
-            4 => ["#.#", "#.#", "###", "..#", "..#"],
-            5 => ["###", "#..", "##.", "..#", "##."],
-            6 => [".##", "#..", "###", "#.#", "###"],
-            7 => ["###", "..#", ".#.", ".#.", ".#."],
-            8 => ["###", "#.#", "###", "#.#", "###"],
-            _ => ["###", "#.#", "###", "..#", "##."],
-        },
+/// The icons' sources: our own SVGs on a 24 × 24 grid, white strokes on nothing (`assets/touch-icons/`).
+mod icons {
+    macro_rules! icon {
+        ($name:literal) => {
+            include_str!(concat!("../assets/touch-icons/", $name, ".svg"))
+        };
     }
+    pub const MENU: &str = icon!("menu");
+    pub const PAUSE: &str = icon!("pause");
+    pub const PLAY: &str = icon!("play");
+    pub const SHIFT: &str = icon!("shift");
+    pub const CTRL: &str = icon!("ctrl");
+    pub const ALT: &str = icon!("alt");
+    pub const PLAIN: &str = icon!("plain");
+    pub const KEYBOARD: &str = icon!("keyboard");
+    pub const IDLE: &str = icon!("idle");
+    pub const DIGITS: [&str; 9] = [
+        icon!("digit-1"),
+        icon!("digit-2"),
+        icon!("digit-3"),
+        icon!("digit-4"),
+        icon!("digit-5"),
+        icon!("digit-6"),
+        icon!("digit-7"),
+        icon!("digit-8"),
+        icon!("digit-9"),
+    ];
+}
+
+/// A control's icon, as SVG: Pause shows a play triangle while the game is paused.
+pub fn icon_svg(c: Control, paused: bool) -> &'static str {
+    match c {
+        Control::Menu => icons::MENU,
+        Control::Pause if paused => icons::PLAY,
+        Control::Pause => icons::PAUSE,
+        Control::Shift => icons::SHIFT,
+        Control::Ctrl => icons::CTRL,
+        Control::Alt => icons::ALT,
+        Control::Plain => icons::PLAIN,
+        Control::Keyboard => icons::KEYBOARD,
+        Control::IdleWorker => icons::IDLE,
+        Control::Group(n) => icons::DIGITS[usize::from(n.clamp(1, 9)) - 1],
+    }
+}
+
+/// An icon's coverage at `px` × `px` pixels (0 to 255 a pixel, row by row), anti-aliased by `resvg`. An SVG that
+/// does not parse draws nothing.
+pub fn icon_mask(svg: &str, px: u32) -> Vec<u8> {
+    use resvg::{tiny_skia, usvg};
+    let n = px as usize * px as usize;
+    let (Ok(tree), Some(mut pixmap)) = (
+        usvg::Tree::from_str(svg, &usvg::Options::default()),
+        tiny_skia::Pixmap::new(px.max(1), px.max(1)),
+    ) else {
+        return vec![0; n];
+    };
+    let size = tree.size();
+    let k = px as f32 / size.width().max(size.height());
+    resvg::render(&tree, tiny_skia::Transform::from_scale(k, k), &mut pixmap.as_mut());
+    // The icons are white, so the alpha alone says how much of a pixel is covered.
+    pixmap.data().chunks_exact(4).map(|p| p[3]).take(n).collect()
 }
 
 impl Overlay {
@@ -400,19 +444,31 @@ impl Overlay {
         self.fill(x + w - t, y, t, h, c);
     }
 
-    /// A control's mark, centred in its rectangle.
-    fn glyph(&mut self, c: Control, x: i32, y: i32, w: i32, h: i32, ink: [u8; 4]) {
-        let rows = glyph_rows(c);
-        let cell = (h.min(w) / 8).max(2);
-        let (gw, gh) = (3 * cell, 5 * cell);
-        let (ox, oy) = (x + (w - gw) / 2, y + (h - gh) / 2);
-        for (ry, row) in rows.iter().enumerate() {
-            for (rx, ch) in row.bytes().enumerate() {
-                if ch == b'#' {
-                    self.fill(ox + rx as i32 * cell, oy + ry as i32 * cell, cell, cell, ink);
+    /// Blends `ink` over the picture through a coverage mask `side` pixels square at `(x, y)`.
+    fn blend_mask(&mut self, mask: &[u8], side: i32, x: i32, y: i32, ink: [u8; 4]) {
+        for my in 0..side {
+            for mx in 0..side {
+                let cover = u32::from(mask[(my * side + mx) as usize]) * u32::from(ink[3]) / 255;
+                let (px, py) = (x + mx, y + my);
+                if cover == 0 || px < 0 || py < 0 || px >= self.size.0 as i32 || py >= self.size.1 as i32 {
+                    continue;
                 }
+                let i = (py as usize * self.size.0 as usize + px as usize) * 4;
+                let d = &mut self.rgba[i..i + 4];
+                for ch in 0..3 {
+                    let (a, b) = (u32::from(d[ch]), u32::from(ink[ch]));
+                    d[ch] = ((a * (255 - cover) + b * cover + 127) / 255) as u8;
+                }
+                d[3] = (u32::from(d[3]) + (255 - u32::from(d[3])) * cover / 255) as u8;
             }
         }
+    }
+
+    /// An icon `side` pixels square, centred on `(cx, cy)`.
+    fn icon(&mut self, svg: &str, cx: i32, cy: i32, side: i32, ink: [u8; 4]) {
+        let side = side.max(4);
+        let mask = icon_mask(svg, side as u32);
+        self.blend_mask(&mask, side, cx - side / 2, cy - side / 2, ink);
     }
 }
 
@@ -700,7 +756,7 @@ mod tests {
     }
 
     #[test]
-    fn every_control_has_its_own_mark() {
+    fn every_control_has_its_own_icon_and_each_draws() {
         let mut all = vec![
             Control::Menu,
             Control::Pause,
@@ -712,11 +768,31 @@ mod tests {
             Control::IdleWorker,
         ];
         all.extend((1..=9).map(Control::Group));
-        for (i, a) in all.iter().enumerate() {
-            for b in &all[i + 1..] {
-                assert_ne!(glyph_rows(*a), glyph_rows(*b), "{a:?} and {b:?}");
+        let mut masks: Vec<Vec<u8>> = all.iter().map(|&c| icon_mask(icon_svg(c, false), 40)).collect();
+        masks.push(icon_mask(icon_svg(Control::Pause, true), 40));
+        for (i, a) in masks.iter().enumerate() {
+            let inked = a.iter().filter(|&&v| v > 128).count();
+            // Something of each is drawn, and it is an icon, not a filled square.
+            assert!(inked > 40 && inked < 40 * 40 * 3 / 4, "icon {i}: {inked}");
+            // Anti-aliased: some pixels are partly covered.
+            assert!(a.iter().any(|&v| v > 0 && v < 255), "icon {i}");
+            for (j, b) in masks.iter().enumerate().skip(i + 1) {
+                assert_ne!(a, b, "icons {i} and {j}");
             }
         }
+        // The masks scale with the size asked for.
+        assert_eq!(icon_mask(icons::MENU, 90).len(), 90 * 90);
+        assert!(icon_mask("not svg", 10).iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn the_pause_button_shows_play_while_paused() {
+        assert_ne!(icon_svg(Control::Pause, true), icon_svg(Control::Pause, false));
+        let mut c = Chrome::default();
+        c.layout(wide(true));
+        let a = c.overlay((1000, 600), 1.0);
+        c.paused = true;
+        assert_ne!(a, c.overlay((1000, 600), 1.0));
     }
 
     #[test]
