@@ -41,6 +41,37 @@ pub enum Cmd {
     Finger(u64, TouchPhase, f32, f32),
     /// The frame is kept under this name; the next commands run from the next frame.
     Shot(&'static str),
+    /// Wait until the Local Network game list shows at least this many games (network scenes: they wait on another
+    /// program, so they wait on what it did, never on a count of frames).
+    UntilGames(usize),
+    /// Wait until the open game setup lobby has at least this many humans and this many observers.
+    UntilLobby(usize, usize),
+    /// Wait until the game list's selected game may take an observer (Watch Game shows).
+    UntilWatchable,
+    /// Wait until the creator's Start Game can be pressed (every joiner has the map, and in Classic mode is ready).
+    UntilStartable,
+    /// Wait until a message containing this text has shown (the message list or the notice line).
+    UntilMessage(&'static str),
+}
+
+/// Where the multiplayer screens stand, for the network scenes' waits (`frontend::Screens::mp_progress`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MpProgress {
+    /// Games on the Local Network game list, while it shows.
+    pub games: usize,
+    /// The selected game may take an observer.
+    pub watchable: bool,
+    /// The open lobby, if one is.
+    pub lobby: Option<LobbyProgress>,
+}
+
+/// Where an open lobby stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LobbyProgress {
+    pub humans: usize,
+    pub watchers: usize,
+    /// The creator's Start Game can be pressed.
+    pub startable: bool,
 }
 
 /// A scripted scene: where the flow starts and the input.
@@ -427,6 +458,9 @@ pub fn scenes() -> Vec<Scene> {
             keys: "",
         },
     ]
+    .into_iter()
+    .chain(mp_scenes())
+    .collect()
 }
 
 /// The flow's state changes: the startup videos (one video straight after another), the title, the main menu and the
@@ -1512,6 +1546,92 @@ pub struct Run {
     pointer: Option<(f32, f32)>,
     /// The fingerprints are written.
     finished: bool,
+    /// What the run saw happen (`<scene>-events.txt`).
+    pub events: Events,
+}
+
+/// What a scripted run saw happen, written as it happens to `<scene>-events.txt` in the output folder, one line each:
+/// `state NAME` when the screen changes, `msg TEXT` when a message is shown (chat, notices), and `game ...` as each game
+/// starts (the local slot, the rules, the options in force). Network scenes are checked by these lines (`tests/mp_e2e.rs`), as two
+/// programs' frames never come out the same twice.
+#[derive(Default)]
+pub struct Events {
+    file: Option<std::path::PathBuf>,
+    /// Every line so far.
+    pub lines: Vec<String>,
+    state: Option<AppState>,
+    /// The game's line is written.
+    game: bool,
+}
+
+impl Events {
+    fn note(&mut self, line: String) {
+        if let Some(path) = &self.file {
+            use std::io::Write;
+            let written = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .and_then(|mut f| writeln!(f, "{line}"));
+            if let Err(e) = written {
+                eprintln!("can't write {}: {e}", path.display());
+            }
+        }
+        self.lines.push(line);
+    }
+
+    /// Whether a message containing `text` has shown.
+    fn saw_message(&self, text: &str) -> bool {
+        self.lines
+            .iter()
+            .any(|l| l.strip_prefix("msg ").is_some_and(|m| m.contains(text)))
+    }
+}
+
+/// Notes what changed since the last frame in the run's events.
+fn note_events(c: &mut Core, state: AppState) {
+    let noted = c.script.as_ref().is_none_or(|r| r.events.game);
+    let game = match (&c.sim, state) {
+        (Some(sim), AppState::Game) if !noted => {
+            let w = &sim.world;
+            let cl = crate::extras::describe_lobby(&crate::game::extras(c).lobby_values());
+            let names: Vec<String> = (0..8u8).map(|p| sim.session.player_name(p)).collect();
+            Some(format!(
+                "game slot={} rules={} multiplayer={} observing={} network={} sim-extras=[{}] cl-extras=[{}] names=[{}]",
+                sim.human,
+                if w.rules.enhanced { "enhanced" } else { "classic" },
+                w.rules.multiplayer,
+                w.observing,
+                sim.session.is_network(),
+                w.rules.extras.describe().join(", "),
+                cl.join(", "),
+                names.join(", "),
+            ))
+        }
+        _ => None,
+    };
+    let Some(run) = &mut c.script else { return };
+    let ev = &mut run.events;
+    if ev.state != Some(state) {
+        ev.state = Some(state);
+        ev.note(format!("state {state:?}"));
+        // Each game gets its line.
+        ev.game = false;
+    }
+    if let Some(line) = game
+        && !ev.game
+    {
+        ev.game = true;
+        ev.note(line);
+    }
+}
+
+/// A message is added to the message list or the notice line (`game::update_messages`): a scripted run notes it, even
+/// one the next replaces in the same frame.
+pub(crate) fn note_message(run: &mut Option<Run>, text: &str) {
+    if let Some(run) = run {
+        run.events.note(format!("msg {text}"));
+    }
 }
 
 impl Run {
@@ -1520,12 +1640,18 @@ impl Run {
         if let Err(e) = std::fs::create_dir_all(&out.dir) {
             eprintln!("can't make {}: {e}", out.dir.display());
         }
+        let events = out.dir.join(format!("{}-events.txt", scene.name));
+        let _ = std::fs::remove_file(&events);
         Run {
             script: Script::new(scene),
             record: Record::default(),
             out,
             pointer: None,
             finished: false,
+            events: Events {
+                file: Some(events),
+                ..Events::default()
+            },
         }
     }
 
@@ -1541,8 +1667,10 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
     c.input.clear_events();
     let Some(w) = window else { return };
     let state = c.states.get();
+    note_events(c, state);
     let tick = c.sim.as_ref().map(|s| s.world.tick);
     let outcome = c.dialog.is_some();
+    let mp = c.screens.mp_progress();
     let Core {
         script: Some(run),
         input,
@@ -1551,6 +1679,7 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
     else {
         return;
     };
+    let events = &run.events;
     let s = &mut run.script;
     s.frame += 1;
     s.shots.clear();
@@ -1581,6 +1710,31 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
             }
             Cmd::UntilOutcome => {
                 if !outcome {
+                    break;
+                }
+            }
+            Cmd::UntilGames(n) => {
+                if mp.games < n {
+                    break;
+                }
+            }
+            Cmd::UntilLobby(humans, watchers) => {
+                if mp.lobby.is_none_or(|l| l.humans < humans || l.watchers < watchers) {
+                    break;
+                }
+            }
+            Cmd::UntilWatchable => {
+                if !mp.watchable {
+                    break;
+                }
+            }
+            Cmd::UntilStartable => {
+                if !mp.lobby.is_some_and(|l| l.startable) {
+                    break;
+                }
+            }
+            Cmd::UntilMessage(text) => {
+                if !events.saw_message(text) {
                     break;
                 }
             }
@@ -1884,6 +2038,321 @@ fn save_png_sized(path: &std::path::Path, (w, h): (usize, usize), rgba: &[u8]) {
     if let Err(e) = write() {
         eprintln!("can't write {}: {e}", path.display());
     }
+}
+
+// --- Network scenes ------------------------------------------------------------------------------------------------
+//
+// Two or three programs, each running one of these, play one game through the menus (`tests/mp_e2e.rs`). They wait on
+// each other only through what the screens show (`UntilGames`, `UntilLobby`, `UntilStartable`, `UntilMessage`), never
+// on a count of frames, as the other program's timing is its own. Not in the frame snapshot: two programs' frames
+// never come out the same twice.
+
+/// How a network scene meets its game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Way {
+    /// Enhanced rules, Local Network: the game list's beacon.
+    Lan,
+    /// Enhanced rules, Direct IP: the joiner types the address.
+    Ip,
+    /// Classic rules (opt-in), Local Network: the joiner ticks Ready.
+    Classic,
+    /// Enhanced rules, Local Network, the creator letting one observer in.
+    Watched,
+    /// Enhanced rules, Local Network, three players.
+    Three,
+}
+
+/// The names the players type, so each can wait for the other's chat line.
+const MP_HOST: &str = "Hosty";
+const MP_JOIN: &str = "Joiner";
+const MP_SECOND: &str = "Second";
+const MP_WATCH: &str = "Watcher";
+
+fn mp_scenes() -> Vec<Scene> {
+    let scene = |name, cmds, extras| Scene {
+        name,
+        start: vec![Step::MainMenu],
+        cmds,
+        extras,
+        keys: "",
+    };
+    // The creator turns a C+L option on (health bars), so the lobby's Extras box shows from the start.
+    let host_extras: &[(&str, &str)] = &[("health-bars", "always")];
+    vec![
+        scene("mp-lan-host", mp_host(Way::Lan), host_extras),
+        scene("mp-lan-join", mp_join(Way::Lan, Role::Joiner), &[]),
+        scene("mp-ip-host", mp_host(Way::Ip), host_extras),
+        scene("mp-ip-join", mp_join(Way::Ip, Role::Joiner), &[]),
+        scene("mp-classic-host", mp_host(Way::Classic), host_extras),
+        scene("mp-classic-join", mp_join(Way::Classic, Role::Joiner), &[]),
+        scene("mp-watched-host", mp_host(Way::Watched), host_extras),
+        scene("mp-watched-join", mp_join(Way::Watched, Role::Joiner), &[]),
+        scene("mp-watch", mp_join(Way::Watched, Role::Watcher), &[]),
+        scene("mp-three-host", mp_host(Way::Three), host_extras),
+        scene("mp-three-join", mp_join(Way::Three, Role::Joiner), &[]),
+        scene("mp-three-second", mp_join(Way::Three, Role::Second), &[]),
+    ]
+}
+
+/// From the main menu to the connection: Multi Player Game, the rules, the method, the name. Local Network ends on
+/// the game list; Direct IP ends on its setup screen with the name still to give.
+fn mp_menus(way: Way, name: &'static str) -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25)];
+    v.extend(tap(K::Letter('M')));
+    v.extend([Until(AppState::Multiplayer), Wait(3)]);
+    let give_name = |v: &mut Vec<Cmd>| {
+        v.push(Wait(3));
+        for _ in 0..12 {
+            v.extend(tap(K::Backspace));
+        }
+        v.extend([Type(name), Wait(2)]);
+        v.extend(tap(K::Enter));
+    };
+    match way {
+        Way::Classic => {
+            // Classic asks for the name first; its list has Direct IP and Local Network.
+            v.extend(tap(K::Letter('C')));
+            give_name(&mut v);
+            v.extend([Wait(3)]);
+            v.extend(click(100.0, 224.0));
+            v.extend(tap(K::Letter('C')));
+            v.extend([Wait(3)]);
+        }
+        Way::Lan | Way::Watched | Way::Three => {
+            v.extend(tap(K::Letter('E')));
+            v.extend([Wait(3)]);
+            v.extend(click(100.0, 242.0));
+            v.extend(tap(K::Letter('C')));
+            give_name(&mut v);
+            v.extend([Wait(3)]);
+        }
+        Way::Ip => {
+            v.extend(tap(K::Letter('E')));
+            v.extend([Wait(3)]);
+            v.extend(click(100.0, 224.0));
+            v.extend(tap(K::Letter('C')));
+            v.extend([Wait(3)]);
+        }
+    }
+    v
+}
+
+/// Selects the units at the start (a box over the map view) and sends them somewhere, then back: commands that travel.
+fn mp_orders() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![
+        Move(180.0, 20.0),
+        Down(Button::Left),
+        Wait(2),
+        Move(630.0, 470.0),
+        Wait(2),
+        Up(Button::Left),
+        Wait(2),
+        Shot("selected"),
+        Move(300.0, 120.0),
+        Down(Button::Right),
+        Wait(1),
+        Up(Button::Right),
+        Wait(30),
+        Move(520.0, 380.0),
+        Down(Button::Right),
+        Wait(1),
+        Up(Button::Right),
+        Wait(3),
+    ];
+    // Ctrl+number keeps the selection as a group (a synced command too).
+    v.extend([Press(Key::ControlLeft), Wait(1)]);
+    v.extend(tap(Key::Digit(1)));
+    v.extend([Release(Key::ControlLeft), Wait(2)]);
+    v
+}
+
+/// Ctrl+Q and its confirmation: in a network game it quits to the main menu (`net/leave-and-drop.md`, LV17), and the
+/// others see this player leave.
+fn mp_leave() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = ctrl(Key::Letter('Q'));
+    v.extend([Wait(2), Shot("quit-confirm")]);
+    v.extend(tap(Key::Enter));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("left")]);
+    v
+}
+
+/// The creator's side: the lobby, a map picked, options set (Extras: a simulation option and a C+L one), the joiners
+/// waited for, Start; in the game, orders, a chat line each way, then leaving (in Classic mode the joiner leaves).
+fn mp_host(way: Way) -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = mp_menus(way, MP_HOST);
+    match way {
+        // Direct IP's Call creates the game: Connect, then the name.
+        Way::Ip => {
+            v.extend(tap(K::Letter('C')));
+            v.push(Wait(3));
+            for _ in 0..12 {
+                v.extend(tap(K::Backspace));
+            }
+            v.extend([Type(MP_HOST), Wait(2)]);
+            v.extend(tap(K::Enter));
+        }
+        // The game list's Create Game.
+        _ => v.extend(tap(K::Letter('C'))),
+    }
+    v.extend([UntilLobby(1, 0), Wait(6), Shot("lobby-alone")]);
+    // Select Scenario: the dialog, the next map down, OK.
+    v.extend(tap(K::Letter('E')));
+    v.extend([Wait(3), Shot("scenarios")]);
+    v.extend(tap(K::Down));
+    v.extend([Wait(2)]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3), Shot("map-picked")]);
+    // Extras: rally points (a simulation option) and smart attack-move (C+L) on, for everyone.
+    v.extend(click(480.0, 336.0));
+    v.extend([Wait(3)]);
+    v.extend(click(480.0, 173.0));
+    v.extend([Wait(2)]);
+    v.extend(click(480.0, 293.0));
+    v.extend([Wait(2), Shot("extras-list")]);
+    v.extend(tap(K::Escape));
+    v.push(Wait(2));
+    if way == Way::Watched {
+        // Observers: 1.
+        v.extend(click(490.0, 246.0));
+        v.push(Wait(3));
+        v.extend(click(490.0, 246.0 + 20.0 + 20.0 + 6.0));
+        v.push(Wait(3));
+    }
+    v.push(Shot("options"));
+    let watchers = usize::from(way == Way::Watched);
+    let humans = if way == Way::Three { 3 } else { 2 };
+    v.extend([
+        UntilLobby(humans, watchers),
+        UntilStartable,
+        Wait(10),
+        Shot("lobby-full"),
+    ]);
+    v.extend(tap(K::Letter('S')));
+    v.extend([Until(AppState::Game), Move(400.0, 240.0), Wait(30), Shot("game")]);
+    v.extend(mp_orders());
+    v.extend([UntilCycle(200), Shot("cycle-200")]);
+    v.extend(chat("hello from the host"));
+    v.push(UntilMessage("Joiner: hello from the joiner"));
+    if way == Way::Three {
+        v.push(UntilMessage("Second: hello from the second"));
+    }
+    v.extend([Wait(2), Shot("chat")]);
+    if way == Way::Three {
+        // The first joiner leaves; the creator and the second play on, then the creator leaves.
+        v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
+    }
+    if way == Way::Classic {
+        // Here the joiner leaves first; the creator, the only human left in, wins (LV1).
+        v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
+        v.extend([UntilOutcome, Wait(5), Shot("outcome")]);
+        return v;
+    }
+    let end = if way == Way::Three { 500 } else { 400 };
+    v.extend([UntilCycle(end), Shot("last-cycle")]);
+    v.extend(mp_leave());
+    v
+}
+
+/// Who a joining scene is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Role {
+    /// The first joiner.
+    Joiner,
+    /// The second joiner of a three-player game.
+    Second,
+    /// An observer (Watch Game).
+    Watcher,
+}
+
+/// A joiner's side (or an observer's): the game found (the list, or the address typed), joined, Ready in Classic mode;
+/// in the game, orders and a chat line answered, then a leave seen and the game ended or left.
+fn mp_join(way: Way, role: Role) -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let name = match role {
+        Role::Joiner => MP_JOIN,
+        Role::Second => MP_SECOND,
+        Role::Watcher => MP_WATCH,
+    };
+    let mut v = mp_menus(way, name);
+    if way == Way::Ip {
+        // Answer, the address, Connect, the name: the game at the address is the list's.
+        v.extend(click(130.0, 376.0));
+        v.push(Wait(2));
+        v.extend(click(130.0, 410.0));
+        v.push(Wait(2));
+        v.extend(click(200.0, 342.0));
+        v.extend([Wait(2), Type("127.0.0.1"), Wait(2), Shot("address")]);
+        v.extend(tap(K::Enter));
+        v.push(Wait(3));
+        for _ in 0..12 {
+            v.extend(tap(K::Backspace));
+        }
+        v.extend([Type(name), Wait(2)]);
+        v.extend(tap(K::Enter));
+    }
+    v.extend([UntilGames(1), Wait(4), Shot("games")]);
+    if role == Role::Watcher {
+        // Watch Game shows once the creator has made a place for an observer.
+        v.extend([UntilWatchable, Wait(2)]);
+        v.extend(tap(K::Letter('W')));
+        v.extend([UntilLobby(2, 1), Wait(6), Shot("lobby")]);
+    } else {
+        v.extend(tap(K::Letter('J')));
+        v.extend([UntilLobby(2, 0), Wait(6), Shot("lobby")]);
+    }
+    if way == Way::Classic {
+        // The Ready box of the joiner's row (the second).
+        v.extend(click(19.0, 82.0));
+        v.extend([Wait(3), Shot("ready")]);
+    }
+    v.extend([Until(AppState::Game), Move(400.0, 240.0), Wait(30), Shot("game")]);
+    match role {
+        Role::Watcher => {
+            v.extend([UntilMessage("Joiner: hello from the joiner"), Wait(2), Shot("chat")]);
+            v.extend([UntilMessage("Hosty left the game"), Wait(5), Shot("host-left")]);
+            v.extend(mp_leave());
+            return v;
+        }
+        Role::Joiner => {
+            v.extend(mp_orders());
+            v.extend([UntilMessage("Hosty: hello from the host"), Wait(2)]);
+            v.extend(chat("hello from the joiner"));
+        }
+        Role::Second => {
+            v.extend(mp_orders());
+            v.extend([UntilMessage("Hosty: hello from the host"), Wait(2)]);
+            v.extend(chat("hello from the second"));
+        }
+    }
+    v.extend([Wait(4), Shot("chat")]);
+    if way == Way::Lan {
+        // The game menu open for a while: a network game goes on underneath (`ui/game-menu.md`, "Multiplayer"), so
+        // these cycles pass here and the creator never waits.
+        v.extend(tap(K::F(10)));
+        v.extend([Wait(3), Shot("menu-open"), UntilCycle(330), Shot("menu-later")]);
+        v.extend(tap(K::Escape));
+        v.push(Wait(3));
+    }
+    // In Classic mode, and the first joiner of three, this joiner leaves first.
+    if way == Way::Classic || (way == Way::Three && role == Role::Joiner) {
+        v.extend([UntilCycle(300), Shot("last-cycle")]);
+        v.extend(mp_leave());
+        return v;
+    }
+    if way == Way::Three {
+        v.extend([UntilMessage("Joiner left the game"), Wait(5), Shot("joiner-left")]);
+    }
+    // The creator leaves; the joiner, the only human left in, wins at the next victory check (LV1).
+    v.extend([UntilMessage("Hosty left the game"), Wait(5), Shot("host-left")]);
+    v.extend([UntilOutcome, Wait(5), Shot("outcome")]);
+    v
 }
 
 #[cfg(test)]

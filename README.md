@@ -273,7 +273,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--record-replay` | Record the game to a `.twrep` replay in the `replays` folder of your user data (see [Replays](#replays)). Off unless given. |
 | `--replay <FILE>` | Play a recorded game back, as the recording player saw it. Cannot be combined with `<MAP>`, `--record-replay` or the setup options. |
 | `--host [PORT]`, `--join <ADDR>`, `--lobby <SPEC>`, `--observe`, `--name <NAME>` | Network play without the menus. See [Multiplayer](#multiplayer-early). |
-| `--script <NAME>`, `--script-out <DIR>`, `--headless` | Run a scripted scene for the frame snapshot test. `--script` and `--script-out` go together; `--headless` uses no window or GPU. |
+| `--script <NAME>`, `--script-out <DIR>`, `--headless` | Run a scripted scene for the frame snapshot test or the end-to-end network check (the `mp-*` scenes). `--script` and `--script-out` go together; `--headless` uses no window or GPU. |
 
 ### `twtool` (inspection and verification)
 
@@ -318,7 +318,7 @@ tidewater 'Maps\Cramped BNE.pud' --host --lobby humans=2,races=human/orc,seed=1 
 tidewater --join HOST-ADDRESS                                                       # each joiner
 ```
 
-The default port is 6112: TCP for the game, which the host opens on its firewall (joiners need nothing open), and UDP for the Local Network list, where a game's creator broadcasts a small packet once a second (`TIDEWATER_NO_BEACON=1` turns that off; Direct IP works where broadcasts do not). Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game with Surrender or Quit shows "has left the game"; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. From the command line a host leaves places for watchers with `--lobby observers=N` (off by default) and a watcher joins with `--join HOST-ADDRESS --observe`; a watcher sees the whole map, sends no commands and does not count for victory or defeat. Details: [docs/design/network.md](docs/design/network.md).
+The default port is 6112: TCP for the game, which the host opens on its firewall (joiners need nothing open), and UDP for the Local Network list, where a game's creator broadcasts a small packet once a second (`TIDEWATER_NO_BEACON=1` turns that off; Direct IP works where broadcasts do not). Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game (Ctrl+Q, Quit to Main Menu or Surrender) shows "Player NAME left the game." to the others; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. From the command line a host leaves places for watchers with `--lobby observers=N` (off by default) and a watcher joins with `--join HOST-ADDRESS --observe`; a watcher sees the whole map, sends no commands and does not count for victory or defeat. Details: [docs/design/network.md](docs/design/network.md).
 
 ## Replays
 
@@ -362,6 +362,8 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 **Game-data tests.** Some tests need a real installation or recorded oracle traces. They are gated on `TIDEWATER_INSTALL` and `TIDEWATER_ORACLE_TRACES` and skip when those are unset. All other tests use synthetic data built by our own code; no game file is ever committed.
+
+**Multiplayer end to end.** `TIDEWATER_INSTALL=<data>/game cargo test --release -p tidewater-client --test mp_e2e` starts two or three `tidewater` programs on this machine and plays five games through the menus (Local Network, Direct IP, Classic, an observer, three players), then checks that every side saw the same game. It takes about 30 seconds in a release build and uses port 6112; details in [docs/design/network.md](docs/design/network.md#running-the-end-to-end-check).
 
 **CI.** [GitHub Actions](.github/workflows/ci.yml) runs on pull requests and on pushes to `develop` and `main`. It checks format, clippy and the tests on Linux (the game-data tests skip there), then builds release binaries of `tidewater` and `twtool` on Linux, macOS and Windows, plus the iOS Simulator and Android arm64 libraries.
 

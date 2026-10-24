@@ -854,6 +854,18 @@ pub struct Screens {
     load_cursors: (LogCursor, LogCursor),
 }
 
+impl Screens {
+    /// Where the multiplayer screens stand, for a scripted run to wait on (`script`): the games on the game list and,
+    /// once a lobby is open, its humans, its observers and whether Start Game can be pressed.
+    pub(crate) fn mp_progress(&self) -> crate::script::MpProgress {
+        crate::script::MpProgress {
+            games: self.mp.as_ref().map_or(0, |m| m.ui.listed_games()),
+            watchable: self.mp.as_ref().is_some_and(|m| m.ui.watch_offered()),
+            lobby: self.mp_lobby.as_ref().map(lobbyscreen::Lobby::progress),
+        }
+    }
+}
+
 /// The victory or defeat dialog over a finished game.
 pub struct OutcomeDialog {
     pub victory: bool,
