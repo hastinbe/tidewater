@@ -1337,6 +1337,38 @@ pub(crate) fn draw_placement(c: &mut Core) {
     layer.visible = true;
 }
 
+/// What the touch step needs to know of the game screen (`touch`, `gesture::Config::hover`): whether a building is
+/// being placed or a command's target chosen, so a finger moves the pointer rather than clicking, and the placed
+/// building's outline in screen pixels (left, top, right, bottom), which a tap confirms on.
+pub(crate) fn touch_aim(c: &Core) -> (bool, Option<(f32, f32, f32, f32)>) {
+    let Some(ui) = c.panel_ui.as_ref() else {
+        return (false, None);
+    };
+    match ui.mode {
+        panel::Mode::Target(_) => (true, None),
+        panel::Mode::Place(kind) => {
+            let ghost = (|| {
+                let (sim, view, tile) = (c.sim.as_ref()?, c.view.as_ref()?, ui.site?);
+                let size = panel::WorldState {
+                    world: &sim.world,
+                    local: sim.human,
+                }
+                .footprint(kind);
+                let site = sim.world.site_at(kind, tile);
+                let t = TILE_PX as f32;
+                let a = view.screen_of_map((site.0 as f32 * t, site.1 as f32 * t))?;
+                let b = view.screen_of_map((
+                    (site.0 + i32::from(size.0)) as f32 * t,
+                    (site.1 + i32::from(size.1)) as f32 * t,
+                ))?;
+                Some((a.0, a.1, b.0, b.1))
+            })();
+            (true, ghost)
+        }
+        _ => (false, None),
+    }
+}
+
 /// The cursor position in map pixels (y down), if it is over the window: by the view the last frame drew
 /// (`mapview::MapView::pointer_map`).
 fn cursor_map(input: &input::Input, view: &mapview::MapView) -> Option<Vec2> {

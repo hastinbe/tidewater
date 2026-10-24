@@ -81,6 +81,8 @@ pub struct GameMenu {
     can_save_replay: bool,
     /// The player only watches this network game.
     observer: bool,
+    /// A phone or tablet: no Exit Program (the system closes apps; `docs/design/touch.md`).
+    no_exit: bool,
     /// Text shown by the current screen (wrapped).
     lines: Vec<String>,
     delay: menu::Delay,
@@ -432,6 +434,7 @@ impl GameMenu {
                 for e in menu::end_buttons(kind)
                     .into_iter()
                     .filter(|e| !(self.observer && *e == EndButton::Surrender))
+                    .filter(|e| !(self.no_exit && *e == EndButton::Exit))
                 {
                     let label = match e {
                         EndButton::Restart => "Restart Scenario (Ctrl+R)",
@@ -790,6 +793,7 @@ pub(crate) fn open_requests(c: &mut Core) {
         pictures,
         menu_input: MenuInput { demo_done, .. },
         input,
+        touch,
         ..
     } = c;
     let keys = &input.keys;
@@ -860,6 +864,8 @@ pub(crate) fn open_requests(c: &mut Core) {
             K::LoadGame => Screen::Saving(Saving::Load),
             K::Restart => Screen::Confirm(Confirm::Restart),
             K::Quit => Screen::Confirm(Confirm::QuitToMenu),
+            // A phone or tablet has no Exit Program, so Ctrl+X does nothing there.
+            K::QuitDialog if touch.touch_only => continue,
             K::QuitDialog => Screen::Confirm(Confirm::Exit),
             K::ToggleSounds => {
                 stored.0.toggle_digital();
@@ -880,6 +886,7 @@ pub(crate) fn open_requests(c: &mut Core) {
         flow,
         &folder.folder(),
         false,
+        touch.touch_only,
     );
 }
 
@@ -905,6 +912,7 @@ fn open_menu(
     flow: &Flow,
     folder: &SaveDir,
     from_outcome: bool,
+    no_exit: bool,
 ) {
     let mut nav = Nav::default();
     nav.open(gate(screen, sim));
@@ -927,6 +935,7 @@ fn open_menu(
         extra_speeds: sim.world.rules.extras.extra_speeds,
         can_save_replay: sim.session.can_save_replay(),
         observer: sim.session.observing(),
+        no_exit,
         lines: Vec::new(),
         delay: menu::Delay::default(),
         hot: None,
@@ -955,6 +964,7 @@ pub(crate) fn open_from_outcome(c: &mut Core) {
         flow,
         store: folder,
         pictures,
+        touch,
         ..
     } = c
     else {
@@ -977,6 +987,7 @@ pub(crate) fn open_from_outcome(c: &mut Core) {
         flow,
         &folder.folder(),
         true,
+        touch.touch_only,
     );
 }
 
@@ -1569,6 +1580,7 @@ mod tests {
             extra_speeds: 0,
             can_save_replay: false,
             observer: false,
+            no_exit: false,
             lines: vec!["text".into()],
             delay: menu::Delay::default(),
             hot: None,
@@ -1657,6 +1669,26 @@ mod tests {
                 k => panic!("{k:?} takes no focus"),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_phone_or_tablet_has_no_exit_program_in_end_scenario() {
+        let labels = |m: &GameMenu| -> Vec<String> {
+            m.build(20, 16, Kind::Custom)
+                .items
+                .iter()
+                .filter_map(|it| match &it.kind {
+                    Kinds::Button(_, l) => Some(l.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut m = menu_at(Screen::End);
+        assert!(labels(&m).iter().any(|l| l.starts_with("Exit Program")));
+        m.no_exit = true;
+        let on_phone = labels(&m);
+        assert!(on_phone.iter().all(|l| !l.starts_with("Exit Program")), "{on_phone:?}");
+        assert!(on_phone.iter().any(|l| l == "Quit to Main Menu"));
     }
 
     #[test]

@@ -22,8 +22,8 @@ use std::time::Duration;
 
 use crate::chrome::{self, Chrome, Control, Fed, Overlay};
 use crate::core::{Core, game_running};
-use crate::gesture::{Gesture, Pt};
-use crate::input::{Key, KeyEvent, Touch, Wheel, WindowGeom};
+use crate::gesture::{self, Gesture, Pt, Zone};
+use crate::input::{Button, Key, KeyEvent, Touch, Wheel, WindowGeom};
 use crate::touchemu::Emulator;
 
 /// How far a tap may miss a unit and still select it, in millimetres.
@@ -148,6 +148,28 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     let Some(w) = window else { return };
     let lb = w.letterbox();
     let ppmm = w.points_per_mm();
+    let (hover, ghost) = if in_game {
+        crate::game::touch_aim(c)
+    } else {
+        (false, None)
+    };
+    let to_zone = |r: (f32, f32, f32, f32)| {
+        let (x0, y0) = lb.window_of((r.0, r.1), w.factor);
+        let (x1, y1) = lb.window_of((r.2, r.3), w.factor);
+        Zone {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        }
+    };
+    let cfg = gesture::Config {
+        mm: ppmm,
+        view: if in_game { view_zone(c, w) } else { None },
+        hover,
+        ghost: ghost.map(to_zone),
+        ..Default::default()
+    };
     let Core {
         touch: t,
         input,
@@ -193,14 +215,26 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     }
 
     // The gesture machine, one of its frames a game frame.
-    t.gesture.update(elapsed, &passed, ppmm, t.chrome.right_click);
+    t.gesture.update(elapsed, &passed, &cfg);
     if let Some((_, age)) = &mut t.pulse {
         *age += ms;
         if *age >= PULSE_MS {
             t.pulse = None;
         }
     }
-    let frame = t.gesture.pop();
+    let mut frame = t.gesture.pop();
+    // Right-click mode: a tap's click is the right button's.
+    if t.chrome.right_click
+        && let Some(f) = &mut frame
+        && (f.tap_press || f.tap)
+    {
+        for (b, _) in &mut f.buttons {
+            if *b == Button::Left {
+                *b = Button::Right;
+            }
+        }
+        f.tap = false;
+    }
     let mut released = false;
     match frame {
         Some(f) => {
@@ -212,12 +246,12 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
             if f.pointer.is_some() {
                 t.pointer = f.pointer;
             } else if !t.gesture.dragging() {
-                t.pointer = None;
+                t.pointer = t.gesture.hover_pointer();
             }
             if f.tap {
                 input.tap_radius = Some(TAP_MM * ppmm * w.factor / lb.scale);
             }
-            if let Some(p) = f.pulse {
+            if let Some(p) = f.pulse.or(f.armed) {
                 t.pulse = Some((p, 0.0));
             }
             t.pan.0 += f.pan.0;
@@ -228,7 +262,8 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         }
         None => {
             if !t.gesture.dragging() {
-                t.pointer = None;
+                // While placing or targeting the pointer rests where a finger left it, so the outline stays.
+                t.pointer = t.gesture.hover_pointer();
             }
         }
     }
@@ -258,7 +293,22 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     }
 }
 
-/// Draws the long-press pulse (a ring that grows and fades) onto the composed picture.
+/// The map view's place in the window, in points, as the last frame drew it.
+fn view_zone(c: &Core, w: WindowGeom) -> Option<Zone> {
+    let (r, _, _) = c.view.as_ref()?.drawn()?;
+    let lb = w.letterbox();
+    let (x0, y0) = lb.window_of((r.x as f32, r.y as f32), w.factor);
+    let (x1, y1) = lb.window_of(((r.x + r.w as i32) as f32, (r.y + r.h as i32) as f32), w.factor);
+    Some(Zone {
+        x: x0,
+        y: y0,
+        w: x1 - x0,
+        h: y1 - y0,
+    })
+}
+
+/// Draws the long-press pulse (a ring that grows and fades) onto the composed picture; the same ring marks a finger
+/// held long enough to draw the selection box.
 pub fn draw_pulse(c: &mut Core) {
     let Some((at, age)) = c.touch.pulse else { return };
     let Some(w) = c.input.window else { return };
