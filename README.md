@@ -125,10 +125,11 @@ The pointer is locked to the window during a game, as in full screen, so pushing
 
 ### Touch
 
-Tidewater has an input layer for touchscreens, our own addition (the original has no touch). It is on from the start on iOS and Android, and on a desktop when you touch a touchscreen or use `--touch-emulation`. A tap is a left click, a
-long press a right click, a drag a box select, two fingers pan the map, a pinch zooms it (up to four times) and a
-three-finger tap opens the game menu. The controls a touchscreen lacks (Shift, Ctrl, Alt, right-click mode, pause and
-the keyboard) are buttons in the bars beside the picture. You can try all of it on a desktop with `--touch-emulation`:
+Tidewater has an input layer for touchscreens, our own addition (the original has no touch). It is on from the start on iOS and Android, and on a desktop when you touch a touchscreen or use `--touch-emulation`. A finger dragged on the
+map scrolls it, held still a moment first it draws a selection box, a tap selects, and with your units selected a tap
+on the ground or an enemy orders them there; a long press is a right click and two taps select all of a type. The
+controls a touchscreen lacks (the menu, pause, Shift, Ctrl, Alt, a plain-click latch, the keyboard, and the control
+groups) are buttons in the bars beside the picture, and the Settings screen's Touch page changes how it all works. You can try all of it on a desktop with `--touch-emulation`:
 the mouse is one finger, and holding Alt as you press adds a second finger (Alt+Shift: beside the first, Alt+Ctrl: a
 third). The iOS and Android apps (next sections) use it on a real touchscreen. How it works, and the measurements it uses, is
 in [`docs/design/touch.md`](docs/design/touch.md).
@@ -240,7 +241,15 @@ The idle-worker key is F6; keys can be rebound on the Settings screen's Keys pag
 | `shift-queue` | `--extra-shift-queue` | on, off | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order (S) |
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 | `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) (C+L) |
-| `map-zoom` | `--extra-map-zoom VALUE` | off, wheel | off | `wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (a pinch does the same on touch devices) (C) |
+| `map-zoom` | `--extra-map-zoom VALUE` | off, wheel | off | `wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (on touch devices the pinch is `touch-pinch`) (C) |
+| `touch-drag` | `--extra-touch-drag VALUE` | pan, pan-no-glide, box | pan | Touch only. A finger dragged on the map scrolls it (`pan` glides on after a flick, `pan-no-glide` stops where the finger lifts); hold it still a moment first to draw a selection box instead. `box`: a drag draws the box at once, as the mouse does |
+| `touch-smart-tap` | `--extra-touch-smart-tap VALUE` | on, off | on | Touch only. With your units selected, a tap on the ground, an enemy or a resource orders them there, as a right click does; a tap on your own unit or building selects it. `off`: every tap is a left click |
+| `touch-two-finger` | `--extra-touch-two-finger VALUE` | pan, box, off | pan | Touch only. Two fingers dragged together scroll the map (`pan`), are the corners of a selection box (`box`), or do nothing (`off`; a pinch still zooms if it is on) |
+| `touch-pinch` | `--extra-touch-pinch VALUE` | auto, on, off | auto | Touch only. Spreading two fingers magnifies the map view up to 4 times. `auto`: on for phones (a screen whose short side is under 90 mm), off for tablets |
+| `touch-hold` | `--extra-touch-hold VALUE` | normal, long, longer | normal | Touch only. How long a finger is held still before a drag draws a box, and before it right-clicks: `normal` 0.3 and 0.45 seconds, `long` 0.4 and 0.6, `longer` 0.5 and 0.75 |
+| `touch-buttons` | `--extra-touch-buttons VALUE` | medium, small, large | medium | Touch only. The size of the side bars' buttons: `medium` 9 mm, `small` 7 mm, `large` 11 mm (smaller when a bar is too narrow) |
+| `touch-swap-bars` | `--extra-touch-swap-bars` | on, off | off | Touch only. The control-group buttons go on the left and the menu, pause and modifier buttons on the right |
+| `touch-menu-tap` | `--extra-touch-menu-tap VALUE` | on, off | on | Touch only. A tap of three fingers at once opens the game menu (the Menu button always does) |
 
 **C+L** marks an option that gives you an edge (health bars, smart attack-move, widescreen). In a game with other players the host chooses it in the lobby's "Extras" box (from the command line, `--lobby extras=health-bars=always/widescreen=16:9`; the host's own settings stand for the ones not named) and every player, observers included, plays with the host's choice, whatever their own setting. In single-player games and replays you get your own. **S** marks an option that changes the simulation (rally points, the production queue, shift-queued orders,
 the selection limit and the extra speed levels): the flag or the setting starts a single-player game with it, and in a

@@ -103,7 +103,6 @@ impl Zone {
 
 /// What one finger dragging on the map view does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // The touch options choose it (next step).
 pub enum OneFinger {
     /// It pans; holding first draws the selection box.
     Pan,
@@ -113,7 +112,6 @@ pub enum OneFinger {
 
 /// What two fingers moving together do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // The touch options choose it (next step).
 pub enum TwoFinger {
     Pan,
     /// The two fingers are the selection box's corners.

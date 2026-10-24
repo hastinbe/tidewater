@@ -23,7 +23,7 @@ turn touch on from the first frame.
 
 | Fingers | Gesture | Becomes |
 |---|---|---|
-| 1 | **Tap**: lift within 450 ms, moved under 3 mm | Left press, then release a frame later (right in right-click mode) |
+| 1 | **Tap**: lift within 450 ms, moved under 3 mm | Left press, then release a frame later; with your units selected, a right click instead off your own units (the smart tap) |
 | 1 | **Two taps** on one spot (within 450 ms and 6 mm) | Two clicks at exactly the first tap's point, so the game sees its double click (all of that type on screen, Enhanced) |
 | 1 | **Drag** on the map view: moves past 3 mm within 300 ms | **Pan** of the map view, gliding on after a flick |
 | 1 | **Hold, then drag** on the map view: 300 ms still (a ring shows), then moves | Left button held from where the finger went down: the selection box |
@@ -57,6 +57,13 @@ emits one frame at a time (`Gesture::pop`) and the core applies one per game fra
 pointer move after a press. The pointer exists only while a click or drag is in progress, or while placing or
 targeting; otherwise a lifted finger leaves no cursor to scroll the map's edge.
 
+**The smart tap.** With a unit of yours that can move selected, a tap on the map view that lands on none of your own
+units (within the 6 mm tap tolerance) is a right click, press and release: ground moves there, an enemy is attacked,
+a mine or a forest is worked, as the right-click rules decide (`mouse::smart_tap`). A tap on your own unit or
+building still selects it, and so does any tap with nothing of yours selected (an enemy you are looking at gives no
+orders). The **plain-click** button (**L**) makes the next tap on the map an ordinary left click, for the rare case the smart
+tap guesses wrong; the option `touch-smart-tap` turns it off.
+
 **Sizes in millimetres.** Slop, pan and pinch thresholds, the tap tolerance and the chrome's buttons are millimetres,
 turned into points with the display's density. The shell passes the best density it knows (`WindowGeom::ppi`: 140
 points to the inch on a desktop, 160 on a phone or tablet, or `--touch-dpi`).
@@ -71,19 +78,25 @@ box, a drag or a mouse click never snaps.
 
 ## The chrome
 
-A touchscreen has no Shift, Ctrl or Alt, and no pause key. The chrome puts them in the black bars beside the picture
-(in the safe area), and a keyboard button for typing:
+A touchscreen has no Shift, Ctrl or Alt, no pause key and no number keys. The chrome puts them in the black bars
+beside the picture (in the safe area). The left bar holds the tools, the right bar the control groups (the option
+`touch-swap-bars` swaps them):
 
 | Control | Does |
 |---|---|
+| **≡** (menu) | F10: the game menu. |
+| **II** (pause) | Pauses or resumes, as the pause key does. |
 | **S**, **C**, **A** (Shift, Ctrl, Alt) | A one-shot latch: the key is held for the next click, then let go a frame after that click's release (the rules that read Alt when the button comes up need it held through the release). |
-| **R** | Right-click mode: taps are right clicks until it is switched off. |
-| **II** (pause) | Pauses or resumes, as the pause key does. In a game only. |
+| **L** (plain left click) | The next tap on the map is a left click, whatever the smart tap would make of it. |
 | **K** (keyboard) | Opens or closes the system's soft keyboard (`SDL_StartTextInput`). |
+| **1** to **9** (groups) | A tap is the digit: recalls the group, and two taps centre on it, as the keys do. Held 450 ms it is Ctrl and the digit: the selection becomes that group (once, not again at the lift). |
+| **I** (idle worker) | F6: the next idle worker. Only with the option `idle-worker` on; it sends F6 whatever key that option is bound to. |
 
-The latches, **R** and pause show in a game; the keyboard button always shows. The controls go in the left bar and
-right bar, one column each, centred in the bar's height; if only one bar is wide enough they share it, and a window
-with none gets a column over the picture's left edge. A control acts when its finger lifts inside it. The chrome is an
+Outside a game only the keyboard button shows. A bar shows at least six group buttons (up to nine as the bar's
+height allows), and the buttons are laid out in a grid of 9 mm squares (7 or 11 with `touch-buttons`), shrunk to fit
+a narrow bar but never under 30 points; if only one bar is wide enough it takes every control, and a window with none
+gets the two lists over the picture's left and right edges. A control acts when its finger lifts inside it, except a
+held group button, which acts at 450 ms. The chrome is an
 RGBA overlay of the window's size that the shell blends over the picture; it is never part of the frame (640 x 480; the game screen is never wider on a touch device, because the `widescreen`
 option is ignored there: the pillarbox is where the chrome lives, see `client-core.md`, "Widescreen"), so frames and
 snapshots do not depend on it.
@@ -129,6 +142,26 @@ attached, so a desktop mouse is unchanged. A trackpad's fingers (an *indirect* d
 are pointer input, and its scroll gestures keep working as the wheel. Touch mode ends when a real mouse moves with no
 finger down.
 
+## Options
+
+The Settings screen has a **Touch** page wherever touch is in use (a phone or tablet, `--touch-emulation`, or a
+computer whose touchscreen was touched); on a phone or tablet it takes the place of the Keys page. Its rows are the
+client-only options of `docs/design/extras.md` whose names start with `touch-`:
+
+| Option | Default | Choices |
+|---|---|---|
+| `touch-drag` | `pan` | One finger pans and glides; `pan-no-glide`; `box`: a drag draws the box at once, as the mouse does |
+| `touch-smart-tap` | `on` | `off`: every tap is a left click |
+| `touch-two-finger` | `pan` | `box`: the two fingers are the box's corners; `off` |
+| `touch-pinch` | `auto` | `auto` is on for a phone (the screen's short side under 90 mm) and off for a tablet; `on`; `off` |
+| `touch-hold` | `normal` | The arm and long-press times: 300 and 450 ms; `long` 400 and 600; `longer` 500 and 750 |
+| `touch-buttons` | `medium` | The chrome's buttons: 9 mm; `small` 7; `large` 11 |
+| `touch-swap-bars` | off | The groups go left and the tools right |
+| `touch-menu-tap` | `on` | `off`: a three-finger tap does nothing (the Menu button still opens the menu) |
+
+The phone rule reads the window's size and the shell's density (`touch::is_phone`), so a desktop window under
+`--touch-emulation` counts as a phone when it is small (640 x 480 at 140 points to the inch is 87 mm high).
+
 ## Exit Program on phones and tablets
 
 iOS and Android close apps themselves, and an app that quits on its own looks like a crash there. On a touch-only
@@ -138,8 +171,8 @@ menu's End Scenario dialog, and Ctrl+X does nothing. Android's Back button is Es
 
 ## Scripted scenes
 
-`script::Cmd::Finger(id, phase, x, y)` puts a finger event in at a screen pixel. The scenes `touch-select` (tap near a
-peasant), `touch-order` (long press orders it), `touch-drag` (hold, then box select), `touch-pinch`, `touch-pan`,
+`script::Cmd::Finger(id, phase, x, y)` puts a finger event in at a screen pixel. The scenes `touch-select` (tap near a peasant, then a smart tap
+on the ground), `touch-order` (long press orders it), `touch-drag` (hold, then box select), `touch-pinch`, `touch-pan`,
 `touch-swipe` (one-finger pan and glide) and `touch-menu` (three-finger tap) run on the default density and have
 their own snapshots (`tests/snapshots/touch-*.txt`); no other snapshot changed. To look at the chrome and the
 fractional fit, run a scene in a larger window:
@@ -154,5 +187,5 @@ It also writes `NAME-full.png`, the whole window with the chrome.
 
 All of touch is ours: the original has no touch, so there is nothing to be faithful to except the game's own rules,
 which touch leaves alone. The choices to review are the 300 ms, 450 ms and 3 mm thresholds, the glide, the 6 mm tap
-tolerance, the placement rules, the chrome's controls and layout, the pinch range (1 to 4 times, never zooming out
+tolerance, the smart tap, the placement rules, the chrome's controls and layout, the pinch range (1 to 4 times, never zooming out
 past the original's view), the missing Exit Program on phones and tablets, and ignoring a trackpad's fingers.

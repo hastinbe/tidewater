@@ -1369,6 +1369,29 @@ pub(crate) fn touch_aim(c: &Core) -> (bool, Option<(f32, f32, f32, f32)>) {
     }
 }
 
+/// The smart tap (`mouse::smart_tap`) for a tap at `at`, in screen pixels, with a tolerance of `radius` screen pixels:
+/// whether it should be a right click. Never while placing or targeting.
+pub(crate) fn touch_smart_tap(c: &Core, at: (f32, f32), radius: f32) -> bool {
+    let (Some(ui), Some(sel), Some(sim), Some(mv)) = (
+        c.panel_ui.as_ref(),
+        c.selection.as_ref(),
+        c.sim.as_ref(),
+        c.view.as_ref(),
+    ) else {
+        return false;
+    };
+    if matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_)) || sel.units.is_empty() {
+        return false;
+    }
+    let Some((x, y)) = mv.pointer_map(at) else {
+        return false;
+    };
+    let r = (radius * mv.zoom).round() as i32;
+    with_board(&sim.world, sim.human, c.art.as_ref(), mv.tiles(), |b| {
+        mouse::smart_tap(b, px(Vec2::new(x, y)), r, &sel.units)
+    })
+}
+
 /// The cursor position in map pixels (y down), if it is over the window: by the view the last frame drew
 /// (`mapview::MapView::pointer_map`).
 fn cursor_map(input: &input::Input, view: &mapview::MapView) -> Option<Vec2> {
