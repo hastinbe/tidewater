@@ -17,6 +17,7 @@
 //! | 2 | the TCP port the lobby listens on, little endian |
 //! | 1 | players in the lobby |
 //! | 1 | rows that can hold a player |
+//! | 1 | free places for observers (0: none, or all taken) |
 //! | 1 + n | the creator's name, at most [`OWNER_MAX`] bytes of UTF-8 |
 //! | 1 + n | the map's name, at most [`MAP_MAX`] bytes of UTF-8 |
 //!
@@ -39,7 +40,7 @@ use super::proto::PROTOCOL;
 /// The UDP port beacons are sent to (the same number as the game's TCP port; the two don't meet).
 pub const PORT: u16 = 6112;
 /// The beacon packet's version. A packet of another version is ignored.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 const MAGIC: [u8; 4] = *b"TWLN";
 const KIND_ANNOUNCE: u8 = 1;
 /// The longest creator name and map name sent, in bytes.
@@ -59,6 +60,9 @@ pub struct Announce {
     pub players: u8,
     /// How many rows can hold a player.
     pub max: u8,
+    /// How many observers can still join (our own addition: the original has none). 0 when the creator allows none, or
+    /// they are all in.
+    pub watch: u8,
     pub owner: String,
     pub map: String,
 }
@@ -71,9 +75,16 @@ impl Announce {
             tcp_port,
             players,
             max,
+            watch: 0,
             owner: clip(owner, OWNER_MAX),
             map: clip(map, MAP_MAX),
         }
+    }
+
+    /// This beacon saying `places` observers can still join.
+    pub fn with_watch(mut self, places: u8) -> Announce {
+        self.watch = places;
+        self
     }
 }
 
@@ -101,6 +112,7 @@ pub fn encode(a: &Announce) -> Vec<u8> {
     v.extend_from_slice(&a.tcp_port.to_le_bytes());
     v.push(a.players);
     v.push(a.max);
+    v.push(a.watch);
     v.push(owner.len() as u8);
     v.extend_from_slice(owner.as_bytes());
     v.push(map.len() as u8);
@@ -110,12 +122,12 @@ pub fn encode(a: &Announce) -> Vec<u8> {
 
 /// The beacon in a packet, or `None` for anything else.
 pub fn decode(b: &[u8]) -> Option<Announce> {
-    if b.len() < 14 || b[..4] != MAGIC || b[4] != VERSION || b[5] != KIND_ANNOUNCE {
+    if b.len() < 15 || b[..4] != MAGIC || b[4] != VERSION || b[5] != KIND_ANNOUNCE {
         return None;
     }
     let protocol = u16::from_le_bytes([b[6], b[7]]);
     let tcp_port = u16::from_le_bytes([b[8], b[9]]);
-    let (players, max) = (b[10], b[11]);
+    let (players, max, watch) = (b[10], b[11], b[12]);
     let take = |at: usize, limit: usize| -> Option<(String, usize)> {
         let n = *b.get(at)? as usize;
         if n > limit {
@@ -127,9 +139,15 @@ pub fn decode(b: &[u8]) -> Option<Announce> {
         }
         Some((s.to_string(), at + 1 + n))
     };
-    let (owner, at) = take(12, OWNER_MAX)?;
+    let (owner, at) = take(13, OWNER_MAX)?;
     let (map, end) = take(at, MAP_MAX)?;
-    if end != b.len() || tcp_port == 0 || max == 0 || max > 8 || players > max {
+    if end != b.len()
+        || tcp_port == 0
+        || max == 0
+        || max > 8
+        || players > max
+        || usize::from(watch) > super::proto::MAX_OBSERVERS
+    {
         return None;
     }
     Some(Announce {
@@ -137,6 +155,7 @@ pub fn decode(b: &[u8]) -> Option<Announce> {
         tcp_port,
         players,
         max,
+        watch,
         owner,
         map,
     })
@@ -296,10 +315,10 @@ mod tests {
         v[9] = 0;
         assert!(decode(&v).is_none(), "no port");
         let mut v = good.clone();
-        v[12] = 0xff;
+        v[13] = 0xff;
         assert!(decode(&v).is_none(), "a name longer than allowed");
         let mut v = good.clone();
-        v[13] = 0xff;
+        v[14] = 0xff;
         assert!(decode(&v).is_none(), "bad UTF-8");
         let a = Announce {
             players: 5,
@@ -307,6 +326,15 @@ mod tests {
             ..sample()
         };
         assert!(decode(&encode(&a)).is_none(), "more players than rows");
+        let a = sample().with_watch(5);
+        assert!(decode(&encode(&a)).is_none(), "more observer places than a game takes");
+    }
+
+    #[test]
+    fn the_free_observer_places_travel_in_the_packet() {
+        let a = sample().with_watch(3);
+        assert_eq!(decode(&encode(&a)), Some(a));
+        assert_eq!(sample().watch, 0, "no observers unless the creator allows them");
     }
 
     /// Announces to the finder's own port over loopback and waits for the game to show.

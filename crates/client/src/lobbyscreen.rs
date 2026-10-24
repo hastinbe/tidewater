@@ -27,7 +27,7 @@ use crate::menuscreen::{self, ButtonState, FocusKey, GOLD, GREY, WHITE};
 use crate::mpwidgets::{Charset, EditBox, Popup, PopupKey, Ptr, draw_edit, draw_popup};
 use crate::net::NetStart;
 use crate::net::beacon::{Announce, Announcer};
-use crate::net::proto::{LobbyView, RowState};
+use crate::net::proto::{LobbyView, MAX_OBSERVERS, RowState};
 use crate::net::room::{GuestEvent, GuestRoom, HostRoom, ROWS, RowChoice, SAY_MAX, StartError, Texts};
 use crate::scene::Picture;
 
@@ -88,8 +88,11 @@ enum T {
     Tileset,
     Location,
     Units,
-    /// The optional improvements that change the simulation (`docs/design/extras.md`): shown only once any is on.
+    /// The optional improvements (`docs/design/extras.md`): the ones that change the simulation and the client-only ones
+    /// that give an edge, shown only once any is on.
     Extras,
+    /// How many observers the creator lets in (our own addition: the original has none).
+    Observers,
     Select,
     Start,
     Cancel,
@@ -135,6 +138,10 @@ const LABELS: [(T, &str, i32, i32); 6] = [
     (T::Units, "Units:", 400, 256),
 ];
 const EXTRAS_LABEL: (i32, i32) = (400, 306);
+/// Our own small control under the player rows: the creator's places for observers, and who is watching.
+const OBSERVERS_BOX: Rect = Rect::new(404, 236, 180, 20);
+const WATCHERS_TEXT: (i32, i32) = (36, 236);
+const WATCHERS_WIDTH: u32 = 360;
 const SPEED_LABEL: (i32, i32) = (40, 356);
 const CHEATS_LABEL: (i32, i32) = (40, 356);
 const SPEED_LESS: Rect = Rect::new(44, 374, 22, 24);
@@ -155,7 +162,18 @@ fn drop_rect(t: T) -> Rect {
         T::Tileset => Rect::new(224, 324, 144, 24),
         T::Location => Rect::new(224, 374, 144, 24),
         T::Extras => Rect::new(404, 324, 180, 24),
+        T::Observers => OBSERVERS_BOX,
         _ => Rect::new(404, 274, 180, 24),
+    }
+}
+
+/// Where a box's list opens: the Extras list is wider than its box, so a row and its value both fit.
+fn popup_anchor(t: T) -> Rect {
+    let r = drop_rect(t);
+    if t == T::Extras {
+        Rect::new(r.x - 100, r.y, r.w + 100, r.h)
+    } else {
+        r
     }
 }
 
@@ -236,7 +254,7 @@ impl Lobby {
             received: None,
             local_map: None,
             transfer: None,
-            extras_kept: !room.view().extras.is_default(),
+            extras_kept: !room.view().extras.is_default() || !room.view().client_extras.is_empty(),
             changed: true,
         };
         if let Some(m) = l.picker.map().cloned()
@@ -259,7 +277,8 @@ impl Lobby {
 
     /// A joiner's lobby over `room`.
     pub(crate) fn new_guest(room: GuestRoom, enhanced: bool) -> Lobby {
-        let me = usize::from(room.slot);
+        // An observer has no row: its number is out of the rows' range.
+        let me = if room.observer { ROWS } else { usize::from(room.slot) };
         let mut view = crate::net::room::new_view(enhanced, "", race::NEUTRAL);
         let have_view = room.view.is_some();
         if let Some(v) = &room.view {
@@ -272,7 +291,7 @@ impl Lobby {
             picker: customsetup::Screen::new(Vec::new(), None),
             texts: Texts::default(),
             me,
-            focus: T::Say,
+            focus: if me < ROWS { T::Say } else { T::Cancel },
             ptr: Ptr::default(),
             popup: None,
             draft: EditBox::new("", SAY_MAX, Charset::Name),
@@ -317,6 +336,17 @@ impl Lobby {
 
     fn room_enhanced(&self) -> bool {
         self.view.enhanced
+    }
+
+    /// Whether this machine only watches: an observer has no row, race, Ready box or chat line.
+    fn watching(&self) -> bool {
+        !self.is_host() && self.me >= ROWS
+    }
+
+    /// Whether the observers control shows: always for the creator, who decides; for a joiner only when the game has
+    /// places for observers (a lobby without any looks as the original's does).
+    fn observers_box(&self) -> bool {
+        self.is_host() || self.view.observers > 0
     }
 
     // --- Input -------------------------------------------------------------------------------------------------
@@ -557,12 +587,13 @@ impl Lobby {
 
     /// The option boxes that exist on this screen, in Tab order.
     fn option_stops(&self) -> Vec<T> {
-        let mut v = vec![T::Race];
+        let mut v = if self.watching() { Vec::new() } else { vec![T::Race] };
         if self.is_host() {
             v.extend([T::Fog, T::Resources, T::Tileset, T::Location, T::Units]);
             if self.extras_box() {
                 v.push(T::Extras);
             }
+            v.push(T::Observers);
         }
         v
     }
@@ -572,10 +603,12 @@ impl Lobby {
         let mut v = Vec::new();
         if host {
             v.extend((1..ROWS).map(T::Row));
-        } else if !self.room_enhanced() && self.me > 0 {
+        } else if !self.room_enhanced() && self.me > 0 && self.me < ROWS {
             v.push(T::Ready(self.me));
         }
-        v.push(T::Say);
+        if !self.watching() {
+            v.push(T::Say);
+        }
         v.extend(self.option_stops());
         if host {
             if self.room_enhanced() {
@@ -745,9 +778,15 @@ impl Lobby {
                     g.set_ready(on);
                 }
             }
-            T::Race | T::Fog | T::Cheats | T::Resources | T::Tileset | T::Location | T::Units | T::Extras => {
-                self.open_list(t)
-            }
+            T::Race
+            | T::Fog
+            | T::Cheats
+            | T::Resources
+            | T::Tileset
+            | T::Location
+            | T::Units
+            | T::Extras
+            | T::Observers => self.open_list(t),
             T::SpeedLess => self.step_speed(-1),
             T::SpeedMore => self.step_speed(1),
             T::SpeedTrack => {}
@@ -797,7 +836,8 @@ impl Lobby {
             T::Fog => ON_OFF.iter().map(|s| (*s).to_string()).collect(),
             T::Cheats => CHEAT_CHOICES.iter().map(|s| (*s).to_string()).collect(),
             T::Location => LOCATIONS.iter().map(|s| (*s).to_string()).collect(),
-            T::Extras => extras_labels(&self.view.extras),
+            T::Extras => extras_labels(&self.view.extras, &self.view.client_extras),
+            T::Observers => observer_labels(),
             T::Resources => opt(Opt::Resources),
             T::Tileset => opt(Opt::Tileset),
             _ => opt(Opt::Units),
@@ -813,6 +853,7 @@ impl Lobby {
             T::Cheats => usize::from(!v.cheats_allowed),
             T::Location => usize::from(v.custom.fixed_starts),
             T::Extras => 0,
+            T::Observers => usize::from(v.observers),
             T::Resources => customsetup::choice(&v.custom, Opt::Resources),
             T::Tileset => customsetup::choice(&v.custom, Opt::Tileset),
             _ => customsetup::choice(&v.custom, Opt::Units),
@@ -822,7 +863,7 @@ impl Lobby {
     /// Whether the Extras box shows: once an optional improvement that changes the simulation is on in this lobby, or
     /// was on in the creator's settings. A lobby with none looks as it always has.
     fn extras_box(&self) -> bool {
-        self.extras_kept || !self.view.extras.is_default()
+        self.extras_kept || !self.view.extras.is_default() || !self.view.client_extras.is_empty()
     }
 
     fn open_list(&mut self, t: T) {
@@ -830,7 +871,10 @@ impl Lobby {
             return;
         }
         let at = self.current(t);
-        self.popup = Some((PopFor::Control(t), Popup::new(100, drop_rect(t), self.choices(t), at)));
+        self.popup = Some((
+            PopFor::Control(t),
+            Popup::new(100, popup_anchor(t), self.choices(t), at),
+        ));
     }
 
     fn pick(&mut self, i: usize) {
@@ -854,7 +898,7 @@ impl Lobby {
                 self.set_option(t, i);
                 // The Extras list stays open for the next change; Escape or a click outside closes it.
                 if t == T::Extras {
-                    self.popup = Some((PopFor::Control(t), Popup::new(100, drop_rect(t), self.choices(t), i)));
+                    self.popup = Some((PopFor::Control(t), Popup::new(100, popup_anchor(t), self.choices(t), i)));
                 }
             }
         }
@@ -875,9 +919,18 @@ impl Lobby {
         }
         let Some(Backend::Host(h)) = &mut self.back else { return };
         if t == T::Extras {
-            h.set_extras(cycle_extra(self.view.extras, i));
+            if i < SIM_EXTRAS {
+                h.set_extras(cycle_extra(self.view.extras, i));
+            } else {
+                h.set_client_extras(cycle_lobby_extra(&self.view.client_extras, i - SIM_EXTRAS));
+            }
             self.view = h.view().clone();
             self.extras_kept = true;
+            return;
+        }
+        if t == T::Observers {
+            h.set_observers(i.min(MAX_OBSERVERS) as u8);
+            self.view = h.view().clone();
             return;
         }
         let mut custom: Custom = self.view.custom;
@@ -1070,9 +1123,8 @@ impl Lobby {
     fn draw_options(&self, p: &mut Picture, look: &Look, modal: bool) {
         let host = self.is_host();
         for (t, title, x, y) in LABELS {
-            if !host && t != T::Race {
-                // A joiner sees the creator's choices; the boxes stay (disabled) and show them.
-            }
+            // A joiner sees the creator's choices; the boxes stay (disabled) and show them. An observer has no race.
+            let title = if t == T::Race && self.watching() { "You:" } else { title };
             look.label(p, (x, y), title);
         }
         let mut boxes = vec![T::Race, T::Fog, T::Resources, T::Tileset, T::Location, T::Units];
@@ -1082,17 +1134,32 @@ impl Lobby {
         }
         for t in boxes {
             let text = if t == T::Extras {
-                extras_summary(&self.view.extras)
+                extras_summary(&self.view.extras, &self.view.client_extras)
+            } else if t == T::Race && self.watching() {
+                "Observer".to_string()
             } else {
                 self.choices(t).get(self.current(t)).cloned().unwrap_or_default()
             };
-            let enabled = host || t == T::Race;
+            let enabled = host || (t == T::Race && !self.watching());
             let st = if enabled {
                 self.drop_state(t, modal)
             } else {
                 DropState::of(false, false, false)
             };
             look.drop(p, drop_rect(t), &text, st);
+        }
+        if self.observers_box() {
+            let text = observer_labels().swap_remove(usize::from(self.view.observers).min(MAX_OBSERVERS));
+            let st = if host {
+                self.drop_state(T::Observers, modal)
+            } else {
+                DropState::of(false, false, false)
+            };
+            look.drop(p, OBSERVERS_BOX, &text, st);
+        }
+        if !self.view.watchers.is_empty() {
+            let line = format!("Watching: {}", self.view.watchers.join(", "));
+            look.text(p, WATCHERS_TEXT, &fit(look.font, &line, WATCHERS_WIDTH), GOLD);
         }
         if self.view.enhanced {
             let name = tidewater_sim::timing::SPEED_NAMES[usize::from(self.view.speed).min(8)];
@@ -1135,8 +1202,19 @@ impl Lobby {
     }
 }
 
-/// The Extras list's rows: each option with its value.
-fn extras_labels(e: &tidewater_sim::Extras) -> Vec<String> {
+/// How many rows of the Extras list are the simulation's options; the client-only ones (C+L) follow.
+const SIM_EXTRAS: usize = 5;
+
+/// The observers list: how many places the creator allows.
+fn observer_labels() -> Vec<String> {
+    let mut v = vec!["Observers: None".to_string()];
+    v.extend((1..=MAX_OBSERVERS).map(|n| format!("Observers: {n}")));
+    v
+}
+
+/// The Extras list's rows: each option with its value, the simulation's and then the C+L options the creator chooses
+/// for everyone (read from the registry).
+fn extras_labels(e: &tidewater_sim::Extras, lobby: &[(String, u8)]) -> Vec<String> {
     use tidewater_sim::extras::UNLIMITED;
     let on = |b: bool| if b { "On" } else { "Off" };
     let limit = match e.selection_limit {
@@ -1156,15 +1234,47 @@ fn extras_labels(e: &tidewater_sim::Extras) -> Vec<String> {
         format!("Extra speeds: {speeds}"),
         format!("Shift-queued orders: {}", on(e.order_queue)),
     ]
+    .into_iter()
+    .chain(lobby_extra_labels(lobby))
+    .collect()
+}
+
+/// The rows of the C+L options: the label and the value in words.
+fn lobby_extra_labels(values: &[(String, u8)]) -> Vec<String> {
+    let e = crate::extras::ClientExtras::from_lobby_values(values);
+    crate::extras::lobby_specs()
+        .map(|s| {
+            let v = e.get(s.id);
+            let shown = match s.kind {
+                crate::extras::Kind::Flag => (if v != 0 { "On" } else { "Off" }).to_string(),
+                _ => s.text(v),
+            };
+            format!("{}: {shown}", s.label)
+        })
+        .collect()
+}
+
+/// The C+L values with option number `i` (among the C+L options) moved to its next value.
+fn cycle_lobby_extra(values: &[(String, u8)], i: usize) -> Vec<(String, u8)> {
+    let mut e = crate::extras::ClientExtras::from_lobby_values(values);
+    if let Some(s) = crate::extras::lobby_specs().nth(i) {
+        e.set(s.id, crate::extras::next_value(s, e.get(s.id)));
+    }
+    e.lobby_values()
 }
 
 /// The Extras box's text: "None", or the options that are on.
-fn extras_summary(e: &tidewater_sim::Extras) -> String {
-    let on = e.describe();
+fn extras_summary(e: &tidewater_sim::Extras, lobby: &[(String, u8)]) -> String {
+    let mut on = e.describe();
+    on.extend(crate::extras::describe_lobby(lobby));
+    let text = on.join(", ");
+    // The box is 180 pixels wide: a long list is only counted.
     if on.is_empty() {
         "None".to_string()
+    } else if text.len() > 20 {
+        format!("{} on", on.len())
     } else {
-        on.join(", ")
+        text
     }
 }
 
@@ -1197,18 +1307,22 @@ fn announce_of(v: &LobbyView, port: u16) -> Option<Announce> {
         .iter()
         .filter(|r| matches!(r.state, RowState::Human | RowState::Computer))
         .count();
-    if free == 0 {
+    let watch = v.observers.saturating_sub(v.watchers.len() as u8);
+    if free == 0 && watch == 0 {
         return None;
     }
     let file = v.map_name.rsplit(['\\', '/']).next().unwrap_or("");
     let map = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
-    Some(Announce::ours(
-        port,
-        taken as u8,
-        (taken + free).min(ROWS) as u8,
-        &v.rows.first().map(|r| r.name.clone()).unwrap_or_default(),
-        map,
-    ))
+    Some(
+        Announce::ours(
+            port,
+            taken as u8,
+            (taken + free).min(ROWS) as u8,
+            &v.rows.first().map(|r| r.name.clone()).unwrap_or_default(),
+            map,
+        )
+        .with_watch(watch),
+    )
 }
 
 /// The Scenario box's three lines: the type, the file, the description.
@@ -1232,7 +1346,7 @@ mod tests {
         use tidewater_sim::Extras;
         use tidewater_sim::extras::UNLIMITED;
         let mut e = Extras::default();
-        assert_eq!(extras_summary(&e), "None");
+        assert_eq!(extras_summary(&e, &[]), "None");
         e = cycle_extra(e, 0);
         assert!(e.rally_points);
         for want in [12, 18, UNLIMITED, 0] {
@@ -1246,13 +1360,13 @@ mod tests {
         e = cycle_extra(e, 4);
         assert!(e.order_queue);
         assert_eq!(
-            extras_summary(&cycle_extra(Extras::default(), 4)),
+            extras_summary(&cycle_extra(Extras::default(), 4), &[]),
             "shift-queued orders"
         );
         e = cycle_extra(e, 4);
         e = cycle_extra(e, 0);
         assert!(e.is_default());
-        assert_eq!(extras_labels(&e).len(), 5);
+        assert_eq!(extras_labels(&e, &[]).len(), 5 + crate::extras::lobby_specs().count());
     }
 
     fn key(k: Key) -> Input {
@@ -1623,6 +1737,96 @@ mod tests {
     }
 
     #[test]
+    fn the_extras_list_has_the_c_plus_l_rows_and_the_creator_cycles_them_for_everyone() {
+        let (mut l, port) = host_lobby(true, 4);
+        let mut read = reader();
+        let mut ctx = Ctx::new(&mut read, 5);
+        let labels = l.choices(T::Extras);
+        let lobby_rows = crate::extras::lobby_specs().count();
+        assert!(
+            lobby_rows >= 3,
+            "health bars, smart attack-move and widescreen at least"
+        );
+        assert_eq!(labels.len(), SIM_EXTRAS + lobby_rows);
+        assert!(labels[SIM_EXTRAS].starts_with("Health bars: "), "{labels:?}");
+        assert!(!l.extras_box(), "a lobby with no option on looks as it always has");
+        // The creator turns health bars on (the first C+L row): the box shows, and the room's view carries it.
+        l.set_option(T::Extras, SIM_EXTRAS);
+        assert!(l.extras_box());
+        assert_eq!(l.view.client_extras, [("health-bars".to_string(), 1)]);
+        assert!(extras_summary(&l.view.extras, &l.view.client_extras).contains("health-bars hovered"));
+        // A joiner sees it, read-only, and its own settings are not asked.
+        let g = join(&mut l, &mut ctx, port, "Ann").accept().unwrap();
+        let mut gl = Lobby::new_guest(g, true);
+        both(&mut l, &mut gl, &mut ctx, |_, gl| gl.have_view);
+        both(&mut l, &mut gl, &mut ctx, |_, gl| gl.view.client_extras == l_values());
+        assert!(
+            gl.extras_box(),
+            "the joiner sees the box once the creator's lobby has an option on"
+        );
+        assert!(!gl.stops().contains(&T::Extras) && !gl.stops().contains(&T::Observers));
+        gl.set_option(T::Extras, SIM_EXTRAS + 1);
+        assert_eq!(gl.view.client_extras, l_values(), "only the creator changes them");
+    }
+
+    fn l_values() -> Vec<(String, u8)> {
+        vec![("health-bars".to_string(), 1)]
+    }
+
+    #[test]
+    fn the_creator_allows_observers_and_everyone_sees_who_watches() {
+        let (mut l, port) = host_lobby(true, 4);
+        let mut read = reader();
+        let mut ctx = Ctx::new(&mut read, 5);
+        assert!(l.observers_box(), "the creator always has the control");
+        assert_eq!(l.choices(T::Observers).len(), MAX_OBSERVERS + 1);
+        assert_eq!(l.choices(T::Observers)[0], "Observers: None");
+        assert_eq!(l.view.observers, 0, "none by default");
+        l.set_option(T::Observers, 2);
+        assert_eq!(l.view.observers, 2);
+        // A player joins; its screen shows the control (read-only) because the game has places.
+        let g = join(&mut l, &mut ctx, port, "Ann").accept().unwrap();
+        let mut gl = Lobby::new_guest(g, true);
+        both(&mut l, &mut gl, &mut ctx, |_, gl| {
+            gl.have_view && gl.view.observers == 2
+        });
+        assert!(gl.observers_box());
+        assert!(!gl.watching());
+        // An observer joins from its own menu: no row, no race, no chat, and everyone lists it.
+        let addr = format!("127.0.0.1:{port}");
+        let t = thread::spawn(move || room::handshake_as(&addr, Identity::ours(1), "Eve", true).unwrap());
+        while !t.is_finished() {
+            l.update(&Input::default(), &mut ctx);
+            thread::sleep(Duration::from_millis(5));
+        }
+        let mut el = Lobby::new_guest(t.join().unwrap().accept().unwrap(), true);
+        assert!(el.watching());
+        both(&mut l, &mut el, &mut ctx, |l, el| {
+            el.have_view && l.view.watchers == ["Eve"]
+        });
+        both(&mut l, &mut gl, &mut ctx, |_, gl| gl.view.watchers == ["Eve"]);
+        assert!(l.view.rows.iter().all(|r| r.name != "Eve"));
+        assert_eq!(l.view.humans(), 2);
+        let stops = el.stops();
+        assert!(!stops.contains(&T::Say) && !stops.contains(&T::Race) && !stops.contains(&T::Ready(2)));
+        assert!(stops.contains(&T::Cancel));
+        assert!(el.targets().iter().all(|(t, _)| !matches!(t, T::Say | T::Race)));
+        // The beacon says how many places are still free.
+        assert_eq!(announce_of(&l.view, 6112).unwrap().watch, 1);
+        // Lowering the places sends the watcher away.
+        l.set_option(T::Observers, 0);
+        let end = Instant::now() + Duration::from_secs(10);
+        loop {
+            l.update(&Input::default(), &mut ctx);
+            if matches!(el.update(&Input::default(), &mut ctx), Outcome::Cancel(Some(_))) {
+                break;
+            }
+            assert!(Instant::now() < end, "the watcher was not sent away");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
     fn the_beacon_counts_taken_rows_names_the_map_and_stops_when_full() {
         let mut v = crate::net::room::new_view(true, "Ann", race::HUMAN);
         v.map_name = "Maps\\Gold River.pud".into();
@@ -1637,5 +1841,11 @@ mod tests {
             }
         }
         assert!(announce_of(&v, 6112).is_none(), "no free row: nothing to join");
+        v.observers = 2;
+        v.watchers = vec!["Eve".into()];
+        let a = announce_of(&v, 6112).unwrap();
+        assert_eq!(a.watch, 1, "a free place to watch is worth announcing");
+        v.watchers.push("Bob".into());
+        assert!(announce_of(&v, 6112).is_none());
     }
 }

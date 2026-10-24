@@ -298,6 +298,8 @@ fn network_start(
         let mut extras = prefs::Prefs::load(&*store.0).extras;
         args.extras.apply(&mut extras);
         spec.extras = crate::extras::local_sim_extras(&extras);
+        // So are the client-only options that give an edge (C+L): the host's own, unless `--lobby extras=...` chooses.
+        spec.client_extras = spec.lobby_values(&extras);
         let setup = args.setup.unwrap_or_default();
         let wall = store.wall_clock_secs();
         return lobby::host(Some(port), &spec, map, setup, install, store, &name, wall, say).map(Some);

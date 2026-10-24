@@ -10,7 +10,7 @@ settings in a game with other players. Enhanced rules stay the target; Classic s
 
 The table is generated from the one registry in `crates/client/src/extras.rs` (`REGISTRY`); a test fails if this copy
 drifts from it. **Scope** C is client-only. **C+L** is client-only but gives an edge, so in a game with other players
-the session should set it for everyone instead of your own setting (not built for network games yet: see "Multiplayer (C+L)"). **S** changes the simulation: the host
+the session sets it for everyone instead of your own setting: in a game with other players the host chooses it in the lobby (see "Multiplayer (C+L)"). **S** changes the simulation: the host
 chooses it in the lobby and it travels with the game, saves and replays (see "Sim options").
 
 | Option | Flag | Values | Scope | Default | What it does |
@@ -235,18 +235,35 @@ A replay uses the recording's; a loaded game keeps the ones it was saved with.
 
 **Versions.** Sim options are part of the file formats and the protocol, so changing them bumps all three: the saved game
 (`savefile::VERSION`, 24), the replay (`tidewater_replay::format::VERSION`, 6) and the network protocol
-(`net::proto::PROTOCOL`, 6). With every extra off the option data is empty or skipped, so nothing else in a file or the
+(`net::proto::PROTOCOL`, 7). The C+L choice rides in the same lobby messages and also bumped the protocol (6 to 7), but not the saved game or the replay (below). With every extra off the option data is empty or skipped, so nothing else in a file or the
 hash differs.
 
 ## Multiplayer (C+L)
 
 `extras::effective(local, session)` picks a game's values. A local session returns `None` from
 `Session::lobby_client_extras` and the player's own settings are used. Any other session returns its own set, and
-for the C+L options that set wins over the local settings. A replay hands over the defaults (off), because a recording
-carries no health-bar choice of its own. **A network session does not override them yet** (`NetSession` keeps the
-default `None`), so in a network game each player still uses their own C+L settings; the lobby handing over the host's
-choices is not built. Tests: `a_non_local_session_sets_the_c_plus_l_options_and_leaves_the_c_ones` and
-`a_replay_follows_its_recording_and_a_local_game_the_player` in `extras.rs`.
+for the C+L options that set wins over the local settings; the C options stay each player's own.
+
+- **The host chooses.** Every row of the registry with scope C+L (`extras::lobby_specs()`, so a new C+L option appears
+  with no other change) is a row in the lobby's "Extras" box, below the S rows, and the host cycles it like them. The
+  box starts from the host's own settings and, like the S rows, shows only once any option is on. Joiners and observers
+  see the box read-only. From the command line, `--lobby extras=NAME=VALUE/NAME=VALUE` names C+L options (anything
+  else, or a value the option does not take, is refused); the host's own settings and `--extra-NAME` flags stand for the
+  ones not named.
+- **How it travels.** `GameConfig::client_extras` and `LobbyView::client_extras` hold the values that are not the
+  default, as `(name, value)` pairs (`ClientExtras::lobby_values`). Names, not positions, so a table with other rows
+  never shifts the meaning; a name this program does not know, a C option's name or a value out of range is ignored when
+  read (`ClientExtras::from_lobby_values`). The config goes to every machine in the Welcome (command line) and the Go
+  (menu lobby), observers included. This bumped `PROTOCOL` to 7.
+- **Who uses it.** `NetSession::lobby_client_extras` returns the host's values (`Params::client_extras`), so
+  `game::extras` gives every player the same health bars, smart attack-move and widescreen.
+- **Replays.** A `.twrep` does not record them, and a replay hands over the defaults (off). They change what one
+  player sees, not the game, and a recording is watched by one person, so there is no fairness to keep; leaving them out
+  keeps the replay version at 6. (The header still records the S options, which are the game.)
+- **Tests.** `extras.rs` (`the_lobby_carries_only_the_c_plus_l_values_that_differ_and_reads_back_what_it_knows`, and
+  `a_non_local_session_sets_the_c_plus_l_options_and_leaves_the_c_ones`), `net/lockstep.rs` (every player and the observer
+  end up with the host's values whatever their own), `net/room.rs` (the choice reaches the joiner's view and both configs),
+  `net/lobby.rs` (`--lobby extras=`) and `lobbyscreen.rs` (the Extras list and who may change it).
 
 ## How to add an option
 

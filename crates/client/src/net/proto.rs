@@ -19,8 +19,11 @@ use tidewater_sim::setup::{Lobby, Setup};
 /// orders (`Command::Queued`, one more byte in `Extras`) and observers (`Msg::Hello` says whether the joiner only
 /// watches, and observers have slots from [`OBSERVER_BASE`] up). Version 5: the diplomacy command exists
 /// (`game/diplomacy.md`). Version 6: the Hold workers and Release workers commands exist, and the speed command carries the
-/// new speed instead of a direction.
-pub const PROTOCOL: u16 = 6;
+/// new speed instead of a direction. Version 7: the lobby also carries the host's choice of the client-only options that
+/// give an edge (**C+L**, `crate::extras`: [`GameConfig::client_extras`], [`LobbyView::client_extras`]), so every
+/// player runs the game with the same ones, and the menu lobby has places for observers ([`LobbyView::observers`],
+/// [`LobbyView::watchers`]).
+pub const PROTOCOL: u16 = 7;
 
 /// The first slot number of an observer: a game has eight player slots (0 to 7), so observers are 8, 9 and so on. An
 /// observer's slot only names its connection; it is in no turn and no state.
@@ -135,6 +138,10 @@ pub struct GameConfig {
     pub row: u8,
     /// The options that touch the simulation.
     pub extras: tidewater_sim::Extras,
+    /// The host's choice of the C+L options (`crate::extras::ClientExtras::lobby_values`): the values that are not the
+    /// default, by name. Every machine, observers included, plays with these whatever its own settings say; empty means
+    /// every one at its default.
+    pub client_extras: Vec<(String, u8)>,
     /// Each slot's name (empty for slots without a human), indexed by slot.
     pub names: Vec<String>,
 }
@@ -261,6 +268,13 @@ pub struct LobbyView {
     /// The optional improvements that change the simulation, as the host set them (`docs/design/extras.md`); every
     /// machine starts the game with these, never with its own settings. All off unless the host turned some on.
     pub extras: tidewater_sim::Extras,
+    /// The C+L options as the host set them, like [`GameConfig::client_extras`].
+    pub client_extras: Vec<(String, u8)>,
+    /// How many observers the host lets in (0 to [`MAX_OBSERVERS`], none by default): places to watch the game from,
+    /// outside the rows.
+    pub observers: u8,
+    /// The names of the observers in the lobby, in the order they came.
+    pub watchers: Vec<String>,
     pub rows: Vec<RowView>,
 }
 
@@ -400,6 +414,7 @@ mod tests {
             speed: 8,
             row: 4,
             extras: Default::default(),
+            client_extras: vec![("health-bars".into(), 3)],
             names: vec!["Player 1".into(), "Player 2".into()],
         }
     }
@@ -458,6 +473,9 @@ mod tests {
                     selection_limit: 12,
                     ..Default::default()
                 },
+                client_extras: vec![("widescreen".into(), 2)],
+                observers: 2,
+                watchers: vec!["Eve".into()],
                 rows: vec![RowView::new(RowState::Human)],
             })),
             Msg::SetRace { race: 1 },

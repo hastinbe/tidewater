@@ -2674,6 +2674,9 @@ fn run_multiplayer(c: &mut Core) {
             // The options that change the simulation start as this player has them; the lobby's Extras box (shown once
             // any is on) changes them for everyone (`docs/design/extras.md`).
             view.extras = crate::extras::local_sim_extras(extras);
+            // So do the client-only options that give an edge (C+L): the creator's own settings, which the same box
+            // sets for every player.
+            view.client_extras = extras.lobby_values();
             // The creator's row applies to every player (`net/lockstep.md`, "Which row").
             if ms.ui.mem.method == mpmenu::Method::Local {
                 view.row = crate::net::lockstep::LOCAL_NETWORK_ROW;

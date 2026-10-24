@@ -33,12 +33,12 @@ use tidewater_sim::setup::{Custom, Game, Lobby, Setup, race};
 
 use super::lobby::NetStart;
 use super::proto::{
-    GameConfig, HelloRead, Identity, LobbyView, MAP_CHUNK, MAX_MAP_BYTES, Msg, RowState, RowView, read_frame,
-    read_hello, write_frame,
+    GameConfig, HelloRead, Identity, LobbyView, MAP_CHUNK, MAX_MAP_BYTES, MAX_OBSERVERS, Msg, OBSERVER_BASE, RowState,
+    RowView, read_frame, read_hello, write_frame,
 };
 use super::tcp::{self, ClientWire, Event, HANDSHAKE_TIMEOUT, HostWire, Link};
 
-/// What a joiner that asks to observe is told by a lobby from the menus.
+/// What a joiner that asks to observe is told by a lobby that has no place for one (or none free).
 const NO_OBSERVERS: &str = "This game has no place for an observer.";
 
 /// The lobby's rows.
@@ -109,6 +109,9 @@ pub fn new_view(enhanced: bool, host_name: &str, host_race: u8) -> LobbyView {
         cheats_allowed: true,
         row: super::lockstep::DIRECT_IP_ROW,
         extras: tidewater_sim::Extras::default(),
+        client_extras: Vec::new(),
+        observers: 0,
+        watchers: Vec::new(),
         rows,
     }
 }
@@ -174,6 +177,7 @@ impl LobbyView {
             speed: self.speed,
             row: self.row,
             extras: self.extras,
+            client_extras: self.client_extras.clone(),
             names,
         };
         (config, rows)
@@ -232,9 +236,20 @@ enum Shake {
     },
 }
 
+/// Where a connected joiner sits: a row of the lobby, or a place to watch from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Seat {
+    Row(usize),
+    Watch,
+}
+
 struct Member {
     id: usize,
-    row: usize,
+    seat: Seat,
+    /// The joiner's name (an observer's is only kept here and in [`LobbyView::watchers`]).
+    name: String,
+    /// An observer has the lobby's map (a row says so in the view).
+    has_map: bool,
     link: Link,
     /// Map requests answered for the current map: a joiner can't make the host send it over and over.
     requests: u8,
@@ -245,7 +260,8 @@ const MAP_REQUESTS: u8 = 3;
 
 struct Reserved {
     id: usize,
-    row: usize,
+    /// The row held for the joiner; none for an observer, who holds a place to watch from.
+    row: Option<usize>,
     name: String,
 }
 
@@ -338,6 +354,7 @@ impl HostRoom {
             }
             for m in &mut self.members {
                 m.requests = 0;
+                m.has_map = false;
             }
             self.map_data = None;
         }
@@ -362,6 +379,46 @@ impl HostRoom {
             self.view.extras = extras;
             self.changed(true);
         }
+    }
+
+    /// The C+L options (`crate::extras`) every player plays with, the host's choice: the values that are not the default,
+    /// by name (`ClientExtras::lobby_values`).
+    pub fn set_client_extras(&mut self, values: Vec<(String, u8)>) {
+        if self.view.client_extras != values {
+            self.view.client_extras = values;
+            self.changed(true);
+        }
+    }
+
+    /// How many observers the game takes (0 to [`MAX_OBSERVERS`]; none by default). Observers beyond the new number
+    /// that are already in are sent away, the last to come first.
+    pub fn set_observers(&mut self, places: u8) {
+        let places = places.min(MAX_OBSERVERS as u8);
+        if self.view.observers == places {
+            return;
+        }
+        self.view.observers = places;
+        while self.members.iter().filter(|m| m.seat == Seat::Watch).count() > usize::from(places) {
+            let Some(i) = self.members.iter().rposition(|m| m.seat == Seat::Watch) else {
+                break;
+            };
+            let m = self.members.remove(i);
+            m.link.send(&Msg::Refuse {
+                reason: self.texts.kicked.clone(),
+            });
+        }
+        self.refresh_watchers();
+        self.broadcast();
+    }
+
+    /// The names of the observers in the view, in the order they came.
+    fn refresh_watchers(&mut self) {
+        self.view.watchers = self
+            .members
+            .iter()
+            .filter(|m| m.seat == Seat::Watch)
+            .map(|m| m.name.clone())
+            .collect();
     }
 
     /// The host's own race.
@@ -392,13 +449,13 @@ impl HostRoom {
             RowChoice::Closed => RowState::Closed,
         };
         // A joiner being welcomed into the row loses it.
-        self.reserved.retain(|r| r.row != row);
+        self.reserved.retain(|r| r.row != Some(row));
         self.view.rows[row] = RowView::new(state);
         self.changed(false);
     }
 
     fn kick(&mut self, row: usize) {
-        if let Some(i) = self.members.iter().position(|m| m.row == row) {
+        if let Some(i) = self.members.iter().position(|m| m.seat == Seat::Row(row)) {
             let m = self.members.remove(i);
             m.link.send(&Msg::Refuse {
                 reason: self.texts.kicked.clone(),
@@ -418,7 +475,9 @@ impl HostRoom {
         if v.participants().len() > usize::from(v.map_players) {
             return Err(StartError::TooMany);
         }
-        if v.rows.iter().skip(1).any(|r| r.state == RowState::Human && !r.has_map) {
+        if v.rows.iter().skip(1).any(|r| r.state == RowState::Human && !r.has_map)
+            || self.members.iter().any(|m| m.seat == Seat::Watch && !m.has_map)
+        {
             return Err(StartError::MissingMap);
         }
         if !v.enhanced && v.rows.iter().skip(1).any(|r| r.state == RowState::Human && !r.ready) {
@@ -487,6 +546,7 @@ impl HostRoom {
             .rows
             .iter()
             .any(|r| r.state == RowState::Human && same(&r.name))
+            || self.members.iter().any(|m| m.seat == Seat::Watch && same(&m.name))
             || self.reserved.iter().any(|r| same(&r.name))
     }
 
@@ -506,28 +566,40 @@ impl HostRoom {
                     refuse(&mut stream, why);
                     return false;
                 }
-                // The menu lobby has no places for observers yet; a game hosted from the command line (`--lobby
-                // observers=N`) does (`docs/design/network.md`, "Observers").
-                if observer {
-                    refuse(&mut stream, NO_OBSERVERS.to_string());
-                    return false;
-                }
-                let free = (1..ROWS).find(|&i| {
-                    self.view.rows[i].state == RowState::Available && !self.reserved.iter().any(|r| r.row == i)
-                });
-                let Some(row) = free else {
-                    refuse(&mut stream, self.texts.full.clone());
-                    return false;
+                // An observer takes no row: it needs one of the places the host allowed (`docs/design/network.md`,
+                // "Observers"), and starts from the host's view.
+                let (row, slot) = if observer {
+                    let taken = self.members.iter().filter(|m| m.seat == Seat::Watch).count()
+                        + self.reserved.iter().filter(|r| r.row.is_none()).count();
+                    if taken >= usize::from(self.view.observers) {
+                        refuse(&mut stream, NO_OBSERVERS.to_string());
+                        return false;
+                    }
+                    (None, OBSERVER_BASE + taken as u8)
+                } else {
+                    let free = (1..ROWS).find(|&i| {
+                        self.view.rows[i].state == RowState::Available
+                            && !self.reserved.iter().any(|r| r.row == Some(i))
+                    });
+                    let Some(row) = free else {
+                        refuse(&mut stream, self.texts.full.clone());
+                        return false;
+                    };
+                    (Some(row), row as u8)
                 };
-                let name = tcp::clean_name(&name).unwrap_or_else(|| format!("Player {}", row + 1));
+                let fallback = match row {
+                    Some(row) => format!("Player {}", row + 1),
+                    None => format!("Observer {}", slot - OBSERVER_BASE + 1),
+                };
+                let name = tcp::clean_name(&name).unwrap_or(fallback);
                 if self.name_taken(&name) {
                     refuse(&mut stream, self.texts.duplicate_name.clone());
                     return false;
                 }
                 let (mut config, _) = self.view.to_config(0);
-                config.lobby.local = row as u8;
+                config.lobby.local = slot;
                 let welcome = Msg::Welcome {
-                    slot: row as u8,
+                    slot,
                     config: Box::new(config),
                 };
                 if write_frame(&mut stream, &welcome).is_err() {
@@ -556,9 +628,22 @@ impl HostRoom {
                 let Ok(link) = Link::spawn(stream, id, self.events_tx.clone()) else {
                     return false;
                 };
-                self.view.rows[r.row] = RowView {
+                let Some(row) = r.row else {
+                    self.members.push(Member {
+                        id,
+                        seat: Seat::Watch,
+                        name: r.name,
+                        has_map: false,
+                        link,
+                        requests: 0,
+                    });
+                    self.refresh_watchers();
+                    self.broadcast();
+                    return true;
+                };
+                self.view.rows[row] = RowView {
                     state: RowState::Human,
-                    name: r.name,
+                    name: r.name.clone(),
                     race: race::NEUTRAL,
                     // Enhanced rules have no Ready box: a joiner is ready the moment it joins.
                     ready: self.view.enhanced,
@@ -568,7 +653,9 @@ impl HostRoom {
                 };
                 self.members.push(Member {
                     id,
-                    row: r.row,
+                    seat: Seat::Row(row),
+                    name: r.name,
+                    has_map: false,
                     link,
                     requests: 0,
                 });
@@ -589,21 +676,37 @@ impl HostRoom {
                     return false;
                 };
                 let m = self.members.remove(i);
-                self.view.rows[m.row] = RowView::new(RowState::Available);
+                match m.seat {
+                    Seat::Row(row) => self.view.rows[row] = RowView::new(RowState::Available),
+                    Seat::Watch => self.refresh_watchers(),
+                }
                 self.broadcast();
                 true
             }
             Event::Msg(id, msg) => {
-                let Some(row) = self.members.iter().find(|m| m.id == id).map(|m| m.row) else {
+                let Some(seat) = self.members.iter().find(|m| m.id == id).map(|m| m.seat) else {
                     return false;
                 };
                 match msg {
                     Msg::HaveMap { hash, have } => {
                         let has = have && hash == self.view.map_hash && !self.view.map_name.is_empty();
-                        if self.view.rows[row].has_map == has {
-                            return false;
+                        match seat {
+                            Seat::Row(row) => {
+                                if self.view.rows[row].has_map == has {
+                                    return false;
+                                }
+                                self.view.rows[row].has_map = has;
+                            }
+                            Seat::Watch => {
+                                let Some(m) = self.members.iter_mut().find(|m| m.id == id) else {
+                                    return false;
+                                };
+                                if m.has_map == has {
+                                    return false;
+                                }
+                                m.has_map = has;
+                            }
                         }
-                        self.view.rows[row].has_map = has;
                         self.broadcast();
                         return true;
                     }
@@ -613,6 +716,8 @@ impl HostRoom {
                     }
                     _ => {}
                 }
+                // An observer has no row to change.
+                let Seat::Row(row) = seat else { return false };
                 let r = &mut self.view.rows[row];
                 match msg {
                     Msg::SetRace { race } if race <= tidewater_sim::setup::race::NEUTRAL => r.race = race,
@@ -685,17 +790,31 @@ impl HostRoom {
             .map_err(|e| anyhow::anyhow!("the game can't start yet: {e:?}"))?;
         let (config, rows) = self.view.to_config(seed);
         let mut wires = Vec::new();
+        let mut watchers = 0u8;
         for m in self.members {
-            let Some(slot) = rows.iter().position(|&r| r == m.row) else {
-                continue;
+            let (slot, view_of) = match m.seat {
+                Seat::Row(row) => {
+                    let Some(slot) = rows.iter().position(|&r| r == row) else {
+                        continue;
+                    };
+                    (slot as u8, slot as u8)
+                }
+                // An observer's slot only names its connection; it looks at the game from the host's place.
+                Seat::Watch => {
+                    watchers += 1;
+                    (
+                        OBSERVER_BASE + watchers - 1,
+                        config.lobby.humans.first().map_or(0, |h| h.0),
+                    )
+                }
             };
             let mut theirs = config.clone();
-            theirs.lobby.local = slot as u8;
+            theirs.lobby.local = view_of;
             m.link.send(&Msg::Go {
-                slot: slot as u8,
+                slot,
                 config: Box::new(theirs),
             });
-            wires.push((slot as u8, m.id, m.link));
+            wires.push((slot, m.id, m.link));
         }
         let names = config.names.clone();
         let wire = HostWire::from_parts(wires, self.events, names.clone());
@@ -720,14 +839,21 @@ fn clean_say(text: &str) -> String {
 #[derive(Debug)]
 pub struct Handshake {
     stream: TcpStream,
-    /// The joiner's row.
+    /// The joiner's row, or an observer's number from [`OBSERVER_BASE`] up.
     pub slot: u8,
+    /// The joiner watches rather than plays.
+    pub observer: bool,
     /// The game as the host showed it: the map to check for.
     pub config: GameConfig,
 }
 
 /// Connects to the game at `addr` and says hello. Blocks until the host welcomes or refuses; run it on a thread.
 pub fn handshake(addr: &str, identity: Identity, name: &str) -> Result<Handshake> {
+    handshake_as(addr, identity, name, false)
+}
+
+/// [`handshake`] as an observer when `observer` is set: the host must have a free place to watch from.
+pub fn handshake_as(addr: &str, identity: Identity, name: &str, observer: bool) -> Result<Handshake> {
     let mut stream = tcp::connect(addr)?;
     stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
     stream.set_nodelay(true)?;
@@ -736,13 +862,14 @@ pub fn handshake(addr: &str, identity: Identity, name: &str) -> Result<Handshake
         &Msg::Hello {
             identity,
             name: name.to_string(),
-            observer: false,
+            observer,
         },
     )?;
     match read_frame(&mut stream) {
         Ok(Msg::Welcome { slot, config }) => Ok(Handshake {
             stream,
             slot,
+            observer,
             config: *config,
         }),
         Ok(Msg::Refuse { reason }) => bail!("{reason}"),
@@ -765,6 +892,7 @@ impl Handshake {
             parts: Some((link, rx)),
             incoming: None,
             slot: self.slot,
+            observer: self.observer,
             view: None,
         })
     }
@@ -801,8 +929,10 @@ pub struct GuestRoom {
     parts: Option<(Link, Receiver<Event>)>,
     /// The map asked for, and what has arrived of it.
     incoming: Option<Incoming>,
-    /// The joiner's row.
+    /// The joiner's row, or an observer's number from [`OBSERVER_BASE`] up.
     pub slot: u8,
+    /// The joiner watches rather than plays: it has no row.
+    pub observer: bool,
     /// The lobby, once the host has sent it.
     pub view: Option<LobbyView>,
 }
@@ -1199,6 +1329,189 @@ mod tests {
         room.set_extras(on);
         assert_eq!(room.view().extras, on);
         assert_eq!(room.view().to_config(1).0.extras, on);
+    }
+
+    #[test]
+    fn the_hosts_c_plus_l_options_reach_the_joiners_view_and_both_games_configs() {
+        let mut room = host(true);
+        let mut g = join(&mut room, "Ann");
+        assert!(g.view.as_ref().unwrap().client_extras.is_empty(), "all off by default");
+        let chosen = vec![("health-bars".to_string(), 2), ("smart-attack-move".to_string(), 1)];
+        room.set_client_extras(chosen.clone());
+        wait_guest(&mut room, &mut g, |g| {
+            g.view.as_ref().is_some_and(|v| v.client_extras == chosen)
+        });
+        assert_eq!(room.view().to_config(1).0.client_extras, chosen);
+        // The start hands the same choice to the joiner, whatever the joiner's own settings are.
+        let start = room.start(5).unwrap();
+        let got = events_until_go(&mut g);
+        assert_eq!(start.config.client_extras, chosen);
+        assert_eq!(got.config.client_extras, chosen);
+        let theirs = crate::extras::ClientExtras::from_lobby_values(&got.config.client_extras);
+        assert_eq!(theirs.health_bars(), crate::extras::HealthBars::Selected);
+        assert!(theirs.smart_attack_move());
+    }
+
+    fn events_until_go(g: &mut GuestRoom) -> Box<NetStart> {
+        let end = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < end {
+            for e in g.poll() {
+                if let GuestEvent::Go(n) = e {
+                    return n;
+                }
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        panic!("the joiner is never sent the game");
+    }
+
+    /// An observer's handshake through the room, with its map already there.
+    fn watch(room: &mut HostRoom, name: &str) -> GuestRoom {
+        let addr = format!("127.0.0.1:{}", room.port());
+        let name = name.to_string();
+        let t = thread::spawn(move || handshake_as(&addr, ident(), &name, true));
+        wait(room, |_| t.is_finished());
+        let hs = t.join().unwrap().unwrap();
+        assert!(
+            hs.observer && hs.slot >= OBSERVER_BASE,
+            "an observer's number, not a row"
+        );
+        let mut g = hs.accept().unwrap();
+        wait_guest(room, &mut g, |g| g.view.is_some());
+        let hash = room.view().map_hash;
+        g.set_have_map(hash, true);
+        let end = Instant::now() + Duration::from_secs(10);
+        while room.can_start() == Err(StartError::MissingMap) && Instant::now() < end {
+            room.poll();
+            thread::sleep(Duration::from_millis(5));
+        }
+        g
+    }
+
+    #[test]
+    fn observers_come_in_only_where_the_host_allows_them_and_take_no_row() {
+        let mut room = host(true);
+        let join_err = |room: &mut HostRoom| {
+            let addr = format!("127.0.0.1:{}", room.port());
+            let t = thread::spawn(move || handshake_as(&addr, ident(), "Eve", true));
+            wait(room, |_| t.is_finished());
+            format!("{:#}", t.join().unwrap().err().unwrap())
+        };
+        assert_eq!(room.view().observers, 0, "none by default");
+        assert!(join_err(&mut room).contains("no place for an observer"));
+        room.set_observers(1);
+        let mut player = join(&mut room, "Ann");
+        let mut eve = watch(&mut room, "Eve");
+        // It is in the list of watchers, not in a row, and everyone sees it.
+        assert_eq!(room.view().watchers, ["Eve"]);
+        assert_eq!(room.view().humans(), 2, "the host and Ann: the observer takes no slot");
+        assert!(room.view().rows.iter().all(|r| r.name != "Eve"));
+        wait_guest(&mut room, &mut player, |g| {
+            g.view
+                .as_ref()
+                .is_some_and(|v| v.watchers == ["Eve"] && v.observers == 1)
+        });
+        assert_eq!(eve.view.as_ref().unwrap().observers, 1);
+        // The one place is taken, and a name is still unique.
+        assert!(join_err(&mut room).contains("no place for an observer"));
+        // The observer cannot change a row, and the game can start with it in.
+        eve.set_race(race::ORC);
+        eve.say("hi");
+        for _ in 0..20 {
+            room.poll();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(room.view().rows.iter().all(|r| r.say != "hi" && (r.name != "Eve")));
+        assert_eq!(room.can_start(), Ok(()));
+        let start = room.start(7).unwrap();
+        let theirs = events_until_go(&mut player);
+        let seen = events_until_go(&mut eve);
+        assert_eq!(theirs.me, 1);
+        assert_eq!(seen.me, OBSERVER_BASE);
+        assert!(
+            !seen.config.lobby.humans.iter().any(|h| h.0 == seen.me),
+            "not one of the game's players"
+        );
+        assert_eq!(seen.config.lobby.local, 0, "it looks from the host's place");
+        assert_eq!(start.config.lobby.humans.len(), 2);
+        // The host's turns reach the observer's wire.
+        let (mut a, mut b) = (start.wire, seen.wire);
+        a.send(Msg::Turn {
+            slot: 0,
+            seq: 1,
+            cmd: None,
+        });
+        let end = Instant::now() + Duration::from_secs(10);
+        let mut heard = false;
+        while !heard && Instant::now() < end {
+            heard = b
+                .poll()
+                .iter()
+                .any(|i| matches!(i, crate::net::tcp::Inbound::Msg { from: 0, .. }));
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(heard);
+    }
+
+    #[test]
+    fn an_observer_who_lacks_the_map_blocks_the_start_until_it_has_it_and_fewer_places_send_observers_away() {
+        let (bytes, hash) = pud();
+        let mut room = host(true);
+        room.set_map("Maps\\x.pud", hash, vec![], 4);
+        room.set_map_data(bytes);
+        room.set_observers(2);
+        let _player = join(&mut room, "Ann");
+        let addr = format!("127.0.0.1:{}", room.port());
+        let t = thread::spawn(move || handshake_as(&addr, ident(), "Eve", true));
+        wait(&mut room, |_| t.is_finished());
+        let mut eve = t.join().unwrap().unwrap().accept().unwrap();
+        wait_guest(&mut room, &mut eve, |g| g.view.is_some());
+        assert_eq!(
+            room.can_start(),
+            Err(StartError::MissingMap),
+            "the observer needs the map too"
+        );
+        eve.set_have_map(hash, true);
+        let end = Instant::now() + Duration::from_secs(10);
+        while room.can_start().is_err() && Instant::now() < end {
+            room.poll();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(room.can_start(), Ok(()));
+        // Fewer places than watchers: the watcher is sent away.
+        room.set_observers(0);
+        let end = Instant::now() + Duration::from_secs(10);
+        let mut ended = false;
+        while !ended && Instant::now() < end {
+            room.poll();
+            ended = eve.poll().iter().any(|e| matches!(e, GuestEvent::Ended(_)));
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(ended);
+        assert!(room.view().watchers.is_empty());
+    }
+
+    #[test]
+    fn a_joiner_of_the_previous_protocol_is_refused_with_both_versions() {
+        use std::io::Write;
+        let mut room = host(true);
+        let addr = format!("127.0.0.1:{}", room.port());
+        let t = thread::spawn(move || {
+            let mut s = std::net::TcpStream::connect(addr).unwrap();
+            // Protocol 6's Hello: variant 0, the version, then what that version put after it.
+            let body = [0u8, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            s.write_all(&(body.len() as u32).to_le_bytes()).unwrap();
+            s.write_all(&body).unwrap();
+            read_frame(&mut s)
+        });
+        wait(&mut room, |_| t.is_finished());
+        match t.join().unwrap().unwrap() {
+            Msg::Refuse { reason } => {
+                assert_eq!(reason, Identity::protocol_reason(7, 6));
+                assert!(reason.contains("host 7") && reason.contains("joiner 6"), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     /// A small valid map and its hash.

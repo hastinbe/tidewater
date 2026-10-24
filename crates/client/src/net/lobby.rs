@@ -12,6 +12,7 @@
 //! | Humans, their races, Computer rows, Fixed Order, game speed, network delay, seed | `--lobby humans=2,races=human/orc,computers=1,fixed,speed=8,row=3,seed=N` |
 //! | Places for observers, who watch with no fog and give no commands (off unless the host asks) | `--lobby observers=1`; an observer joins with `--join ADDR --observe` |
 //! | Optional improvements that change the simulation (`docs/design/extras.md`) | the host's `--extra-NAME` flags and settings file, e.g. `--extra-rally-points` |
+//! | The client-only options that give an edge (C+L), set for every player | the host's own `--extra-NAME` flags and settings file, or `--lobby extras=health-bars=always/widescreen=16:9` to choose them for the game |
 //!
 //! The seed is the host's choice, sent to every machine (the seed exchange): with none given it is the host's clock.
 
@@ -60,6 +61,12 @@ pub struct LobbySpec {
     /// The optional improvements that change the simulation, the host's own (`--extra-NAME` flags and settings): the
     /// game starts with these on every machine. Not a `--lobby` choice; the host's command line sets them.
     pub extras: tidewater_sim::Extras,
+    /// The C+L options `--lobby extras=NAME=VALUE/NAME=VALUE` names: they are put over the host's own values for the
+    /// game's. The host's own settings stand for the others (`host`).
+    pub lobby_extras: Vec<(crate::extras::Id, u8)>,
+    /// The C+L options every machine plays with (`ClientExtras::lobby_values`): the host's own settings with
+    /// [`lobby_extras`](Self::lobby_extras) over them. Set by the host's command-line start, like [`extras`](Self::extras).
+    pub client_extras: Vec<(String, u8)>,
 }
 
 impl Default for LobbySpec {
@@ -76,12 +83,15 @@ impl Default for LobbySpec {
             row: DIRECT_IP_ROW,
             seed: None,
             extras: tidewater_sim::Extras::default(),
+            lobby_extras: Vec::new(),
+            client_extras: Vec::new(),
         }
     }
 }
 
 impl LobbySpec {
-    /// Reads `humans=2,races=human/orc,computers=1,fixed,speed=8,row=3,seed=N`; every part is optional.
+    /// Reads `humans=2,races=human/orc,computers=1,fixed,observers=1,speed=8,row=3,seed=N,extras=health-bars=always`;
+    /// every part is optional. `extras` takes `NAME=VALUE` pairs separated by `/`, C+L options only.
     pub fn parse(s: &str) -> Result<LobbySpec, String> {
         let mut spec = LobbySpec::default();
         for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
@@ -119,9 +129,30 @@ impl LobbySpec {
                 "speed" => spec.speed = number(8)? as u8,
                 "row" => spec.row = number(15)? as u8,
                 "seed" => spec.seed = Some(number(u64::from(u32::MAX))? as u32),
+                "extras" => {
+                    for pair in value.split('/').map(str::trim).filter(|p| !p.is_empty()) {
+                        let (name, v) = pair
+                            .split_once('=')
+                            .ok_or_else(|| format!("extras needs NAME=VALUE pairs, not {pair:?}"))?;
+                        let spec_row = crate::extras::lobby_specs()
+                            .find(|s| s.name == name.trim())
+                            .ok_or_else(|| {
+                                let names: Vec<&str> = crate::extras::lobby_specs().map(|s| s.name).collect();
+                                format!(
+                                    "{name:?} is not an option the lobby sets for everyone ({})",
+                                    names.join(", ")
+                                )
+                            })?;
+                        let value = spec_row.parse(v).ok_or_else(|| {
+                            format!("{v:?} is not a value of {} ({})", spec_row.name, spec_row.values())
+                        })?;
+                        spec.lobby_extras.retain(|(id, _)| *id != spec_row.id);
+                        spec.lobby_extras.push((spec_row.id, value));
+                    }
+                }
                 other => {
                     return Err(format!(
-                        "unknown lobby choice {other:?} (humans, races, computers, fixed, observers, speed, row, seed)"
+                        "unknown lobby choice {other:?} (humans, races, computers, fixed, observers, speed, row, seed, extras)"
                     ));
                 }
             }
@@ -159,8 +190,18 @@ impl LobbySpec {
             speed: self.speed,
             row: self.row,
             extras: self.extras,
+            client_extras: self.client_extras.clone(),
             names,
         }
+    }
+
+    /// The C+L options this game runs with: the host's own `own` with the lobby choices over them.
+    pub fn lobby_values(&self, own: &crate::extras::ClientExtras) -> Vec<(String, u8)> {
+        let mut e = *own;
+        for &(id, v) in &self.lobby_extras {
+            e.set(id, v);
+        }
+        e.lobby_values()
     }
 }
 
@@ -226,7 +267,8 @@ pub fn describe(c: &GameConfig) -> String {
             format!("{} ({race})", c.names.get(slot as usize).map_or("?", String::as_str))
         })
         .collect();
-    let extras = c.extras.describe();
+    let mut extras = c.extras.describe();
+    extras.extend(crate::extras::describe_lobby(&c.client_extras));
     let extras = if extras.is_empty() {
         String::new()
     } else {
@@ -402,6 +444,46 @@ mod tests {
         assert_eq!(c.seed, 1000, "no seed given: the clock");
         assert_eq!(c.names[0], "Player 1");
         assert_eq!(c.lobby.humans[0].1, race::NEUTRAL);
+    }
+
+    #[test]
+    fn the_lobby_choice_extras_sets_the_c_plus_l_options_over_the_hosts_own() {
+        use crate::extras::{ClientExtras, Id};
+        let l = LobbySpec::parse("humans=2,extras=health-bars=always/widescreen=16:9").unwrap();
+        assert_eq!(l.lobby_extras, [(Id::HealthBars, 3), (Id::Widescreen, 2)]);
+        // The host's own smart attack-move stays; its own health bars lose to the lobby's.
+        let mut own = ClientExtras::default();
+        own.set(Id::SmartAttackMove, 1);
+        own.set(Id::HealthBars, 1);
+        own.set(Id::IdleWorker, 1);
+        let values = l.lobby_values(&own);
+        assert_eq!(
+            values,
+            [
+                ("health-bars".to_string(), 3),
+                ("smart-attack-move".to_string(), 1),
+                ("widescreen".to_string(), 2)
+            ]
+        );
+        let mut l = l;
+        l.client_extras = values.clone();
+        let c = l.config("Maps\\x.pud".into(), 5, Setup::default(), 1, "");
+        assert_eq!(c.client_extras, values, "the game carries the host's choice");
+        assert!(describe(&c).contains("health-bars always"), "{}", describe(&c));
+        // Without it, the host's own settings are the game's.
+        assert_eq!(LobbySpec::default().lobby_values(&own).len(), 2);
+        // Only options the lobby sets for everyone, with values they take.
+        for bad in [
+            "extras=idle-worker=on",
+            "extras=rally-points=on",
+            "extras=health-bars",
+            "extras=health-bars=loud",
+            "extras=nonsense=1",
+        ] {
+            assert!(LobbySpec::parse(bad).is_err(), "{bad}");
+        }
+        let why = LobbySpec::parse("extras=idle-worker=on").unwrap_err();
+        assert!(why.contains("health-bars") && why.contains("widescreen"), "{why}");
     }
 
     #[test]

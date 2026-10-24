@@ -187,6 +187,9 @@ pub(crate) struct ListedGame {
     pub players: u8,
     pub max: u8,
     pub map: String,
+    /// How many observers can still join: `None` when the list cannot tell (a Direct IP game is only known by its
+    /// address; the creator answers a Watch Game with a refusal if it has no place), `Some(0)` when it allows none.
+    pub watch: Option<u8>,
 }
 
 /// What a frame of the screens asks of the program.
@@ -264,6 +267,8 @@ enum T {
     GameList,
     GameRow(usize),
     Join,
+    /// Watch Game: our own addition, offered only for a game that may have a place for an observer.
+    Watch,
     Create,
     Disconnect,
     WaitCancel,
@@ -317,6 +322,8 @@ const GAMES_BUTTONS: [(T, i32, &str, char); 3] = [
     (T::Disconnect, 326, "Disconnect", 'D'),
 ];
 const GAMES_BUTTON_X: i32 = 378;
+/// Our own button under the original's three, shown only when the selected game may take an observer.
+const WATCH_BUTTON: (T, i32, &str, char) = (T::Watch, 358, "Watch Game", 'W');
 const WAIT_PANEL: Rect = Rect::new(40, 316, 540, 148);
 const WAIT_TEXT: (i32, i32) = (52, 332);
 const WAIT_CANCEL: Rect = Rect::new(198, 420, 224, 28);
@@ -441,6 +448,7 @@ impl Mp {
                 players: g.announce.players,
                 max: g.announce.max,
                 map: g.announce.map,
+                watch: Some(g.announce.watch),
             })
             .collect();
         if list != self.games {
@@ -482,10 +490,18 @@ impl Mp {
             Stage::Games => {
                 let mut v = mk(&GAMES_BUTTONS, GAMES_BUTTON_X);
                 v[0].4 = !self.games.is_empty();
+                if self.watch_offered() {
+                    v.extend(mk(&[WATCH_BUTTON], GAMES_BUTTON_X));
+                }
                 v
             }
             Stage::Waiting => vec![(T::WaitCancel, WAIT_CANCEL, "Cancel", '\0', true)],
         }
+    }
+
+    /// Whether Watch Game shows: the selected game may have a place for an observer.
+    fn watch_offered(&self) -> bool {
+        self.games.get(self.game_sel).is_some_and(|g| g.watch != Some(0))
     }
 
     fn game_row_rect(&self, i: usize) -> Rect {
@@ -573,6 +589,9 @@ impl Mp {
                 let mut v = vec![T::GameList];
                 if !self.games.is_empty() {
                     v.push(T::Join);
+                }
+                if self.watch_offered() {
+                    v.push(T::Watch);
                 }
                 v.extend([T::Create, T::Disconnect]);
                 v
@@ -820,7 +839,8 @@ impl Mp {
                 self.select_game(i);
                 self.focus = T::GameList;
             }
-            T::Join => self.join_pressed(),
+            T::Join => self.join_pressed(false),
+            T::Watch => self.join_pressed(true),
             T::Create => return self.create_game(),
             T::Disconnect => {
                 self.close_connection();
@@ -979,9 +999,17 @@ impl Mp {
         None
     }
 
-    fn join_pressed(&mut self) {
+    fn join_pressed(&mut self, observer: bool) {
         let Some(g) = self.games.get(self.game_sel) else { return };
-        self.join = Some(spawn_join(g.addr.clone(), self.identity.clone(), self.mem.name.clone()));
+        if observer && !self.watch_offered() {
+            return;
+        }
+        self.join = Some(spawn_join(
+            g.addr.clone(),
+            self.identity.clone(),
+            self.mem.name.clone(),
+            observer,
+        ));
         self.go(Stage::Waiting, T::WaitCancel);
     }
 
@@ -1014,6 +1042,7 @@ impl Mp {
                             players: 1,
                             max: 8,
                             map: String::new(),
+                            watch: None,
                         }];
                         self.game_sel = 0;
                         self.go(Stage::Games, T::Join);
@@ -1190,12 +1219,18 @@ impl Mp {
                     } else {
                         format!("map: {}", g.map)
                     },
+                    // Our own line: only a game that has places for observers says so.
+                    match g.watch {
+                        Some(n) if n > 0 => format!("places to watch: {n}"),
+                        _ => String::new(),
+                    },
                 ];
                 for (i, l) in lines.iter().enumerate() {
                     look.text(
                         p,
                         (GAMES_INFO.0, GAMES_INFO.1 + i as i32 * 19),
-                        &crate::customsetup::fit(look.font, l, 566),
+                        // The first line stops short of the Watch Game button.
+                        &crate::customsetup::fit(look.font, l, if i == 0 { 330 } else { 566 }),
                         GOLD,
                     );
                 }
@@ -1279,10 +1314,10 @@ struct Join {
     rx: Mutex<Receiver<Result<Handshake, String>>>,
 }
 
-fn spawn_join(addr: String, identity: Identity, name: String) -> Join {
+fn spawn_join(addr: String, identity: Identity, name: String, observer: bool) -> Join {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
-        let r = crate::net::room::handshake(&addr, identity, &name).map_err(|e| format!("{e:#}"));
+        let r = crate::net::room::handshake_as(&addr, identity, &name, observer).map_err(|e| format!("{e:#}"));
         let _ = tx.send(r);
     });
     Join {
@@ -1569,6 +1604,93 @@ mod tests {
         assert_eq!(mp.stage, Stage::Games, "Cancel returns to the list");
     }
 
+    fn at_games(games: Vec<ListedGame>) -> Mp {
+        let mut mp = at_methods(false);
+        mp.games = games;
+        mp.go(Stage::Games, T::GameList);
+        mp
+    }
+
+    fn listed(addr: &str, watch: Option<u8>) -> ListedGame {
+        ListedGame {
+            addr: addr.into(),
+            owner: "Ann".into(),
+            players: 1,
+            max: 4,
+            map: String::new(),
+            watch,
+        }
+    }
+
+    #[test]
+    fn watch_game_is_offered_only_for_a_game_that_may_take_an_observer() {
+        // The original's three buttons only, for a game that says it has no places.
+        let mp = at_games(vec![listed("127.0.0.1:1", Some(0))]);
+        assert!(!mp.watch_offered());
+        assert_eq!(mp.buttons().len(), 3);
+        assert!(!mp.stops().contains(&T::Watch));
+        // A game with places, or one whose list can't tell (Direct IP), offers it.
+        for watch in [Some(2), None] {
+            let mp = at_games(vec![listed("127.0.0.1:1", watch)]);
+            assert!(mp.watch_offered());
+            assert!(mp.buttons().iter().any(|b| b.0 == T::Watch && b.4));
+            assert!(mp.stops().contains(&T::Watch));
+        }
+        // It follows the selection.
+        let mut mp = at_games(vec![listed("127.0.0.1:1", Some(0)), listed("127.0.0.1:2", Some(1))]);
+        assert!(!mp.watch_offered());
+        mp.select_game(1);
+        assert!(mp.watch_offered());
+        // No games, no button.
+        assert!(!at_games(Vec::new()).watch_offered());
+    }
+
+    #[test]
+    fn watching_a_game_joins_as_an_observer_and_is_refused_where_there_is_no_place() {
+        use crate::net::room::{HostRoom, Texts, new_view};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut room = HostRoom::new(
+            listener,
+            Identity::ours(0),
+            Texts::default(),
+            new_view(true, "Host", tidewater_sim::setup::race::NEUTRAL),
+        )
+        .unwrap();
+        let addr = format!("127.0.0.1:{port}");
+        // No places: the host says so, in a box.
+        let mut mp = at_games(vec![listed(&addr, None)]);
+        mp.mem.name = "Eve".into();
+        mp.update(&key(Key::Letter('W')));
+        assert_eq!(mp.stage, Stage::Waiting);
+        let end = Instant::now() + Duration::from_secs(10);
+        while mp.stage == Stage::Waiting && Instant::now() < end {
+            room.poll();
+            std::thread::sleep(Duration::from_millis(10));
+            mp.update(&Input::default());
+        }
+        assert!(
+            matches!(&mp.overlay, Overlay::Notice(t) if t.contains("no place for an observer")),
+            "the refusal is shown"
+        );
+        // With a place, Join Game still plays and Watch Game watches.
+        room.set_observers(1);
+        let mut mp = at_games(vec![listed(&addr, Some(1))]);
+        mp.mem.name = "Eve".into();
+        mp.update(&key(Key::Letter('W')));
+        let end = Instant::now() + Duration::from_secs(10);
+        let hs = loop {
+            room.poll();
+            match mp.update(&Input::default()) {
+                Outcome::Join(hs) => break hs,
+                _ if Instant::now() > end => panic!("never welcomed"),
+                _ => std::thread::sleep(Duration::from_millis(10)),
+            }
+        };
+        assert!(hs.observer, "welcomed as an observer");
+        assert!(hs.slot >= crate::net::proto::OBSERVER_BASE);
+    }
+
     #[test]
     fn the_local_network_list_fills_from_beacons_and_stops_listening_on_leaving() {
         let finder = Finder::bind(0).unwrap();
@@ -1584,7 +1706,7 @@ mod tests {
         let mut b = beacon::Announcer::to(target).unwrap();
         let (one, two) = (
             beacon::Announce::ours(7001, 1, 4, "Ann", "Gold River"),
-            beacon::Announce::ours(7002, 2, 3, "Bob", "Dark Paths"),
+            beacon::Announce::ours(7002, 2, 3, "Bob", "Dark Paths").with_watch(2),
         );
         let end = Instant::now() + Duration::from_secs(10);
         while mp.games.len() < 2 && Instant::now() < end {
@@ -1599,6 +1721,11 @@ mod tests {
         assert_eq!((first.owner.as_str(), first.players, first.max), ("Ann", 1, 4));
         assert_eq!(first.map, "Gold River");
         assert!(first.addr.ends_with(":7001"));
+        assert_eq!(
+            (first.watch, mp.games[1].watch),
+            (Some(0), Some(2)),
+            "the beacon says where one can watch"
+        );
         assert_eq!(mp.update(&key(Key::Letter('D'))), Outcome::Leave);
         assert!(mp.finder.is_none(), "leaving the list stops the listening");
     }

@@ -516,6 +516,7 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
                 enhanced: scene.world.rules.enhanced,
                 row: n.config.row,
                 speed: n.config.speed,
+                client_extras: crate::extras::ClientExtras::from_lobby_values(&n.config.client_extras),
             };
             Box::new(crate::net::NetSession::new(params, n.wire, recorder))
         }

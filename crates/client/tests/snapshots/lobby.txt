@@ -18,16 +18,16 @@ frames	33-36	b760fbfe45f23f14
 frames	37-37	466cadb6252d7f99
 frames	38-41	44ed70ee0914ab6f
 frames	42-45	deaa8d4aa0823bcf
-frames	46-46	d923dc6d08fad01f
-shot	53	lobby	8bbaea8464abcd3f
-frames	47-53	8bbaea8464abcd3f
-frames	54-54	aaf440b1abca7712
-shot	58	row-list	3aaff30ba6240446
-frames	55-58	3aaff30ba6240446
-frames	59-59	4face189ea4500cc
-frames	60-62	3e3e22809401b957
-shot	65	chat-typed	2a83b0ef35d4c833
-shot	70	chat-sent	2a83b0ef35d4c833
-frames	63-70	2a83b0ef35d4c833
-shot	76	alone	0c53feeaa7c53244
-frames	71-76	0c53feeaa7c53244
+frames	46-46	f585a2ebf3c5c8da
+shot	53	lobby	438e6f0d63b4acba
+frames	47-53	438e6f0d63b4acba
+frames	54-54	7b2ae688264a6813
+shot	58	row-list	a24141db596b3ae7
+frames	55-58	a24141db596b3ae7
+frames	59-59	9032df990f3a7071
+frames	60-62	eafa7067b679591e
+shot	65	chat-typed	5e0d4a6c92413eda
+shot	70	chat-sent	5e0d4a6c92413eda
+frames	63-70	5e0d4a6c92413eda
+shot	76	alone	886e4b3ff6f47fb1
+frames	71-76	886e4b3ff6f47fb1
