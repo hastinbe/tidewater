@@ -190,7 +190,7 @@ original's 14 do and as the view position (a whole tile) assumes.
 
 **Fairness.** The view only shows more map to the right: the height, the zoom and the interface's size are the
 original's. That is still an edge, which is why the option is C+L: a session can override it for everyone (`game::extras`).
-Network games do not yet (see `extras.md`, "Multiplayer (C+L)"), so each player's own setting applies there.
+In a game with other players the host's lobby value is used for everyone (`extras.md`, "Multiplayer (C+L)").
 
 **Where the width lives.** `Core::screen` is the screen's size this frame, set at the start of `advance`
 (`core::screen_size`) and again after the flow's transitions, since a game starting or ending changes it. It is 640 × 480

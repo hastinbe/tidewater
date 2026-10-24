@@ -286,7 +286,7 @@ A replay uses the recording's; a loaded game keeps the ones it was saved with.
 
 **Versions.** Sim options are part of the file formats and the protocol, so changing them bumps all three: the saved game
 (`savefile::VERSION`, 24), the replay (`tidewater_replay::format::VERSION`, 6) and the network protocol
-(`net::proto::PROTOCOL`, 7). The C+L choice rides in the same lobby messages and also bumped the protocol (6 to 7), but not the saved game or the replay (below). With every extra off the option data is empty or skipped, so nothing else in a file or the
+(`net::proto::PROTOCOL`, currently 8). The C+L choice rides in the same lobby messages and also bumped the protocol, but not the saved game or the replay (below). With every extra off the option data is empty or skipped, so nothing else in a file or the
 hash differs.
 
 ## Multiplayer (C+L)

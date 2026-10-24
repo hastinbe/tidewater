@@ -55,7 +55,7 @@ tidewater --join HOST-ADDRESS            # or HOST-ADDRESS:PORT
 | `computers=N` | Computer rows after the humans. | 0 |
 | `fixed` | Fixed Order: each human takes the start slot of its row. | off |
 | `speed=0..8` | Game speed (8 is Fastest). | 8 |
-| `row=0..15` | Network delay row, which sets the turn length (below). | 4 |
+| `row=0..15` | Network delay row, which sets the turn length (below). | 3 |
 | `seed=N` | The game's seed. The host's choice, sent to every machine. | the host's clock |
 | `observers=0..4` | Places for watchers (below, "Observers"). The game starts when they are filled too. | 0 |
 | `extras=NAME=VALUE/...` | The client-only options that give an edge (C+L), for every player: `extras=health-bars=always/widescreen=16:9`. The host's own settings stand for those not named. | the host's settings |

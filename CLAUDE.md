@@ -21,7 +21,7 @@ before writing any code, and follow it exactly.
   and uncompressed), PCX images, raw interface pictures and cursors (`raw`), fonts (`fnt`), Smacker video (`smk`), string tables, unit and
   upgrade tables, map restrictions).
 - `crates/twtool`: inspection CLI (`import-check`, `disc-list`, `mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
-  `strings`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
+  `strings`, `scripts`, `script-ops`, `fell`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
   whole-map behaviour snapshot `tests/snapshot.rs` checks, `replay`: verify a `.twrep`, `desync-diff`: find the first differing cycle and field).
 - `crates/import`: game-file import (`source`: what a path is, `validate`: key-file checks, `copy`: allowlisted copy
   and atomic swap into `<data>/game`, `manifest`); used by `tidewater --import` and `twtool import-check`;
@@ -53,6 +53,10 @@ before writing any code, and follow it exactly.
   `extras.rs` is the optional improvements' registry, settings and flags (`docs/design/extras.md`); `settings.rs` is the Settings
   screen (SDL-free: its rules and drawing, generated from the registry; opened by F2 or the link on the main menu, `AppState::Settings`, `--goto settings`; in a game by Ctrl+G or the Options dialog's link, as the game menu's `Screen::Settings`); `update.rs` is the desktop self-update
   (the release check, "Update now"; `docs/release.md`).
+  The game screen's other parts: `input.rs` (a frame's keys, mouse and touches), `clock.rs` (real and game time, the fixed step), `layers.rs` (the screen's layers as pictures), `mapview.rs` (the map view's geometry and zoom), `view.rs` (drawing the map view), `fog.rs`, `minimap.rs`, `screen.rs` (resource bar, scrolling, pointers), `mouse.rs` (selecting and commanding, the key table), `messages.rs` (message list, notices, status bar), `carry.rs` (workers and tankers carrying goods), `palette.rs` (colour cycling and fades), `screenshot.rs` (Print Screen), `cheats.rs` and `diplomacy.rs` (the chat-line cheat codes and `/diplomacy`).
+  Sound and music: `sound.rs` (which file plays for each cue) and `music.rs` (which track plays when), with `jukebox.rs` playing it in the mixer.
+  The game menu: `gamemenu.rs` draws it and the dialogs under it, `menu.rs` holds the rules, `prefs.rs` the stored settings behind its dialogs; saved games are `savegame.rs` (collect a game and start from one), `savefile.rs` (the file layout), `saves.rs` (folder and dialog rules) and `savedlg.rs` (the dialogs).
+  Optional improvements' rules sit in their own modules: `overlay.rs` (health bars, clock), `idle.rs`, `groupbar.rs`, `attackmove.rs`, `ping.rs`; `keymap.rs` holds the rebindable keys.
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
   The window shows one picture composed on the CPU, 640 × 480 or wider in a game with the `widescreen` option (`compose.rs`, `widescreen.rs`; `core.rs` places the layers, the shell
@@ -79,6 +83,7 @@ before writing any code, and follow it exactly.
   (`.github/workflows/ci.yml`) runs fmt, clippy and the tests without game data, plus release builds on Linux, macOS
   and Windows and the iOS Simulator and Android libraries; the full check with game data and oracle traces is still
   run locally. `.github/workflows/release.yml` builds the downloads (`docs/release.md`).
+- The multiplayer end-to-end test (`crates/client/tests/mp_e2e.rs`) needs `TIDEWATER_INSTALL` and port 6112; see `docs/design/network.md`, "Running the end-to-end check".
 - Before every commit run `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`.
 - Conventional commits (`feat:`, `fix:`, `docs:`, ...): they decide the release version. Work lands on `develop`; merging
   it into `main` cuts a release (`docs/release.md`).

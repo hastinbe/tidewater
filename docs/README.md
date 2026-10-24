@@ -10,9 +10,9 @@ Design documents explain how the code is organised and why. They live in [`desig
 |---|---|
 | [Game-file import](design/import.md) | How `--import` finds, checks and copies your *Warcraft II* files into Tidewater's data directory: game folders, the GOG installer and CD images, the first-run screen and the exit codes. |
 | [An engine-neutral client core](design/client-core.md) | How the client is a plain-Rust core that a shell calls once per frame, the SDL 3 shell, the platform and storage seams, widescreen, and the frame and audio snapshot tests. |
-| [Network play](design/network.md) | Lockstep over TCP: the menus, running a host and joiners (`--host`, `--join`), the turn engine, the sync check, leaving and dropping, protocol, and the spec gaps. |
+| [Network play](design/network.md) | Lockstep over TCP: the menus, running a host and joiners (`--host`, `--join`), the turn engine, the sync check, leaving and dropping, the host handing over, observers, the protocol, and the spec gaps. |
 | [Multiplayer determinism](design/multiplayer-determinism.md) | What keeps the simulation identical on every machine in a lockstep game, the rules new sim code must follow, and which local-player reads are still open questions. Also the session layer and the `.twrep` replay format. |
-| [Optional improvements](design/extras.md) | The registry of optional extras, how the settings file, flags and lobby carry them, and how to add one. |
+| [Optional improvements](design/extras.md) | The registry of optional extras, the Settings screen and rebindable keys, how the settings file, flags and lobby carry them, and how to add one. |
 | [Touch input](design/touch.md) | Gestures, the on-screen controls, scaling, and desktop touch emulation. |
 | [Tidewater on iOS](design/ios.md) | Building the iPhone and iPad app, signing through an xcconfig, importing game files on a phone, background pause and resume, and the limits. |
 | [Tidewater on Android](design/android.md) | Building the Android app, importing game files with the system picker, landscape and background pause, and the limits. |

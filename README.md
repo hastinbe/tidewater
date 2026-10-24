@@ -94,7 +94,7 @@ Downloads are checked against the size the release lists; they are not signed. A
 | **Menus** | Main menu (Single Player Game, Multi Player Game, Replay Introduction, Show Credits, Exit Program), single-player menu (New Campaign, Load Game, Custom Scenario), new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
 | **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
-| **Multiplayer** | Early LAN and Direct IP games for two to eight players (see [Multiplayer](#multiplayer-early)). |
+| **Multiplayer** | Early LAN and Direct IP games for two to eight players, with observers (see [Multiplayer](#multiplayer-early)). |
 | **Cheats** | The original cheat codes, typed into the chat line. |
 | **Display** | A 640 x 480 picture drawn in software and shown at the largest whole-number scale that fits your monitor, with a black border. `--ui-scale N` picks a scale. |
 
@@ -160,7 +160,7 @@ adb install -r platform/android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n dev.tidewater.client/.TidewaterActivity
 ```
 
-`--abi arm64-v8a` builds one ABI; `--libs-only` stops before Gradle. This debug APK is signed with Gradle's debug key. The releases' APK is signed with a release key (see [docs/release.md](docs/release.md#android-apk)); `platform/android/build.sh --release --version X.Y.Z` builds that kind.
+`--abi arm64-v8a` builds one ABI; `--libs-only` stops before Gradle. This debug APK is signed with Gradle's debug key. The releases' APK is signed with a release key once the maintainer has set it up (see [docs/release.md](docs/release.md#android-apk)); `platform/android/build.sh --release --version X.Y.Z` builds that kind.
 
 **Get the game files onto it.** Either copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD image (`.iso`, `.bin`/`.cue`, `.mdf`, `.nrg`) into the app's folder with a computer, for example `adb push Warcraft2 /sdcard/Android/data/dev.tidewater.client/files/` (open the app once first so the folder exists), then tap Scan again on the first-run screen; or tap "Choose game folder..." or "Choose CD image..." to pick from the phone's storage, which Tidewater copies into its cache first. **A GOG installer (`.exe`) does not work on Android**, because unpacking it needs `innoextract`: unpack it on a computer, or install the game and copy the folder.
 
@@ -218,8 +218,7 @@ Tidewater adds a few optional improvements that the original game does not have.
 sounds and plays as the original does.** Turn them on in the [Settings screen](#settings) (the Interface, Sound and Gameplay
 pages, and Scaling and Widescreen on General). Power users can also use the `[extras]` section of the
 settings file (`settings.txt`), or for one run a flag; `--no-extra-NAME` puts an option back to its default.
-The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the same file (for example
-`pause=ctrl+u`, `button-move=j`, `slot-1=q`); with no section they are the original's. How they work, and how to add one, is in [`docs/design/extras.md`](docs/design/extras.md).
+The idle-worker key is F6; keys can be rebound on the Settings screen's Keys page. How the options work, the `[keys]` file format and how to add an option is in [`docs/design/extras.md`](docs/design/extras.md).
 
 | Option | Flag | Values | Default | What it does |
 |---|---|---|---|---|
@@ -246,6 +245,7 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 the selection limit and the extra speed levels): the flag or the setting starts a single-player game with it, and in a
 network game the host turns it on in the lobby's "Extras" box and everyone plays with the host's choice. The game is
 saved and recorded with it.
+
 ## Command-line reference
 
 ### `tidewater` (the game)
@@ -265,6 +265,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `<MAP>` | Start this map at once (a `.pud` path or an archive name). |
 | `--setup <SETUP>` | Game setup: `campaign:ENTRY`, or `custom` with choices such as `custom:race=orc,opponents=2,resources=high,terrain=swamp,units=one-worker,fixed-starts,fog=off`. |
 | `--no-intro` | Skip the intro video for this run (the Settings screen's Intro video row does it for good). |
+| `--extra-NAME`, `--no-extra-NAME` | Switch an optional improvement on, or back to its default, for this run. The names and values are in the [table above](#optional-improvements). |
 | `--ui-scale <1-8>` | Open a 640N x 480N-point window instead of the largest whole-number scale that fits. |
 | `--save-dir <DIR>` | Where saved games go (default: `Save` in the data directory). |
 | `--settings <FILE>` | The settings file (default: `settings.txt` beside the saved games). |
@@ -325,7 +326,11 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 
 Two to eight machines can play one game over TCP. Every machine runs the whole simulation and they exchange only commands, so all copies must be the same build with the same game data; the handshake refuses a mismatch and says which part differs (protocol, build, data tables, game edition or game files).
 
-**From the menus:** Multi Player Game, choose Enhanced or Classic, enter a name, then **Local Network** (games on your network are listed; Create Game opens one) or **Direct IP** (type the host's address, or Create Game). Battle.net is shown greyed out. The game setup lobby has the scenario, up to eight rows with races and chat boxes, and Start Game once two or more people are in. A joiner without the host's map is sent it automatically. The host's "Extras" box also sets the health bars, smart attack-move and widescreen options for everyone (see [Optional improvements](#optional-improvements)). **Observers** are our own addition: the host picks 0 to 4 places for them in a small "Observers" box under the player rows (none by default), and on the game list a **Watch Game** button next to Join Game lets you watch instead of play. It shows for a game that may have a place (a Local Network game says so on the list; a Direct IP game cannot, so the host refuses with a message when it has none). Watchers are listed under the rows, take no slot, see the whole map and give no orders. In the game, Enter opens the chat line; start a line with `/a ` to send it to allies only. `/diplomacy allies=0,2 vision=0,2 victory=on` sets your alliances, shared vision and allied victory (a stand-in until the diplomacy screen). In Enhanced games each player has three pauses and everyone sees who paused and how many are left.
+**From the menus:** Multi Player Game, choose Enhanced or Classic, enter a name, then **Local Network** (games on your network are listed; Create Game opens one) or **Direct IP** (type the host's address, or Create Game). Battle.net is shown greyed out. The game setup lobby has the scenario, up to eight rows with races and chat boxes, and Start Game once two or more people are in. A joiner without the host's map is sent it automatically.
+
+- **Host's choices.** The host's "Extras" box sets the options that give an edge or change the rules for everyone (see [Optional improvements](#optional-improvements)). Only the host can save, load or return to the chat room from the game menu.
+- **Observers** are our own addition. The host picks 0 to 4 places for them in a small "Observers" box under the player rows (none by default), and on the game list a **Watch Game** button next to Join Game lets you watch instead of play. It shows for a game that may have a place (a Local Network game says so on the list; a Direct IP game cannot, so the host refuses with a message when it has none). Watchers are listed under the rows, take no slot, see the whole map, give no orders and do not count for victory or defeat.
+- **In the game,** Enter opens the chat line; start a line with `/a ` to send it to allies only. `/diplomacy allies=0,2 vision=0,2 victory=on` sets your alliances, shared vision and allied victory (a stand-in until the diplomacy screen). The game menu does not stop the game for the others. In Enhanced games each player has three pauses and everyone sees who paused and how many are left.
 
 **From the command line** (no menus needed):
 
@@ -334,7 +339,7 @@ tidewater 'Maps\Cramped BNE.pud' --host --lobby humans=2,races=human/orc,seed=1 
 tidewater --join HOST-ADDRESS                                                       # each joiner
 ```
 
-The default port is 6112: TCP for the game, which the host opens on its firewall (joiners need nothing open), and UDP for the Local Network list, where a game's creator broadcasts a small packet once a second (`TIDEWATER_NO_BEACON=1` turns that off; Direct IP works where broadcasts do not). Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game (Ctrl+Q, Quit to Main Menu or Surrender) shows "Player NAME left the game." to the others; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. When the host leaves a game of three or more, the game goes on: the lowest remaining player becomes the host and the others reconnect to it ("NAME is now the host."); this needs the players to reach one another directly, as on a LAN, and otherwise each plays on alone. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. From the command line a host leaves places for watchers with `--lobby observers=N` (off by default) and a watcher joins with `--join HOST-ADDRESS --observe`; a watcher sees the whole map, sends no commands and does not count for victory or defeat. Details: [docs/design/network.md](docs/design/network.md).
+The default port is 6112: TCP for the game, which the host opens on its firewall (joiners need nothing open), and UDP for the Local Network list, where a game's creator broadcasts a small packet once a second (`TIDEWATER_NO_BEACON=1` turns that off; Direct IP works where broadcasts do not). Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game (Ctrl+Q, Quit to Main Menu or Surrender) shows "Player NAME left the game." to the others; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. When the host leaves a game of three or more, the game goes on: the lowest remaining player becomes the host and the others reconnect to it ("NAME is now the host."); this needs the players to reach one another directly, as on a LAN, and otherwise each plays on alone. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. A command-line host leaves places for watchers with `--lobby observers=N`, and a watcher joins with `--join HOST-ADDRESS --observe`. Details: [docs/design/network.md](docs/design/network.md).
 
 ## Replays
 
@@ -348,7 +353,7 @@ What is done, what is early and what is not built. Not built: Battle.net and mod
 
 | Track | What it adds | Status |
 |---|---|---|
-| **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: menus, lobby, LAN game list, map transfer, chat and pause counts, observers (our own addition); no Battle.net or modem |
+| **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: menus, lobby, LAN game list, map transfer, chat and pause counts, the game going on when the host leaves, observers (our own addition); no Battle.net or modem |
 | **Custom games against the computer** | The Custom Scenario screen: race, opponents, resources, terrain, units and a map list. | Done |
 | **Touch controls and phones** | Touch input on desktop, iOS and Android. PlayStation Vita support is under evaluation. | Early: tried in the iOS Simulator and the Android emulator only, not on a device |
 | **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Done: see [Optional improvements](#optional-improvements) |

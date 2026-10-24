@@ -1,7 +1,7 @@
 # Releasing
 
 **In short:** work lands on `develop`. To release, merge `develop` into `main`. The push to `main` works out the version
-from the commit messages, builds Windows, macOS and Linux downloads, and publishes a GitHub release. Nothing else to do.
+from the commit messages, builds the Windows, macOS, Linux and Android downloads, and publishes a GitHub release. Nothing else to do.
 
 ## Branches
 
@@ -69,7 +69,7 @@ To try the packaging on your own machine: `packaging/macos/build-dmg.sh 0.0.0-te
 
 ## Unsigned: what players see
 
-Nothing is signed with a purchased certificate, so each system warns once. The README's Installing section tells players
+Nothing is signed with a purchased certificate, so each system warns once. The README's Install section tells players
 what to do.
 
 | System | What happens | Way through |
