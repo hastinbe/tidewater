@@ -52,6 +52,8 @@ pub enum Cmd {
     UntilStartable,
     /// Wait until a message containing this text has shown (the message list or the notice line).
     UntilMessage(&'static str),
+    /// From now on the run is a phone's or tablet's (`TouchState::touch_only`), as on iOS and Android.
+    TouchDevice,
 }
 
 /// Where the multiplayer screens stand, for the network scenes' waits (`frontend::Screens::mp_progress`).
@@ -411,7 +413,7 @@ pub fn scenes() -> Vec<Scene> {
         },
         // Touch: a tap near a unit selects it; a long press orders; a hold then a drag boxes; a pinch zooms; two
         // fingers pan, and so does one with a glide; three fingers tapping open the game menu (`gesture`,
-        // `docs/design/touch.md`).
+        // `docs/design/touch.md`); a phone's first game shows the Touch Controls page (`touchhelp`).
         Scene {
             name: "touch-select",
             start: vec![play(0)],
@@ -451,6 +453,20 @@ pub fn scenes() -> Vec<Scene> {
             name: "touch-swipe",
             start: vec![play(0)],
             cmds: touch_swipe(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-help",
+            start: vec![play(0)],
+            cmds: touch_help(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-help-menu",
+            start: vec![Step::MainMenu],
+            cmds: touch_help_menu(),
             extras: &[],
             keys: "",
         },
@@ -857,6 +873,41 @@ fn touch_swipe() -> Vec<Cmd> {
         Wait(60),
         Shot("stopped"),
     ]);
+    v
+}
+
+/// A phone's first game: the Touch Controls page shows by itself, Enter closes it, and the Help menu (F1) offers it
+/// again.
+fn touch_help() -> Vec<Cmd> {
+    use Cmd::*;
+    vec![
+        TouchDevice,
+        Until(AppState::Game),
+        Wait(10),
+        Shot("help"),
+        Press(Key::Enter),
+        Release(Key::Enter),
+        Wait(5),
+        Shot("closed"),
+        Press(Key::F(1)),
+        Release(Key::F(1)),
+        Wait(5),
+        Shot("help-menu"),
+        Press(Key::Escape),
+        Release(Key::Escape),
+        Wait(5),
+    ]
+}
+
+/// The main menu on a phone: the Touch controls link above the Settings link, its page over the menu, and a tap that
+/// closes it.
+fn touch_help_menu() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![TouchDevice, Until(AppState::MainMenu), Wait(25), Shot("menu")];
+    v.extend(finger_tap(560.0, 406.0));
+    v.extend([Wait(3), Shot("page")]);
+    v.extend(finger_tap(320.0, 240.0));
+    v.extend([Wait(3), Shot("closed")]);
     v
 }
 
@@ -1816,6 +1867,7 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
     let Core {
         script: Some(run),
         input,
+        touch,
         ..
     } = c
     else {
@@ -1895,6 +1947,7 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
             }
             Cmd::Wheel(y) => input.wheel(Wheel { y, lines: true }),
             Cmd::Drop(path) => input.dropped(path.into()),
+            Cmd::TouchDevice => touch.touch_only = true,
             Cmd::Finger(id, phase, x, y) => {
                 let lb = w.letterbox();
                 let at = |p: f32, offset: u32| (offset as f32 + p * lb.scale) / w.factor;

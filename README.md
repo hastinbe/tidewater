@@ -123,16 +123,38 @@ copy your own maps there. When the game ends, the score screen leads back to the
 
 The pointer is locked to the window during a game, as in full screen, so pushing it against an edge scrolls the map. The game menus free it, and so does holding Cmd (the Windows key elsewhere) or switching to another app. The Settings screen's **Mouse lock** row turns this off for good; `--no-mouse-lock` turns it off for one run. The full key list is in the specs under [`docs/specs/ui`](docs/specs/ui/).
 
-### Touch
+### Touch controls
 
-Tidewater has an input layer for touchscreens, our own addition (the original has no touch). It is on from the start on iOS and Android, and on a desktop when you touch a touchscreen or use `--touch-emulation`. A finger dragged on the
-map scrolls it, held still a moment first it draws a selection box, a tap selects, and with your units selected a tap
-on the ground or an enemy orders them there; a long press is a right click and two taps select all of a type. The
-controls a touchscreen lacks (the menu, pause, Shift, Ctrl, Alt, a plain-click latch, the keyboard, and the control
-groups) are buttons in the bars beside the picture, and the Settings screen's Touch page changes how it all works. You can try all of it on a desktop with `--touch-emulation`:
-the mouse is one finger, and holding Alt as you press adds a second finger (Alt+Shift: beside the first, Alt+Ctrl: a
-third). The iOS and Android apps (next sections) use it on a real touchscreen. How it works, and the measurements it uses, is
-in [`docs/design/touch.md`](docs/design/touch.md).
+Touchscreens are our own addition (the original has no touch): fingers become the clicks and keys the game already
+knows, so the rules don't change. Touch is on from the start on iOS and Android, and on a desktop when you touch a
+touchscreen or use `--touch-emulation`.
+
+| Do this | To |
+|---|---|
+| Drag a finger on the map | Scroll the map (a flick glides on) |
+| Hold a finger still a moment (a ring shows), then drag | Draw a selection box |
+| Tap a unit | Select it (a near miss still counts) |
+| Tap the ground, an enemy or a resource, with your units selected | Order them there, as a right click does |
+| Tap twice | Select all of that type on screen |
+| Long press | Right click |
+| Tap or drag the minimap; hold it | Move the view; order the selected units there |
+| Place a building or choose a target | Drag the outline, then tap it to confirm; a finger at the map's edge scrolls |
+| Two fingers: drag; pinch | Scroll the map; zoom (on phones; a setting on tablets) |
+| Three fingers: tap | Open the game menu |
+
+**The side bars.** The left bar holds Menu, Pause, the Shift, Ctrl and Alt latches (held for your next click), a
+plain-click latch (**L**: the next tap selects, never orders) and the keyboard. The right bar holds the control
+groups: a tap recalls a group, two taps centre on it, and holding one makes the selection that group. With the
+`idle-worker` option on, an extra button selects the next idle worker.
+
+**Settings and help.** The Settings screen's Touch page changes how a drag, a tap, two fingers, the pinch and the
+holds work, the button size and which bar is which. The Touch Controls page sums all this up: a phone or tablet shows
+it at your first game, and it is under Help in the game menu and the Touch controls link on the main menu. On a phone
+or tablet there is no Exit Program (the system closes apps), and Android's Back button is Esc.
+
+**Try it on a desktop** with `--touch-emulation`: the mouse is one finger, and holding Alt as you press adds a second
+finger (Alt+Shift: beside the first, Alt+Ctrl: a third). How it works, and the measurements it uses, is in
+[`docs/design/touch.md`](docs/design/touch.md).
 
 ### iPhone and iPad (early)
 
@@ -288,7 +310,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 
 | Flag | What it does |
 |---|---|
-| `--touch-emulation` | The mouse is one finger (Alt, Alt+Shift, Alt+Ctrl at the press add more), and the touch controls show beside the picture. See [Touch](#touch). |
+| `--touch-emulation` | The mouse is one finger (Alt, Alt+Shift, Alt+Ctrl at the press add more), and the touch controls show beside the picture. See [Touch controls](#touch-controls). |
 | `--touch-dpi <PPI>` | The screen's density in physical pixels per inch, for touch sizes (taps, slop, buttons). Default: 140 points to the inch. |
 | `--free-zoom` | Development aid: the mouse wheel zooms the map view anywhere (1/4 to 8 map pixels per screen pixel). The `map-zoom` option is the player's magnifying zoom. |
 | `--zoom <N>` | Starting zoom; implies `--free-zoom`. |

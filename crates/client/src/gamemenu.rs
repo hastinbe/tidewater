@@ -83,6 +83,8 @@ pub struct GameMenu {
     observer: bool,
     /// A phone or tablet: no Exit Program (the system closes apps; `docs/design/touch.md`).
     no_exit: bool,
+    /// Touch is in use: the Help menu offers the Touch Controls page (`touchhelp`).
+    touch_help: bool,
     /// Text shown by the current screen (wrapped).
     lines: Vec<String>,
     delay: menu::Delay,
@@ -348,6 +350,9 @@ impl GameMenu {
             }
             Screen::Help => {
                 b.button(Act::Open(Screen::KeyHelp), "Keystroke Help");
+                if self.touch_help {
+                    b.button(Act::Open(Screen::TouchHelp), "Touch Controls");
+                }
                 b.button(Act::Open(Screen::Tips), "Tips");
                 b.button(Act::Back, "Previous");
                 ("Help", false)
@@ -472,6 +477,11 @@ impl GameMenu {
                 b.button(Act::Back, "OK");
                 ("Keystroke Help", true)
             }
+            Screen::TouchHelp => {
+                b.lines(&self.lines);
+                b.button(Act::Back, "OK");
+                (crate::touchhelp::TITLE, true)
+            }
             Screen::Tips => {
                 b.lines(&self.lines);
                 b.button(Act::Back, "OK");
@@ -540,6 +550,7 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
             m.lines = wrap(front, text);
         }
         Screen::KeyHelp => m.lines = KEY_HELP.iter().map(|s| s.to_string()).collect(),
+        Screen::TouchHelp => m.lines = crate::touchhelp::LINES.iter().map(|s| s.to_string()).collect(),
         Screen::Refused(host) => {
             // Network entry 28 with the host's name; ours when the install has no such table.
             let template = front.net(REFUSED_ENTRY);
@@ -577,6 +588,7 @@ fn default_act(screen: Screen) -> Option<Act> {
         | Screen::Objectives
         | Screen::End
         | Screen::KeyHelp
+        | Screen::TouchHelp
         | Screen::Tips
         | Screen::Refused(_) => Some(Act::Back),
         Screen::Saving(_) | Screen::Settings => None,
@@ -875,6 +887,18 @@ pub(crate) fn open_requests(c: &mut Core) {
         };
         asked = Some(s);
     }
+    // Ours: a phone or tablet shows the Touch Controls page by itself at the first game (`touchhelp`), once ever. Not in
+    // a network game, whose menus do not stop the game, nor in a replay.
+    if asked.is_none()
+        && touch.touch_only
+        && !stored.0.touch_help_seen
+        && sim.world.tick >= 2
+        && !sim.session.is_network()
+        && !sim.session.observing()
+    {
+        stored.0.touch_help_seen = true;
+        asked = Some(Screen::TouchHelp);
+    }
     let Some(screen) = asked else { return };
     open_menu(
         commands,
@@ -886,7 +910,7 @@ pub(crate) fn open_requests(c: &mut Core) {
         flow,
         &folder.folder(),
         false,
-        touch.touch_only,
+        touch,
     );
 }
 
@@ -912,7 +936,7 @@ fn open_menu(
     flow: &Flow,
     folder: &SaveDir,
     from_outcome: bool,
-    no_exit: bool,
+    touch: &crate::touch::TouchState,
 ) {
     let mut nav = Nav::default();
     nav.open(gate(screen, sim));
@@ -935,7 +959,8 @@ fn open_menu(
         extra_speeds: sim.world.rules.extras.extra_speeds,
         can_save_replay: sim.session.can_save_replay(),
         observer: sim.session.observing(),
-        no_exit,
+        no_exit: touch.touch_only,
+        touch_help: touch.touch_only || touch.emulate || touch.active,
         lines: Vec::new(),
         delay: menu::Delay::default(),
         hot: None,
@@ -987,7 +1012,7 @@ pub(crate) fn open_from_outcome(c: &mut Core) {
         flow,
         &folder.folder(),
         true,
-        touch.touch_only,
+        touch,
     );
 }
 
@@ -1583,6 +1608,7 @@ mod tests {
             can_save_replay: false,
             observer: false,
             no_exit: false,
+            touch_help: false,
             lines: vec!["text".into()],
             delay: menu::Delay::default(),
             hot: None,
