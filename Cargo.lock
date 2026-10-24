@@ -1019,6 +1019,7 @@ dependencies = [
  "clap",
  "flate2",
  "png",
+ "resvg",
  "serde_json",
  "tempfile",
  "tidewater-formats",

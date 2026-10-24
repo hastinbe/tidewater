@@ -57,7 +57,7 @@ publishes from `main`.
 |---|---|
 | `tidewater-X.Y.Z-windows-x64-setup.exe` | Inno Setup, `packaging/windows/tidewater.iss`. Per-user install (no administrator), Start menu entry, optional desktop shortcut, uninstaller. The uninstaller removes only the program; imported game files, saves and settings live in the user's data folders and stay. |
 | `tidewater-X.Y.Z-macos.dmg` | `packaging/macos/build-dmg.sh`: `Tidewater.app` (ad-hoc signed), an Applications link and a "Read me first" note. The binary joins the arm64 and x86_64 builds with `lipo`. |
-| `tidewater-X.Y.Z-linux-x64.tar.gz` | `packaging/linux/build-tarball.sh`: the program, `tidewater.desktop`, `README.txt`, the licence files. No AppImage yet. |
+| `tidewater-X.Y.Z-linux-x64.tar.gz` | `packaging/linux/build-tarball.sh`: the program, `tidewater.desktop` and its icon `tidewater.png`, `README.txt`, the licence files. No AppImage yet. |
 | `tidewater-X.Y.Z-android.apk` | `platform/android/build.sh --release`: one APK with arm64-v8a and x86_64 libraries, signed with the release keystore (see [Android APK](#android-apk)). Left out, with a note in the run summary, while the signing secrets are not set. |
 | `tidewater-X.Y.Z-ios.ipa` | `platform/ios/package-ipa.sh --version X.Y.Z` after `platform/ios/build.sh device`: the Release device build (arm64), **unsigned**, with `Payload/Tidewater.app` at the root. The version goes into `CFBundleShortVersionString` and `CFBundleVersion`. The bundle id stays `dev.tidewater.client`; whoever sideloads it re-signs with their own Apple ID ([docs/design/ios.md](design/ios.md#install-the-unsigned-ipa)). CI builds the same file on every run as the `tidewater-ios-unsigned` artifact. |
 | `SHA256SUMS` | `sha256sum` of every file above (`publish` sums `tidewater-*`, which covers the APK and the IPA). |
@@ -67,6 +67,22 @@ data.
 
 To try the packaging on your own machine: `packaging/macos/build-dmg.sh 0.0.0-test target/release/tidewater out.dmg`, or
 `packaging/linux/build-tarball.sh 0.0.0-test target/release/tidewater out.tar.gz`.
+
+### The app icon
+
+One drawing, `packaging/icon/tidewater.svg` (our own artwork, MPL-2.0: a square-sailed ship riding the waves at dusk),
+is the icon everywhere. `packaging/icon/render.sh` redraws every platform's file from it with `twtool app-icon`; the
+results are committed, so the release builds don't draw anything. To change the icon, edit the SVG, run the script and
+commit what it writes.
+
+| Platform | File | Used by |
+|---|---|---|
+| iOS | `platform/ios/Sources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` | `project.yml` (`ASSETCATALOG_COMPILER_APPICON_NAME`). |
+| Android | `platform/android/app/src/main/res/mipmap-*/` | The manifest's `android:icon`. |
+| macOS | `packaging/macos/tidewater.icns` | `build-dmg.sh` puts it in `Tidewater.app/Contents/Resources`; `Info.plist` names it. |
+| Windows | `packaging/windows/tidewater.ico` | `tidewater.iss`: the installer's own icon, the shortcuts and the Apps list. `tidewater.exe` has no icon resource yet, so Explorer shows a plain program icon for the file itself. |
+| Linux | `packaging/linux/tidewater.png` | The tarball, for `tidewater.desktop`'s `Icon=` line. |
+| The window | `crates/client/assets/icon/window.png` | The desktop shell sets it with `SDL_SetWindowIcon` (title bar, taskbar, Dock). |
 
 ## Unsigned: what players see
 

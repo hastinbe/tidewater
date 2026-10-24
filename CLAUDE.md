@@ -22,7 +22,8 @@ before writing any code, and follow it exactly.
   upgrade tables, map restrictions).
 - `crates/twtool`: inspection CLI (`import-check`, `disc-list`, `mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
   `strings`, `scripts`, `script-ops`, `fell`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
-  whole-map behaviour snapshot `tests/snapshot.rs` checks, `replay`: verify a `.twrep`, `desync-diff`: find the first differing cycle and field).
+  whole-map behaviour snapshot `tests/snapshot.rs` checks, `replay`: verify a `.twrep`, `desync-diff`: find the first differing cycle and field, `app-icon`: draw the app icon
+  for `packaging/icon/render.sh`, which redraws every platform's icon from `packaging/icon/tidewater.svg`).
 - `crates/import`: game-file import (`source`: what a path is, `validate`: key-file checks, `copy`: allowlisted copy
   and atomic swap into `<data>/game`, `manifest`); used by `tidewater --import` and `twtool import-check`;
   `docs/design/import.md`.
