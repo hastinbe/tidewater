@@ -243,6 +243,13 @@ impl<'s> Window<'s> {
         unsafe { sys::SDL_StartTextInput(self.raw) };
     }
 
+    /// Whether the system's on-screen keyboard is showing now (SDL's view, kept by the [`Event::ScreenKeyboard`]
+    /// events).
+    pub fn screen_keyboard_shown(&self) -> bool {
+        // SAFETY: a live window.
+        unsafe { sys::SDL_ScreenKeyboardShown(self.raw) }
+    }
+
     /// Closes the soft keyboard (and stops [`Event::Text`]).
     pub fn stop_text_input(&self) {
         // SAFETY: a live window.
@@ -817,6 +824,9 @@ pub enum Event {
     },
     /// A file or folder dropped on the window.
     Drop(PathBuf),
+    /// The system's on-screen keyboard was shown (`true`) or hidden (`false`), by us or by the user (its own hide key,
+    /// Android's Back); SDL sends these on iOS and Android.
+    ScreenKeyboard(bool),
     Other,
 }
 
@@ -884,6 +894,8 @@ pub fn poll() -> Option<Event> {
                     y: e.tfinger.y,
                 }
             }
+            sys::SDL_EVENT_SCREEN_KEYBOARD_SHOWN => Event::ScreenKeyboard(true),
+            sys::SDL_EVENT_SCREEN_KEYBOARD_HIDDEN => Event::ScreenKeyboard(false),
             sys::SDL_EVENT_DROP_FILE if !e.drop.data.is_null() => Event::Drop(PathBuf::from(
                 CStr::from_ptr(e.drop.data).to_string_lossy().into_owned(),
             )),

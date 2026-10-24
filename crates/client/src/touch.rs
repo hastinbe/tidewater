@@ -109,6 +109,12 @@ impl TouchState {
         std::mem::take(&mut self.pause)
     }
 
+    /// The system hid the soft keyboard by itself (its hide key, Back, a tap elsewhere): the keyboard button goes
+    /// dark, so the next tap on it opens the keyboard again rather than "closing" one that is already gone.
+    pub fn keyboard_hidden(&mut self) {
+        self.chrome.keyboard = false;
+    }
+
     /// The pointer after a platform's or a scene's (called once the frame's pointer is set): while touch is in use it
     /// is the fingers'. A real mouse that moves with no finger down takes the pointer back.
     pub fn place_pointer(&mut self, pointer: &mut Option<Pt>, scripted: bool) {
@@ -514,6 +520,24 @@ mod tests {
         t.press(Control::Pause, &mut keys);
         assert!(t.chrome.plain && t.chrome.keyboard);
         assert!(t.take_pause() && !t.take_pause());
+    }
+
+    #[test]
+    fn the_keyboard_button_follows_the_system_hiding_the_keyboard() {
+        let mut t = TouchState::new(true);
+        let mut keys = Vec::new();
+        t.press(Control::Keyboard, &mut keys);
+        assert!(t.chrome.keyboard && t.chrome.is_on(Control::Keyboard));
+        t.keyboard_hidden();
+        assert!(!t.chrome.keyboard && !t.chrome.is_on(Control::Keyboard));
+        // The next tap opens it again, and no key went to the game either way.
+        t.press(Control::Keyboard, &mut keys);
+        assert!(t.chrome.keyboard);
+        assert!(keys.is_empty());
+        // Hidden while already closed: nothing changes.
+        let mut closed = TouchState::new(true);
+        closed.keyboard_hidden();
+        assert_eq!(closed.chrome, TouchState::new(true).chrome);
     }
 
     #[test]
