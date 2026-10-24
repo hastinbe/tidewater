@@ -61,6 +61,25 @@ xcrun simctl launch booted dev.tidewater.client
 Command-line arguments after the bundle identifier reach the program, so `... dev.tidewater.client "Maps/Cramped BNE.pud"`
 starts a game and `--goto menu` opens the menu.
 
+## Install the unsigned IPA
+
+Every [release](../../../../releases/latest) has `tidewater-<version>-ios.ipa`, and every CI run uploads the same kind of
+file as the `tidewater-ios-unsigned` artifact. It is a Release build for a device (arm64, iOS 15 or newer) with **no
+signature**, so iOS will not run it until you re-sign it with your own Apple ID:
+
+1. Download the `.ipa` (and check it against `SHA256SUMS`).
+2. Install it with [AltStore](https://altstore.io), [SideStore](https://sidestore.io) or
+   [Sideloadly](https://sideloadly.io). They sign it with your Apple ID and put it on the device.
+3. Open Tidewater, then [get your game files onto it](#import-on-ios).
+
+A free Apple ID's signature lasts **7 days**: AltStore and SideStore refresh it in the background while they can reach
+your computer or a pairing file, and Sideloadly needs you to install again. A paid developer account lasts a year.
+The public build keeps the bundle identifier `dev.tidewater.client`; the sideloading tools change it to one of yours
+when they sign. Updating means installing the newer `.ipa` over the old one (game files and saves stay).
+
+To make the same file yourself, run `platform/ios/build.sh device`, then `platform/ios/package-ipa.sh [--version X.Y.Z]
+[--out FILE]`; to sign and run from Xcode instead, see Signing below.
+
 ## Signing
 
 The project builds for the Simulator with no signing. For a device:

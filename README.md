@@ -20,6 +20,7 @@ Download the file for your system from the [latest release](../../releases/lates
 | **macOS** (Apple silicon and Intel) | `tidewater-<version>-macos.dmg` | Open it and **drag Tidewater to Applications**, then eject the disk image. The app is not signed, so the first time **right-click it, choose Open and confirm**. If macOS offers no Open button, open System Settings, Privacy & Security and click **Open Anyway**. After that it opens normally. |
 | **Linux** (x64) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. The archive has a `tidewater.desktop` menu entry to adapt and a `README.txt`. |
 | **Android** (7.0 or newer, early) | `tidewater-<version>-android.apk` | Download it on the device and open it; Android asks to allow installs from that browser or file manager, so allow it for that app. It is not on Google Play and does not update itself: to update, download the newer APK and install it over the old one (your game files and settings stay). Then [get your game files onto it](#android-early). A release may lack the APK until its signing key is set up. |
+| **iPhone and iPad** (iOS 15 or newer, early) | `tidewater-<version>-ios.ipa` | Not signed and not on the App Store: sideload it with your own Apple ID using AltStore, SideStore or Sideloadly (a free Apple ID needs a re-sign every 7 days). Steps: [Install the unsigned IPA](docs/design/ios.md#install-the-unsigned-ipa). |
 
 ## Import your game files
 
@@ -61,7 +62,7 @@ Tidewater looks for a newer release in the background when it starts (one reques
 | **Windows** | Downloads the installer, runs it silently and restarts the game. |
 | **macOS** | Replaces the app and restarts it. This needs the app in a folder you can write to, such as Applications: run from the disk image or straight from Downloads, the main menu says "Move Tidewater to Applications to enable updates." once, and Update now opens the release page. |
 | **Linux** | Opens the release page; download the new archive and unpack it over the old one. |
-| **Android, iOS** | Opens the release page; download the new APK and install it over the old one (your game files and saves stay). |
+| **Android, iOS** | Opens the release page; download the new APK or IPA and install it over the old one (your game files and saves stay). |
 
 Downloads are checked against the size the release lists; they are not signed. A failed check is ignored without a message, and development builds never check. Turn the check off with `update_check=0` in `settings.txt` or `--no-update-check` for one run. The main menu's version line and `tidewater --version` show the release you have. Branches, versioning and cutting a release: [docs/release.md](docs/release.md).
 
@@ -169,7 +170,7 @@ xcrun simctl install booted platform/ios/DerivedData/Build/Products/Debug-iphone
 xcrun simctl launch booted dev.tidewater.client
 ```
 
-For a device, run `platform/ios/build.sh device`, copy `platform/ios/Config/Signing.example.xcconfig` to `Signing.xcconfig`, fill in your team ID and open `platform/ios/Tidewater.xcodeproj`.
+To install a release on a device without Xcode, use the unsigned IPA ([steps](docs/design/ios.md#install-the-unsigned-ipa)). To build for a device yourself, run `platform/ios/build.sh device`, copy `platform/ios/Config/Signing.example.xcconfig` to `Signing.xcconfig`, fill in your team ID and open `platform/ios/Tidewater.xcodeproj`.
 
 **Get the game files onto it.** Copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD image (`.iso`, `.bin`/`.cue`, `.mdf`, `.nrg`) into Tidewater's folder: in Finder (device, Files tab), in the Files app (On My iPhone, Tidewater), or for the Simulator into the app's `Documents` folder. Open the app and the first-run screen lists what it finds; tap one, or tap Scan again after copying. "Choose game folder..." opens the system picker instead. **A GOG installer (`.exe`) does not work on iOS**, because unpacking it needs `innoextract`, which cannot run there: unpack it on a computer, or install the game and copy the folder.
 
@@ -419,7 +420,7 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 
 **Multiplayer end to end.** `TIDEWATER_INSTALL=<data>/game cargo test --release -p tidewater-client --test mp_e2e` starts two or three `tidewater` programs on this machine and plays seven games through the menus (Local Network, Direct IP, Classic, an observer, three players where the host leaves first, you alone against a Computer, two players and a Computer), then checks that every side saw the same game. It takes about 30 seconds in a release build and uses port 6112; details in [docs/design/network.md](docs/design/network.md#running-the-end-to-end-check).
 
-**CI.** [GitHub Actions](.github/workflows/ci.yml) runs on pull requests and on pushes to `develop` and `main`. It checks format, clippy and the tests on Linux (the game-data tests skip there), then builds release binaries of `tidewater` and `twtool` on Linux, macOS and Windows, plus the iOS Simulator and Android arm64 libraries.
+**CI.** [GitHub Actions](.github/workflows/ci.yml) runs on pull requests and on pushes to `develop` and `main`. It checks format, clippy and the tests on Linux (the game-data tests skip there), then builds release binaries of `tidewater` and `twtool` on Linux, macOS and Windows, plus the iOS Simulator library, an unsigned iOS `.ipa` (uploaded as a workflow artifact) and the Android arm64 library.
 
 **Branches and releases.** Work lands on `develop`; merging `develop` into `main` cuts a release, with the version worked out from the commit messages. Details: [docs/release.md](docs/release.md).
 

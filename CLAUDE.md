@@ -66,7 +66,7 @@ before writing any code, and follow it exactly.
   the shell files `crates/client/src/shell/app.rs` and `sdl.rs` by `#[path]`, so desktop and phone run one code path.
   The iOS entry (`tidewater_ios_main`), the document-picker call and the lifecycle event watch are in `sdl.rs`.
 - `platform/ios`: the Xcode project around it: `project.yml` (xcodegen), `Sources/main.c` (hands over to `SDL_RunApp`),
-  `Sources/picker.m` (UIDocumentPickerViewController), `Config/*.xcconfig` (signing is the user's own), `build.sh`;
+  `Sources/picker.m` (UIDocumentPickerViewController), `Config/*.xcconfig` (signing is the user's own), `build.sh`, `package-ipa.sh` (the unsigned `.ipa`);
   `docs/design/ios.md`.
 - `crates/android`: the Android app's native library `libmain.so` (`tidewater-android`, a `cdylib`): empty except on
   `target_os = "android"`, where it builds the same two shell files by `#[path]`; `build.rs` keeps SDL's JNI entry points
@@ -81,7 +81,7 @@ before writing any code, and follow it exactly.
 - The toolchain is pinned in `rust-toolchain.toml`; dependencies track their newest releases.
 - Building needs CMake and a C compiler besides Rust (SDL 3 is built from source). GitHub Actions
   (`.github/workflows/ci.yml`) runs fmt, clippy and the tests without game data, plus release builds on Linux, macOS
-  and Windows and the iOS Simulator and Android libraries; the full check with game data and oracle traces is still
+  and Windows, the iOS Simulator and Android libraries and an unsigned iOS `.ipa`; the full check with game data and oracle traces is still
   run locally. `.github/workflows/release.yml` builds the downloads (`docs/release.md`).
 - The multiplayer end-to-end test (`crates/client/tests/mp_e2e.rs`) needs `TIDEWATER_INSTALL` and port 6112; see `docs/design/network.md`, "Running the end-to-end check".
 - Before every commit run `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`.
