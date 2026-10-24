@@ -58,6 +58,7 @@ tidewater --join HOST-ADDRESS            # or HOST-ADDRESS:PORT
 | `row=0..15` | Network delay row, which sets the turn length (below). | 4 |
 | `seed=N` | The game's seed. The host's choice, sent to every machine. | the host's clock |
 | `observers=0..4` | Places for watchers (below, "Observers"). The game starts when they are filled too. | 0 |
+| `extras=NAME=VALUE/...` | The client-only options that give an edge (C+L), for every player: `extras=health-bars=always/widescreen=16:9`. The host's own settings stand for those not named. | the host's settings |
 
 ## How it fits together
 
@@ -101,7 +102,7 @@ the end; `Hello` is first so a program of another protocol version can still rea
 | `MapRequest`, `MapOffer`, `MapChunk`, `MapDenied` | see "Map transfer" | The map, in chunks |
 | `Chat` | any (the host relays) | An in-game chat line: sender slot, allies only or not, text |
 
-The protocol number is **6** (`net::proto::PROTOCOL`); it changes whenever a message or `Command` variant does. A
+The protocol number is **7** (`net::proto::PROTOCOL`); it changes whenever a message or `Command` variant does. A
 joiner of another protocol is refused with a message naming both versions: the host reads only the first varint of the
 `Hello` to know that it cannot read the rest.
 
@@ -148,12 +149,13 @@ The Local Network game list finds games with a small UDP beacon. Code: `net/beac
   | Bytes | Field |
   |---|---|
   | 4 | magic `TWLN` |
-  | 1 | beacon version, 1 |
+  | 1 | beacon version, 2 |
   | 1 | kind, 1 = announce |
-  | 2 | the network protocol (6) |
+  | 2 | the network protocol (7) |
   | 2 | the TCP port the lobby listens on |
   | 1 | players in the lobby |
   | 1 | rows that can hold a player |
+  | 1 | free places for observers (0: none, or all taken) |
   | 1 + n | the creator's name, at most 24 bytes of UTF-8 |
   | 1 + n | the map's name, at most 48 bytes of UTF-8 |
 
@@ -262,12 +264,24 @@ frozen state, not the save (a load releases every unit).
 ## Observers
 
 A host can leave places for watchers: `--lobby observers=N` (0 to 4, off by default) and a watcher joins with
-`tidewater --join HOST-ADDRESS --observe`. This is the smallest version of the feature; the menu lobby has no observer
-rows yet.
+`tidewater --join HOST-ADDRESS --observe`. The menus have them too, as our own addition (the original has no
+observers):
 
-- **The host decides.** A host without places refuses an observer with "this game has no place for an observer", and so
-  does the menu lobby. A player who joins when the players are all in is refused as full. The game starts when every
-  player slot and every observer place is filled.
+- **In the menu lobby** the host picks the number of places in the "Observers" box under the player rows (`LobbyView::observers`,
+  `HostRoom::set_observers`; none by default). Lowering it sends the watchers beyond it away. Joiners see the box
+  read-only once the game has places, and the names of the watchers on a line under the rows (`LobbyView::watchers`). The
+  box and the line are drawn only when they have something to say for a joiner, so a lobby without observers looks as the
+  original's. Unlike the command-line host, the menu lobby starts when the host presses Start, with whoever is in: the
+  places are limits, not seats to fill.
+- **On the game list** a **Watch Game** button sits under Disconnect, for a game that may have a place. The Local Network
+  beacon carries the free places (`Announce::watch`, beacon version 2), so the list knows; Direct IP cannot know before
+  it connects, so the button shows and the host refuses with "this game has no place for an observer" when it has none.
+  `room::handshake_as` sends the Hello with `observer` set; an observer's number is `OBSERVER_BASE` plus its place.
+- **An observer in the lobby** has no row, race, Ready box or chat line (its race box reads "Observer"). It needs the
+  map like a player and asks for it the same way; the host does not start while an observer lacks it.
+- **The host decides.** A host without places refuses an observer with "this game has no place for an observer", on the
+  command line and in the menu lobby alike. A player who joins when the players are all in is refused as full. A
+  command-line host starts when every player slot and every observer place is filled.
 - **Slots.** An observer takes slot 8 plus its number (`OBSERVER_BASE`). It is not in the lobby's humans, so it has no
   start position, no name in the players' list, and no part in victory or defeat.
 - **It runs the sim.** The host relays every `Turn` to it, as to any joiner, and it steps the same cycles. It starts from
@@ -283,17 +297,16 @@ rows yet.
 - **The interface.** The HUD is the host player's, the Surrender button is hidden on the end screen, and the victory and
   defeat dialogs are not shown.
 
-What is left: a host toggle and observer rows in the menu lobby, a joiner's menu to ask to observe, joining after the
-game has started (an observer attaches only before the start), a view with the choice of player, and a spectator
-interface of its own.
+What is left: joining after the game has started (an observer attaches only before the start), a view with the choice
+of player, and a spectator interface of its own.
 
 ## Spec gaps and choices
 
-- **C+L options are not forced.** The lobby carries the host's simulation options (`tidewater_sim::Extras`) but not the
-  client-only options that give an edge (health bars, smart attack-move, widescreen), so `NetSession` keeps
-  `Session::lobby_client_extras` at `None` and each player uses their own setting. Forcing them needs a lobby field and
-  a protocol version bump (`docs/design/extras.md`, "Multiplayer (C+L)"). Smart attack-move changes the commands a player
-  sends, but the commands still travel as ordinary commands, so peers stay in step.
+- **C+L options are the host's.** The lobby carries the host's simulation options (`tidewater_sim::Extras`) and the
+  client-only options that give an edge (`GameConfig::client_extras`: health bars, smart attack-move, widescreen, any
+  C+L row of the registry). `NetSession::lobby_client_extras` returns them, so every player, observers included, plays
+  with the host's choice (`docs/design/extras.md`, "Multiplayer (C+L)"). They are not in the replay header. Smart
+  attack-move changes the commands a player sends, but the commands still travel as ordinary commands, so peers stay in step.
 
 - **The host leaving.** The original's players each hold every connection and have no host to lose. A joiner that loses
   the host drops every other player where it stands and plays on alone. The other joiners may do the same at slightly

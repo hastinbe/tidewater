@@ -112,9 +112,9 @@ pub trait Session: Send + Sync {
 
     /// The values of the client-only options that give an edge (**C+L**, `extras`) when this session sets them itself,
     /// instead of the player's own settings: `None` for a local game, which uses the player's. A replay hands over the
-    /// defaults (off) until a recording carries its own. A network game also returns `None` for now: the lobby carries only
-    /// the host's simulation options (`tidewater_sim::Extras`), not the C+L ones, so each player's own health-bar,
-    /// smart attack-move and widescreen settings apply (`docs/design/network.md`, `docs/design/extras.md`).
+    /// defaults (off): a recording does not carry them, since they change what the viewer sees and nothing else. A
+    /// network game hands over the host's choice from the lobby, the same for every player (`NetSession`;
+    /// `docs/design/network.md`, `docs/design/extras.md`).
     fn lobby_client_extras(&self) -> Option<crate::extras::ClientExtras> {
         None
     }

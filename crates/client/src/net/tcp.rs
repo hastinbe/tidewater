@@ -551,6 +551,7 @@ mod tests {
             speed: 8,
             row: 4,
             extras: Default::default(),
+            client_extras: Vec::new(),
             names: (0..humans).map(|s| format!("Player {}", s + 1)).collect(),
         }
     }

@@ -504,6 +504,71 @@ impl ClientExtras {
     }
 }
 
+/// The C+L options, in registry order: the ones the lobby sets for everyone (`Spec::scope` is [`Scope::ClientLobby`]).
+/// Read from the table, so a new C+L row is picked up with no other change.
+pub fn lobby_specs() -> impl Iterator<Item = &'static Spec> {
+    REGISTRY.iter().filter(|s| s.scope == Scope::ClientLobby)
+}
+
+/// The value after `value` in a lobby list that cycles an option: a flag flips, a choice takes the next name and wraps,
+/// a percentage steps by 25 and wraps to 0.
+pub fn next_value(spec: &Spec, value: u8) -> u8 {
+    match spec.kind {
+        Kind::Flag => u8::from(value == 0),
+        Kind::Choice(names) => (value + 1) % names.len() as u8,
+        Kind::Percent => {
+            if value >= 100 {
+                0
+            } else {
+                (value + 25).min(100)
+            }
+        }
+    }
+}
+
+impl ClientExtras {
+    /// The C+L values that differ from their default, by option name in registry order: how the lobby carries the
+    /// host's choice (`net::proto`). Empty when every C+L option is at its default. Names, not positions, so a program
+    /// with another table still reads what it knows.
+    pub fn lobby_values(&self) -> Vec<(String, u8)> {
+        lobby_specs()
+            .filter(|s| self.get(s.id) != s.default)
+            .map(|s| (s.name.to_string(), self.get(s.id)))
+            .collect()
+    }
+
+    /// The lobby's C+L values as a set of options: every option at its default but the ones named. A name that is not a
+    /// C+L option, or a value the option does not take, is ignored (a program that is not ours may send anything).
+    pub fn from_lobby_values(values: &[(String, u8)]) -> ClientExtras {
+        let mut out = ClientExtras::default();
+        for (name, v) in values {
+            if let Some(s) = lobby_specs().find(|s| s.name == name)
+                && s.parse(&s.text(*v)) == Some(*v)
+            {
+                out.set(s.id, *v);
+            }
+        }
+        out
+    }
+
+    /// Takes the C+L values (only those) of `other`.
+    pub fn with_lobby_from(mut self, other: &ClientExtras) -> ClientExtras {
+        for s in lobby_specs() {
+            self.set(s.id, other.get(s.id));
+        }
+        self
+    }
+}
+
+/// The lobby's C+L values in words, one per option that is not at its default: `health-bars always`.
+pub fn describe_lobby(values: &[(String, u8)]) -> Vec<String> {
+    let e = ClientExtras::from_lobby_values(values);
+    lobby_specs()
+        .filter(|s| e.get(s.id) != s.default)
+        .map(|s| format!("{} {}", s.name, s.text(e.get(s.id))))
+        .collect()
+}
+
 /// The values a game runs with. A local session uses `local`; a session that holds its own ([`Session::lobby_client_extras`])
 /// gives the C+L options, and the player's own settings are not read for them.
 ///
@@ -676,6 +741,45 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
+
+    #[test]
+    fn the_lobby_carries_only_the_c_plus_l_values_that_differ_and_reads_back_what_it_knows() {
+        let mut e = ClientExtras::default();
+        assert!(e.lobby_values().is_empty());
+        e.set(Id::HealthBars, 3);
+        e.set(Id::Widescreen, 2);
+        e.set(Id::IdleWorker, 1); // a C option: not the lobby's
+        e.set(Id::RallyPoints, 1); // a sim option: not here
+        let v = e.lobby_values();
+        assert_eq!(v, [("health-bars".to_string(), 3), ("widescreen".to_string(), 2)]);
+        let back = ClientExtras::from_lobby_values(&v);
+        assert_eq!(back.lobby_values(), v);
+        assert!(!back.idle_worker());
+        // Unknown names, C options and values out of range are ignored.
+        let junk = [
+            ("idle-worker".to_string(), 1),
+            ("health-bars".to_string(), 9),
+            ("nonsense".to_string(), 1),
+            ("smart-attack-move".to_string(), 1),
+        ];
+        let got = ClientExtras::from_lobby_values(&junk);
+        assert_eq!(got.lobby_values(), [("smart-attack-move".to_string(), 1)]);
+        assert_eq!(describe_lobby(&v), ["health-bars always", "widescreen 16:9"]);
+        // Every C+L row of the table cycles through all its values.
+        for s in lobby_specs() {
+            let mut at = s.default;
+            let mut seen = vec![at];
+            loop {
+                at = next_value(s, at);
+                if at == s.default {
+                    break;
+                }
+                seen.push(at);
+                assert!(seen.len() < 200, "{} never comes back", s.name);
+            }
+            assert!(seen.iter().all(|&v| s.parse(&s.text(v)) == Some(v)), "{}", s.name);
+        }
+    }
 
     #[test]
     fn the_registry_is_in_id_order_with_unique_names() {

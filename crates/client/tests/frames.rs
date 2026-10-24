@@ -37,6 +37,7 @@ const SCENES: &[&str] = &[
     "settings-screen",
     "multi",
     "lobby",
+    "lobby-extras",
     "extras",
     "extras-bars",
     "extras-groups",

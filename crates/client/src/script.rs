@@ -252,6 +252,15 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        // The same lobby with an optional improvement on, so its Extras box shows: the list with the options the host
+        // sets for everyone (the C+L ones among them), and the Observers list.
+        Scene {
+            name: "lobby-extras",
+            start: vec![Step::MainMenu],
+            cmds: lobby_extras(),
+            extras: &[("health-bars", "hovered"), ("widescreen", "16:9")],
+            keys: "",
+        },
         Scene {
             name: "build",
             start: vec![play(0)],
@@ -1142,6 +1151,36 @@ fn lobby() -> Vec<Cmd> {
     v.extend(tap(K::Escape));
     v.extend(tap(K::Letter('S')));
     v.extend([Wait(3), Shot("alone")]);
+    v
+}
+
+/// The creator's lobby with the Extras box showing: its list opened, a C+L row cycled, then the Observers list.
+fn lobby_extras() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25)];
+    v.extend(tap(K::Letter('M')));
+    v.extend([Until(AppState::Multiplayer), Wait(3)]);
+    v.extend(tap(K::Letter('E')));
+    v.extend([Wait(3)]);
+    v.extend(click(100.0, 224.0));
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3)]);
+    v.extend(tap(K::Letter('C')));
+    v.extend([Wait(3)]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(6), Shot("box")]);
+    v.extend(click(480.0, 336.0));
+    v.extend([Wait(3), Shot("list")]);
+    // The list opens above its box (it has eight rows): the seventh is the second C+L option. One pick changes it and
+    // the list stays open.
+    v.extend(click(480.0, 293.0));
+    v.extend([Wait(3), Shot("picked")]);
+    v.extend(tap(K::Escape));
+    v.extend(click(490.0, 246.0));
+    v.extend([Wait(3), Shot("observers")]);
+    v.extend(click(490.0, 246.0 + 20.0 + 2.0 * 20.0 + 6.0));
+    v.extend([Wait(3), Shot("two-places")]);
     v
 }
 

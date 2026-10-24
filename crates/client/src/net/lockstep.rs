@@ -100,6 +100,8 @@ pub struct Params {
     pub row: u8,
     /// The game speed the world starts at.
     pub speed: u8,
+    /// The host's choice of the C+L options (`GameConfig::client_extras`), the same on every machine.
+    pub client_extras: crate::extras::ClientExtras,
 }
 
 type Clock = Box<dyn Fn() -> Duration + Send + Sync>;
@@ -538,6 +540,12 @@ impl NetSession {
 }
 
 impl Session for NetSession {
+    /// The host's choice of the options that give an edge (health bars, smart attack-move, widescreen), from the lobby:
+    /// every player, observers too, plays with these whatever its own settings are (`docs/design/extras.md`).
+    fn lobby_client_extras(&self) -> Option<crate::extras::ClientExtras> {
+        Some(self.p.client_extras)
+    }
+
     fn submit(&mut self, cmd: Command) {
         if self.observing() || self.exit || self.left || self.queue.len() >= QUEUE_LIMIT {
             return;
@@ -868,6 +876,8 @@ mod tests {
             speed,
             row,
             extras: Default::default(),
+            // The host's choice of the C+L options, which every peer must end up with.
+            client_extras: vec![("health-bars".into(), 3), ("widescreen".into(), 2)],
             names: (0..humans).map(|s| format!("Player {}", s + 1)).collect(),
         }
     }
@@ -881,6 +891,7 @@ mod tests {
             enhanced: cfg.setup.enhanced,
             row: cfg.row,
             speed: cfg.speed,
+            client_extras: crate::extras::ClientExtras::from_lobby_values(&cfg.client_extras),
         }
     }
 
@@ -1053,6 +1064,30 @@ mod tests {
         peers[2].frozen = true;
         run(&mut peers[..2], 400);
         assert_eq!(peers[0].state, peers[1].state);
+    }
+
+    #[test]
+    fn every_player_and_observer_plays_with_the_hosts_c_plus_l_options_whatever_their_own() {
+        use crate::extras::{ClientExtras, HealthBars, Id, Widescreen, effective};
+        let time = Time::default();
+        let peers = watched_game(TRACED_DIRECT_CONNECT_ROW, 8, &time);
+        // Each machine has its own settings: one asks for everything, one for nothing, one for other values.
+        let mut greedy = ClientExtras::default();
+        greedy.set(Id::HealthBars, 1);
+        greedy.set(Id::SmartAttackMove, 1);
+        greedy.set(Id::Widescreen, 3);
+        greedy.set(Id::IdleWorker, 1);
+        let owns = [ClientExtras::default(), greedy, greedy];
+        for (peer, own) in peers.iter().zip(owns) {
+            let e = effective(&own, peer.s.lobby_client_extras());
+            assert_eq!(e.health_bars(), HealthBars::Always, "the host chose always");
+            assert_eq!(e.widescreen(), Widescreen::Ratio16x9);
+            assert!(
+                !e.smart_attack_move(),
+                "the host left it off, whatever this machine's own setting"
+            );
+            assert_eq!(e.idle_worker(), own.idle_worker(), "a C option stays the player's own");
+        }
     }
 
     #[test]

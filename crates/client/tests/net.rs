@@ -164,6 +164,7 @@ fn machine(rig: &Rig, dir: &Path, who: &str, start: NetStart, record: bool) -> M
         enhanced: world.rules.enhanced,
         row: cfg.row,
         speed: cfg.speed,
+        client_extras: tidewater_client::extras::ClientExtras::from_lobby_values(&cfg.client_extras),
     };
     Machine {
         me: start.me,
