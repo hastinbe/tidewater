@@ -24,21 +24,38 @@ turn touch on from the first frame.
 | Fingers | Gesture | Becomes |
 |---|---|---|
 | 1 | **Tap**: lift within 450 ms, moved under 3 mm | Left press, then release a frame later (right in right-click mode) |
-| 1 | **Drag**: moves past 3 mm | Left button held from where the finger went down: box select, minimap drag, a placement drag |
+| 1 | **Two taps** on one spot (within 450 ms and 6 mm) | Two clicks at exactly the first tap's point, so the game sees its double click (all of that type on screen, Enhanced) |
+| 1 | **Drag** on the map view: moves past 3 mm within 300 ms | **Pan** of the map view, gliding on after a flick |
+| 1 | **Hold, then drag** on the map view: 300 ms still (a ring shows), then moves | Left button held from where the finger went down: the selection box |
+| 1 | **Drag** anywhere else (minimap, panel, menus) | Left button held from where the finger went down: minimap drag, sliders, lists |
 | 1 | **Long press**: 450 ms, moved under 3 mm | Right click where the finger is, and a pulse ring where it fired |
 | 2 | Move together | **Pan** of the map view (lists scroll as a wheel outside a game) |
 | 2 | Spread or pinch | **Zoom** of the map view, from the original's view up to 4 times that |
 | 3 | **Tap**: all up within 450 ms, none moved | F10, the game menu |
 
 **One finger decides late.** A finger down does nothing until it moves past the slop, lifts or reaches 450 ms, so a
-second finger can still turn it into a pan or pinch without a stray click. A second finger while one is undecided
-cancels it silently; while a drag holds the left button it releases it where the finger is. When one of several
-fingers lifts, the rest are ignored until all are up. A cancelled finger releases what it held and nothing more.
+second finger can still turn it into a pan or pinch without a stray click. A second finger while one is undecided or
+panning cancels it silently; while a drag holds the left button it releases it where the finger is. When one of
+several fingers lifts, the rest are ignored until all are up. A cancelled finger releases what it held and nothing
+more.
+
+**Pan or box.** Scrolling is what a finger on the map does most, so a plain drag pans, and the selection box needs a
+short hold first: still for 300 ms, the finger arms (the same ring as a long press, smaller as it starts), and a drag
+after that is the left button's. Kept still to 450 ms it is the long press instead. Outside the map view (the
+minimap, the panel, the menus) a drag is the left button's at once, as before. A flick glides on and slows (a time
+constant of 325 ms, from 30 mm/s down to 8 mm/s); any new finger stops it.
+
+**Placing and targeting.** While a building is being placed or a command's target chosen, a finger on the map moves
+the pointer instead of clicking, so the outline follows the finger and stays where it lifts. A tap elsewhere moves
+the outline there; a tap on the outline (or within 8 mm of the pointer, for a target) confirms with a left click at
+the pointer, never under the finger, so the building goes where the outline showed. A finger held within 8 mm of the
+map view's edge scrolls the map (60 mm/s) and does not long-press; a long press elsewhere is the right click that
+cancels.
 
 **Mouse frames.** The core's mouse model drops a release that arrives in the same frame as its press, so the machine
 emits one frame at a time (`Gesture::pop`) and the core applies one per game frame: press, then release, then any
-pointer move after a press. The pointer exists only while a click or drag is in progress; a lifted finger leaves no
-cursor to scroll the map's edge.
+pointer move after a press. The pointer exists only while a click or drag is in progress, or while placing or
+targeting; otherwise a lifted finger leaves no cursor to scroll the map's edge.
 
 **Sizes in millimetres.** Slop, pan and pinch thresholds, the tap tolerance and the chrome's buttons are millimetres,
 turned into points with the display's density. The shell passes the best density it knows (`WindowGeom::ppi`: 140
@@ -112,12 +129,20 @@ attached, so a desktop mouse is unchanged. A trackpad's fingers (an *indirect* d
 are pointer input, and its scroll gestures keep working as the wheel. Touch mode ends when a real mouse moves with no
 finger down.
 
+## Exit Program on phones and tablets
+
+iOS and Android close apps themselves, and an app that quits on its own looks like a crash there. On a touch-only
+platform, Exit Program is greyed out on the main menu (its `x` key does nothing either), it is not in the game
+menu's End Scenario dialog, and Ctrl+X does nothing. Android's Back button is Esc (SDL's `AC_BACK` key, with
+`SDL_HINT_ANDROID_TRAP_BACK_BUTTON` set so Back no longer closes the activity).
+
 ## Scripted scenes
 
 `script::Cmd::Finger(id, phase, x, y)` puts a finger event in at a screen pixel. The scenes `touch-select` (tap near a
-peasant), `touch-order` (long press orders it), `touch-drag` (box select), `touch-pinch`, `touch-pan` and `touch-menu`
-(three-finger tap) run on the default density and have their own snapshots (`tests/snapshots/touch-*.txt`); no other
-snapshot changed. To look at the chrome and the fractional fit, run a scene in a larger window:
+peasant), `touch-order` (long press orders it), `touch-drag` (hold, then box select), `touch-pinch`, `touch-pan`,
+`touch-swipe` (one-finger pan and glide) and `touch-menu` (three-finger tap) run on the default density and have
+their own snapshots (`tests/snapshots/touch-*.txt`); no other snapshot changed. To look at the chrome and the
+fractional fit, run a scene in a larger window:
 
 ```
 TIDEWATER_SCRIPT_WINDOW=1000x600 tidewater --script touch-order --script-out DIR --no-mouse-lock [--extra-scaling sharp]
@@ -128,6 +153,6 @@ It also writes `NAME-full.png`, the whole window with the chrome.
 ## Deviations from the original
 
 All of touch is ours: the original has no touch, so there is nothing to be faithful to except the game's own rules,
-which touch leaves alone. The choices to review are the 450 ms and 3 mm thresholds, the 6 mm tap tolerance, the chrome's
-controls and layout, the pinch range (1 to 4 times, never zooming out past the original's view), and ignoring a
-trackpad's fingers.
+which touch leaves alone. The choices to review are the 300 ms, 450 ms and 3 mm thresholds, the glide, the 6 mm tap
+tolerance, the placement rules, the chrome's controls and layout, the pinch range (1 to 4 times, never zooming out
+past the original's view), the missing Exit Program on phones and tablets, and ignoring a trackpad's fingers.

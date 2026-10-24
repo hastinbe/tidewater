@@ -1652,6 +1652,8 @@ fn menu_input(
 
 /// The main menu's five buttons and the Settings link after them (item 5); the update offer adds two more.
 const MAIN_BUTTONS: usize = 6;
+/// Exit Program's place among the main menu's items.
+const EXIT_ITEM: usize = 4;
 /// The Settings link's place among the main menu's items.
 const SETTINGS_ITEM: usize = 5;
 /// Where the update notice line is: under the fifth button, above the update offer's buttons and clear of the
@@ -1704,8 +1706,11 @@ pub(crate) fn enter_menu(c: &mut Core) {
         ("Show Credits", Some('C')),
         ("Exit Program", Some('x')),
     ]);
-    // Multi Player Game opens the multiplayer menus (`enter_multiplayer`); all five buttons are always enabled.
+    // Multi Player Game opens the multiplayer menus (`enter_multiplayer`). All five buttons are enabled, but on a phone
+    // or tablet Exit Program is greyed out (ours: the system closes apps there, `docs/design/touch.md`), so neither a
+    // tap nor its x key quits.
     let mut items = items;
+    items[EXIT_ITEM].enabled = !c.touch.touch_only;
     // Not in the original: the link to Tidewater's own Settings screen on the version line's row (and the F2 key). The
     // main menu also stands in for the multiplayer lobby, which has no settings link.
     items.push(MenuItem {

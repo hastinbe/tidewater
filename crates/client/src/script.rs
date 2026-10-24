@@ -409,8 +409,9 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[("widescreen", "16:10")],
             keys: "",
         },
-        // Touch: a tap near a unit selects it; a long press orders; a drag boxes; a pinch zooms; two fingers pan; three
-        // fingers tapping open the game menu (`gesture`, `docs/design/touch.md`).
+        // Touch: a tap near a unit selects it; a long press orders; a hold then a drag boxes; a pinch zooms; two
+        // fingers pan, and so does one with a glide; three fingers tapping open the game menu (`gesture`,
+        // `docs/design/touch.md`).
         Scene {
             name: "touch-select",
             start: vec![play(0)],
@@ -443,6 +444,13 @@ pub fn scenes() -> Vec<Scene> {
             name: "touch-pan",
             start: vec![play(0)],
             cmds: touch_pan(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-swipe",
+            start: vec![play(0)],
+            cmds: touch_swipe(),
             extras: &[],
             keys: "",
         },
@@ -736,14 +744,15 @@ fn touch_order() -> Vec<Cmd> {
     v
 }
 
-/// Drag from open ground over the peasants: the box select.
+/// Hold a finger on open ground until it arms (the ring), then drag it over the peasants: the box select.
 fn touch_drag() -> Vec<Cmd> {
     use Cmd::*;
     vec![
         Until(AppState::Game),
         Wait(5),
         touch(1, 340.0, 250.0),
-        Wait(2),
+        Wait(20),
+        Shot("armed"),
         slide(1, 370.0, 280.0),
         Wait(2),
         slide(1, 440.0, 340.0),
@@ -821,6 +830,31 @@ fn touch_pan() -> Vec<Cmd> {
         lift(2, 248.0, 244.0),
         Wait(3),
         Shot("panned"),
+    ]);
+    v
+}
+
+/// One finger dragging on the map pans the view without a click, and a flick glides on after the lift.
+fn touch_swipe() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![
+        Until(AppState::Game),
+        Wait(5),
+        Shot("game"),
+        touch(1, 400.0, 300.0),
+        Wait(2),
+    ];
+    for step in 1..=6 {
+        let d = 12.0 * step as f32;
+        v.extend([slide(1, 400.0 - d, 300.0 - d / 2.0), Wait(1)]);
+    }
+    v.extend([
+        Shot("panning"),
+        lift(1, 328.0, 264.0),
+        Wait(2),
+        Shot("gliding"),
+        Wait(60),
+        Shot("stopped"),
     ]);
     v
 }

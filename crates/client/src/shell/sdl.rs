@@ -45,6 +45,12 @@ impl Sdl {
             // SAFETY: as above.
             unsafe { sys::SDL_SetHint(sys::SDL_HINT_ORIENTATIONS, c"LandscapeLeft LandscapeRight".as_ptr()) };
         }
+        // Android's Back button is Esc (`docs/design/touch.md`): SDL sends it as a key and, trapped, it no longer
+        // finishes the activity.
+        if cfg!(target_os = "android") {
+            // SAFETY: as above.
+            unsafe { sys::SDL_SetHint(sys::SDL_HINT_ANDROID_TRAP_BACK_BUTTON, c"1".as_ptr()) };
+        }
         let mut flags = sys::SDL_INIT_VIDEO;
         if audio {
             flags |= sys::SDL_INIT_AUDIO;

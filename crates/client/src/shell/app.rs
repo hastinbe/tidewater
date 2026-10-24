@@ -612,6 +612,8 @@ fn key_of(code: i32) -> Key {
         39 => Key::Digit(0),
         40 => Key::Enter,
         41 => Key::Escape,
+        // AC Back: Android's Back button, which is Esc there.
+        270 => Key::Escape,
         42 => Key::Backspace,
         43 => Key::Tab,
         44 => Key::Space,
