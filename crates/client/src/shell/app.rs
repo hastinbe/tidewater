@@ -166,6 +166,10 @@ fn run(l: host::Launch) -> Result<()> {
             fullscreen: MOBILE || core.fullscreen_wanted(),
         },
     )?;
+    // The app icon in the title bar and taskbar (a phone's launcher icon comes from its app package instead).
+    if !MOBILE && let Some((iw, ih, rgba)) = host::window_icon() {
+        window.set_icon(iw, ih, &rgba);
+    }
     // A phone's window fills the screen: no sizes to pick and nowhere to centre it.
     if !scripted && !MOBILE {
         let d = window.pixel_density();

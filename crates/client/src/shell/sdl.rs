@@ -186,6 +186,30 @@ impl<'s> Window<'s> {
         unsafe { sys::SDL_SetWindowMinimumSize(self.raw, w as c_int, h as c_int) };
     }
 
+    /// Sets the window's icon (title bar, taskbar, the Dock) from `w` × `h` RGBA pixels. False if SDL refused.
+    pub fn set_icon(&self, w: u32, h: u32, rgba: &[u8]) -> bool {
+        if rgba.len() != w as usize * h as usize * 4 {
+            return false;
+        }
+        // SAFETY: a live window; the surface only borrows `rgba` (SDL doesn't write to it) and is destroyed before
+        // the borrow ends, and SDL_SetWindowIcon keeps its own converted copy.
+        unsafe {
+            let surface = sys::SDL_CreateSurfaceFrom(
+                w as c_int,
+                h as c_int,
+                sys::SDL_PIXELFORMAT_RGBA32,
+                rgba.as_ptr().cast_mut().cast(),
+                (w * 4) as c_int,
+            );
+            if surface.is_null() {
+                return false;
+            }
+            let ok = sys::SDL_SetWindowIcon(self.raw, surface);
+            sys::SDL_DestroySurface(surface);
+            ok
+        }
+    }
+
     pub fn set_title(&self, title: &str) {
         let title = cstring(title);
         // SAFETY: a live window and a valid string; SDL copies it.
