@@ -21,7 +21,7 @@
 //! finger on the map view moves the pointer instead of clicking: a drag carries the outline along and leaves it where
 //! the finger lifts, a tap elsewhere moves it there, and a tap on the outline ([`Config::ghost`]) or near the pointer
 //! confirms with a left click at the pointer. A finger held near the view's edge scrolls the map (as the mouse at the
-//! screen's edge does); a long press is still a right click, which cancels. A tap on the spot of a confirm, within
+//! screen's edge does); a long press is still a right click, which cancels, sent when the finger lifts. A tap on the spot of a confirm, within
 //! [`DOUBLE_TAP_MS`] of it, is dropped: a double tap on the outline confirms once, where the second tap would otherwise
 //! reach the game after placement ended and, as a smart tap, send the builder to the site instead of building there.
 //!
@@ -232,12 +232,14 @@ enum Mode {
         id: u64,
         last: Pt,
     },
-    /// One finger moving the pointer while placing or targeting.
+    /// One finger moving the pointer while placing or targeting; `ripe` once it was held still for the long press
+    /// (lifting it then right-clicks, which cancels).
     Hover {
         id: u64,
         start: Pt,
         t0: f64,
         moved: bool,
+        ripe: bool,
     },
     /// A long press fired; the finger is still down.
     Held,
@@ -360,7 +362,13 @@ impl Gesture {
                     };
                 }
             }
-            Mode::Hover { id, start, t0, moved } => {
+            Mode::Hover {
+                id,
+                start,
+                t0,
+                moved,
+                ripe,
+            } => {
                 let Some(f) = self.finger(id) else { return };
                 let edge = self.edge_of(f.pos);
                 if edge != (0.0, 0.0) {
@@ -374,11 +382,20 @@ impl Gesture {
                             start,
                             t0,
                             moved: true,
+                            ripe: false,
                         };
                         self.rest_pointer(f.pos);
                     }
-                } else if !moved && self.now - t0 >= self.cfg.long_press_ms {
-                    self.long_press(f.pos);
+                } else if !moved && !ripe && self.now - t0 >= self.cfg.long_press_ms {
+                    // As on the map: the pulse says lifting now cancels; nothing is clicked while the finger is down.
+                    self.pulse(f.pos);
+                    self.mode = Mode::Hover {
+                        id,
+                        start,
+                        t0,
+                        moved,
+                        ripe: true,
+                    };
                 }
             }
             Mode::Idle => {
@@ -550,6 +567,7 @@ impl Gesture {
                         start: t.pos,
                         t0: self.now,
                         moved: false,
+                        ripe: false,
                     }
                 } else {
                     Mode::Pending {
@@ -669,13 +687,16 @@ impl Gesture {
                 }
                 self.mode = Mode::Pan { id, last: t.pos };
             }
-            Mode::Hover { id, start, t0, moved } if id == t.id => {
+            Mode::Hover {
+                id, start, t0, moved, ..
+            } if id == t.id => {
                 if moved || dist(start, t.pos) > self.slop() {
                     self.mode = Mode::Hover {
                         id,
                         start,
                         t0,
                         moved: true,
+                        ripe: false,
                     };
                     self.rest_pointer(t.pos);
                 }
@@ -755,10 +776,14 @@ impl Gesture {
                 self.samples.clear();
                 self.mode = Mode::Idle;
             }
-            Mode::Hover { id, start, moved, .. } if id == t.id => {
+            Mode::Hover {
+                id, start, moved, ripe, ..
+            } if id == t.id => {
                 if !cancelled {
                     if moved {
                         self.rest_pointer(pos);
+                    } else if ripe {
+                        self.long_press(pos);
                     } else if !self.repeats_confirm(start) {
                         self.hover_tap(start);
                     }
@@ -1344,11 +1369,22 @@ mod tests {
         let pan = total_pan(&frames);
         assert!(pan.0 < -100.0 && pan.1 == 0.0, "the view goes right: {pan:?}");
         assert!(buttons(&frames).is_empty());
-        // Away from the edge, a still finger is a right click (cancel).
+        // Away from the edge, a still finger is a right click (cancel) when it lifts, never while it is down.
         let mut g = placing(None);
         run(&mut g, &[down(1, 300.0, 200.0)]);
-        let frames = waits(&mut g, 500);
+        let frames = waits(&mut g, 2000);
+        assert!(buttons(&frames).is_empty(), "{frames:?}");
+        assert!(frames.iter().any(|f| f.pulse.is_some()), "the pulse says it is ready");
+        let frames = run(&mut g, &[up(1, 300.0, 200.0)]);
         assert_eq!(buttons(&frames)[0].1, Button::Right);
+        // A drag after the hold carries the outline instead, and cancels nothing.
+        let mut g = placing(None);
+        let mut frames = run(&mut g, &[down(1, 300.0, 200.0)]);
+        frames.extend(waits(&mut g, 2000));
+        frames.extend(run(&mut g, &[mv(1, 360.0, 230.0)]));
+        frames.extend(run(&mut g, &[up(1, 360.0, 230.0)]));
+        assert!(buttons(&frames).is_empty(), "{frames:?}");
+        assert_eq!(g.hover_pointer(), Some((360.0, 230.0)));
     }
 
     #[test]

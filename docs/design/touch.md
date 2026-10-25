@@ -53,7 +53,7 @@ the pointer instead of clicking, so the outline follows the finger and stays whe
 the outline there; a tap on the outline (or within 8 mm of the pointer, for a target) confirms with a left click at
 the pointer, never under the finger, so the building goes where the outline showed. A finger held within 8 mm of the
 map view's edge scrolls the map (60 mm/s) and does not long-press; a long press elsewhere is the right click that
-cancels. Because a tap away from the outline only moves it, the status bar says so while touch is in use ("Tap the
+cancels, sent when the finger lifts (as on the map, a drag after the hold carries the outline instead). Because a tap away from the outline only moves it, the status bar says so while touch is in use ("Tap the
 outline to build; drag to move it", and "Tap a target, then tap it again to confirm") in place of the game's own
 Select Location and Select Target prompts. A tap within 6 mm of a confirming tap and 0.45 s of it (the double-tap
 limits) is dropped, so a double tap on the outline confirms once: the second tap would otherwise arrive after
