@@ -19,7 +19,7 @@
 //! | North | the pointer to the minimap and back | - |
 //! | L1 / R1 | Shift / Ctrl, held | the same |
 //! | L2 / R2 | the pointer twice as fast / Alt, held | the same |
-//! | D-pad | control groups 1-4 (with R1 set, with L1 add) | arrow keys |
+//! | D-pad | control groups 1-4 (with R1 set, with R2 centre and recall) | arrow keys |
 //! | Right stick | scrolls the map (the arrow keys) | the mouse wheel |
 //! | Start | F10, the game menu (Esc while a menu is open) | Enter |
 //! | Back / Select | pause | Esc |

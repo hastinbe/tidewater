@@ -169,20 +169,32 @@ finger (Alt+Shift: beside the first, Alt+Ctrl: a third). How it works, and the m
 
 A gamepad works on its own or together with the mouse and a touchscreen (the original has no controller support;
 like touch, the pad only presses the buttons and keys a player could, so the rules don't change). Plug one in or pair
-it any time; SDL knows the common pads (Xbox, PlayStation, Switch, the Steam Deck's own controls). Buttons are named
-by place, south being the bottom face button.
+it any time; SDL knows the common pads (Xbox, PlayStation, Switch, the Steam Deck's own controls, the PS Vita's).
 
-| Pad | In a game | In the menus |
-|---|---|---|
-| Left stick | Move the pointer (L2 held: faster) | The same |
-| South / East | Left click (hold to drag a box) / right click | Left click / right click |
-| West | The command buttons: the d-pad steps between them, South presses, East goes back | - |
-| North | The pointer to the minimap, and back | - |
-| L1 / R1 / R2 | Shift / Ctrl / Alt, held | The same |
-| D-pad | Control groups 1 to 4 (R1 held: set, L1 held: add) | Arrow keys |
-| Right stick | Scroll the map | Scroll lists |
-| Start / Back | Game menu (F10) / pause | Enter / Esc |
-| Stick presses | Left: the system keyboard; right: next idle worker (F6) | Left: the system keyboard |
+**Default mapping.** The Xbox labels are shown; on a PlayStation pad A, B, X, Y are Cross, Circle, Square,
+Triangle and LB/RB/LT/RT are L1/R1/L2/R2. On a Switch pad the face buttons go by place, so B (bottom) clicks and A
+(right) right-clicks unless you turn on **Swap confirm and back**.
+
+| Xbox | PlayStation | In a game | In the menus |
+|---|---|---|---|
+| Left stick | Left stick | Move the pointer (small push: slow, full push: fast) | The same |
+| A | Cross | Left click; hold and move to drag a selection box | Left click |
+| B | Circle | Right click (move, attack, harvest) | Right click |
+| X | Square | Command buttons: the d-pad steps between them, A presses, B goes back | - |
+| Y | Triangle | The pointer to the minimap, and back | - |
+| LB | L1 | Shift, held (add to or remove from the selection) | The same |
+| RB | R1 | Ctrl, held (all of that type on screen) | The same |
+| LT | L2 | The pointer twice as fast, held | The same |
+| RT | R2 | Alt, held | The same |
+| D-pad | D-pad | Control groups 1 to 4 (up, right, down, left): recall, twice to centre; RB held: set; RT held: centre and recall | Arrow keys |
+| Right stick | Right stick | Scroll the map | Scroll lists |
+| Menu (☰) | Options | Game menu (F10); Esc while a menu is open | Enter |
+| View (⧉) | Create | Pause and resume | Esc |
+| Left stick press | L3 | The system keyboard, for chat and save names | The same |
+| Right stick press | R3 | Next idle worker (F6, with the `idle-worker` option) | - |
+
+The control groups are the Enhanced rules' (the default; Classic is opt-in and multiplayer only). The Vita has no
+L2, R2 or stick presses. The full table, by pad maker, is in [`docs/design/gamepad.md`](docs/design/gamepad.md).
 
 Whichever you used last has the pointer: the stick moves on from where the mouse or a finger left it, and moving the
 mouse takes it back. While a pad is connected the touch side bars hide. The Settings screen's Controller page (shown

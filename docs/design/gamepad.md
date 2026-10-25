@@ -40,26 +40,54 @@ the system pointer more than 1.5 window points from where the pad left it (`pad:
 a finger. While the pad has it, the shell moves the system pointer to the pad's (`PadState::take_warp`), or the mouse
 lock's pointer when the lock holds it, so the two never jump apart and the menus' system cursor follows the stick.
 
-## The buttons
+## Default mapping
+
+SDL names a pad's buttons by where they sit, not by their labels: **south** is the bottom face button, **east** the
+right one, **west** the left one and **north** the top one. So one mapping covers every pad, and the printed labels
+differ only by maker:
+
+| Place | Xbox, Steam Deck | PlayStation, PS Vita | Nintendo Switch |
+|---|---|---|---|
+| South | A | Cross (✕) | B |
+| East | B | Circle (○) | A |
+| West | X | Square (□) | Y |
+| North | Y | Triangle (△) | X |
+| L1 / R1 | LB / RB | L1 / R1 (Vita: L / R) | L / R |
+| L2 / R2 | LT / RT | L2 / R2 (none on the Vita) | ZL / ZR |
+| Start | Menu (☰) | Options (Vita: Start) | + |
+| Back | View (⧉) | Create (Vita: Select) | − |
+| Stick presses | LS / RS | L3 / R3 (none on the Vita) | left / right stick press |
+
+What each one does, with the options at their defaults:
+
+| Pad | In a game | In the menus and dialogs |
+|---|---|---|
+| Left stick | moves the pointer; a small push aims slowly, a full push is fast | the same |
+| South | left click; held while the stick moves, a selection box | left click |
+| East | right click (move, attack, harvest); in panel mode, back to the map | right click |
+| West | panel mode (below) | - |
+| North | the pointer to the minimap, and back | - |
+| L1 | Shift, held (Shift-click adds to the selection or removes from it) | Shift, held |
+| R1 | Ctrl, held (Ctrl-click takes every unit of that type on screen) | Ctrl, held |
+| L2 | the pointer twice as fast, held | the same |
+| R2 | Alt, held | Alt, held |
+| D-pad | control groups 1 to 4 (up, right, down, left): a press recalls the group, twice quickly centres on it; with R1 held it sets the group, with R2 held it centres and recalls | arrow keys |
+| Right stick | scrolls the map (past half a push) | the mouse wheel (lists) |
+| Start | the game menu (F10); while a menu is open, Esc | Enter |
+| Back | pause and resume, as the Pause button | Esc |
+| Left stick press | the system keyboard, for chat and save names | the same |
+| Right stick press | the next idle worker (F6, option `idle-worker`) | - |
+
+Buttons not listed (Guide, the DualSense touchpad's click, the extra paddles) do nothing. The control groups are
+the Enhanced rules' (the default; Classic is opt-in and multiplayer only, and has no digit groups).
 
 A button's meaning is fixed when it goes down (`pad::bind`), so its release always lets go of what its press held.
 
-| Pad | In a game | Elsewhere |
-|---|---|---|
-| South (confirm) | left button; held, a box | left button |
-| East (back) | right button; in panel mode, back to the map | right button |
-| West | panel mode (below) | - |
-| North | the pointer to the minimap and back | - |
-| L1 / R1 | Shift / Ctrl, held | the same |
-| L2 / R2 | the pointer twice as fast / Alt, held | the same |
-| D-pad | control groups 1 to 4 (up, right, down, left; with R1 held it sets the group, with L1 adds to it) | arrow keys |
-| Right stick | scrolls the map (the arrow keys, past half a push) | the mouse wheel |
-| Start | F10, the game menu (Esc while a menu is open) | Enter |
-| Back / Select | pause, as the Pause button | Esc |
-| Left stick press | the system keyboard, for chat and save names | the same |
-| Right stick press | F6, the next idle worker (option `idle-worker`) | - |
+**Nintendo's layout.** On a Switch pad south is B, so B clicks and A right-clicks. Option `pad-swap` swaps them, making
+A (east) the click and B (south) the right click, as Nintendo's own games do.
 
-`pad-swap` swaps confirm and back, for pads with Nintendo's layout (confirm on the right).
+**The PS Vita** has no L2, R2 or stick presses, so the faster pointer, Alt, the system keyboard and the idle-worker
+button are not on its pad (the touch screen and the Pause and Menu buttons still work).
 
 **Panel mode.** West puts the pointer on the first command button shown; the d-pad steps between the buttons (by
 their grid, skipping empty slots), south presses one, and east or west goes back to where the pointer was on the map.
