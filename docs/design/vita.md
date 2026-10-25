@@ -2,7 +2,8 @@
 
 **Bottom line.** Tidewater builds as a Vita app (`.vpk`) from the same shell code as the other platforms, and CI builds
 it on every run. It starts in the Vita3K emulator and reaches the first-run screen. It has not been tried on a real
-Vita, it has no controller input yet, and we expect it to run slower than 60 fps.
+Vita, its buttons and sticks work through the gamepad support ([gamepad.md](gamepad.md)) but are untested on the
+Vita, and we expect it to run slower than 60 fps.
 
 The import is in [import.md](import.md), the touch gestures in [touch.md](touch.md) and the Android version in
 [android.md](android.md).
@@ -80,8 +81,10 @@ emulator prints "Unhandled write protected region" lines; they are its own memor
 ## Limits
 
 - **Not tried on a Vita.** Memory, speed, touch and the extended-memory request are all untested on hardware.
-- **No controller input yet.** The buttons and sticks are not read, so the game cannot be played without the touch
-  screen.
+- **Controls untested on the Vita.** SDL's Vita backend presents the buttons and sticks as a gamepad, which the
+  gamepad support ([gamepad.md](gamepad.md)) reads like any other; the build links SDL's joystick subsystem, but
+  nobody has played with them on a Vita or in Vita3K yet. The Vita has no L2, R2 or stick presses, so Alt, the faster
+  pointer, the system keyboard and the idle-worker button are not on its pad.
 - **Speed.** The compositor draws a 640 by 480 picture on the CPU each frame. We expect about 30 fps. Ideas, cheapest
   first: run at 30 fps (the simulation's fixed step is unaffected), raise the CPU clock to 444 MHz, compose only the
   changed regions, convert an indexed frame on the GPU.
