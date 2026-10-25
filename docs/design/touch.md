@@ -55,7 +55,10 @@ the pointer, never under the finger, so the building goes where the outline show
 map view's edge scrolls the map (60 mm/s) and does not long-press; a long press elsewhere is the right click that
 cancels. Because a tap away from the outline only moves it, the status bar says so while touch is in use ("Tap the
 outline to build; drag to move it", and "Tap a target, then tap it again to confirm") in place of the game's own
-Select Location and Select Target prompts.
+Select Location and Select Target prompts. A tap within 6 mm of a confirming tap and 0.45 s of it (the double-tap
+limits) is dropped, so a double tap on the outline confirms once: the second tap would otherwise arrive after
+placement ended, and with the builder still selected the smart tap made it a move to the site, which replaced the
+build order (the builder walked there and stood).
 
 **Mouse frames.** The core's mouse model drops a release that arrives in the same frame as its press, so the machine
 emits one frame at a time (`Gesture::pop`) and the core applies one per game frame: press, then release, then any
