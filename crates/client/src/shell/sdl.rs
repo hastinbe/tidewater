@@ -263,6 +263,10 @@ impl<'s> Window<'s> {
 
     /// Typed text comes in as [`Event::Text`]; on a touch screen this opens the soft keyboard.
     pub fn start_text_input(&self) {
+        // On the Vita this opens the modal system keyboard, which stops the game; it stays closed there.
+        if cfg!(target_os = "vita") {
+            return;
+        }
         // SAFETY: a live window.
         unsafe { sys::SDL_StartTextInput(self.raw) };
     }
