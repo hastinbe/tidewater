@@ -47,7 +47,7 @@ pub(crate) const PAGES: [Page; 2] = [
             row("Hold, then drag", "Select with a box"),
             row("Tap", "Select, or order the selected units"),
             row("Two taps", "Select all units of that type"),
-            row("Long press", "Right click"),
+            row("Hold, then lift", "Right click"),
             row("Two fingers", "Scroll; pinch to zoom on a phone"),
             row("Three fingers", "Open the game menu"),
             row("Minimap", "Tap or drag to look, hold to order"),

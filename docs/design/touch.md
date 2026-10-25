@@ -28,7 +28,7 @@ turn touch on from the first frame.
 | 1 | **Drag** on the map view: moves past 3 mm within 300 ms | **Pan** of the map view, gliding on after a flick |
 | 1 | **Hold, then drag** on the map view: 300 ms still (a ring shows), then moves | Left button held from where the finger went down: the selection box |
 | 1 | **Drag** anywhere else (minimap, panel, menus) | Left button held from where the finger went down: minimap drag, sliders, lists |
-| 1 | **Long press**: 450 ms, moved under 3 mm | Right click where the finger is, and a pulse ring where it fired |
+| 1 | **Long press**: 450 ms, moved under 3 mm, then lift | Right click where the finger lifts; a pulse ring at 450 ms says it is ready |
 | 2 | Move together | **Pan** of the map view (lists scroll as a wheel outside a game) |
 | 2 | Spread or pinch | **Zoom** of the map view, from the original's view up to 4 times that |
 | 3 | **Tap**: all up within 450 ms, none moved | F10, the game menu |
@@ -41,7 +41,10 @@ more.
 
 **Pan or box.** Scrolling is what a finger on the map does most, so a plain drag pans, and the selection box needs a
 short hold first: still for 300 ms, the finger arms (the same ring as a long press, smaller as it starts), and a drag
-after that is the left button's. Kept still to 450 ms it is the long press instead. Outside the map view (the
+after that is the left button's. Kept still to 450 ms it also becomes the long press, but nothing is clicked
+while the finger stays down: lifting it there right-clicks, and a drag (however long the hold) still draws the box.
+An earlier version right-clicked at 450 ms with the finger down, so a hold held a moment too long before the drag
+sent the selection away. Outside the map view (the
 minimap, the panel, the menus) a drag is the left button's at once, as before. A flick glides on and slows (a time
 constant of 325 ms, from 30 mm/s down to 8 mm/s); any new finger stops it.
 

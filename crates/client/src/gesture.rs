@@ -10,7 +10,7 @@
 //! | 1 | Drag on the map view (past the slop before [`Config::arm_ms`]) | [`Frame::pan`], gliding on after a flick ([`Config::glide`]) |
 //! | 1 | Hold for [`Config::arm_ms`], then drag | Left button held from where the finger went down: the selection box ([`Frame::armed`] marks the arming) |
 //! | 1 | Drag anywhere else (minimap, panel, menus) | Left button held from where the finger went down |
-//! | 1 | Long press ([`Config::long_press_ms`] still) | Right click where the finger is, with a pulse for feedback |
+//! | 1 | Long press ([`Config::long_press_ms`] still, then lift without moving) | Right click where the finger lifts; a pulse shows when it is ready, and nothing is clicked while the finger stays down (a drag then still draws the box) |
 //! | 1 | Two taps on one spot within [`DOUBLE_TAP_MS`] | Two clicks at exactly the first tap's point, so the game sees a double click |
 //! | 2 | Drag of both together ([`TwoFinger::Pan`]) | [`Frame::pan`] |
 //! | 2 | Both down on the map view ([`TwoFinger::Corners`]) | Left button held from the first finger to the second: the selection box |
@@ -211,14 +211,15 @@ struct Two {
 #[derive(Clone, Copy, Debug)]
 enum Mode {
     Idle,
-    /// One finger down, undecided: where, when the touch began, whether it began on the map view and whether it was
-    /// held long enough to draw the box.
+    /// One finger down, undecided: where, when the touch began, whether it began on the map view, whether it was
+    /// held long enough to draw the box and whether it was held still for the long press (lifting it then right-clicks).
     Pending {
         id: u64,
         start: Pt,
         t0: f64,
         in_view: bool,
         armed: bool,
+        ripe: bool,
     },
     /// One finger dragging with the left button held.
     Drag {
@@ -330,18 +331,27 @@ impl Gesture {
                 t0,
                 in_view,
                 armed,
+                ripe,
             } => {
                 let Some(f) = self.finger(id) else { return };
-                if self.now - t0 >= self.cfg.long_press_ms {
-                    self.long_press(f.pos);
-                } else if !armed && in_view && self.pans() && self.now - t0 >= self.cfg.arm_ms {
+                // Nothing is clicked while the finger stays down: the pulse says lifting now right-clicks, and a drag
+                // still draws the box.
+                let ripen = !ripe && self.now - t0 >= self.cfg.long_press_ms;
+                let arm = !armed && in_view && self.pans() && self.now - t0 >= self.cfg.arm_ms;
+                if ripen {
+                    self.pulse(f.pos);
+                }
+                if arm {
                     self.cur.armed = Some(start);
+                }
+                if ripen || arm {
                     self.mode = Mode::Pending {
                         id,
                         start,
                         t0,
                         in_view,
-                        armed: true,
+                        armed: armed || arm,
+                        ripe: ripe || ripen,
                     };
                 }
             }
@@ -543,6 +553,7 @@ impl Gesture {
                         t0: self.now,
                         in_view,
                         armed: false,
+                        ripe: false,
                     }
                 };
             }
@@ -716,9 +727,19 @@ impl Gesture {
         self.fingers.remove(at);
         let pos = if cancelled { last.pos } else { t.pos };
         match self.mode {
-            Mode::Pending { id, start, in_view, .. } if id == t.id => {
+            Mode::Pending {
+                id,
+                start,
+                in_view,
+                ripe,
+                ..
+            } if id == t.id => {
                 if !cancelled {
-                    self.tap(start, in_view);
+                    if ripe {
+                        self.long_press(pos);
+                    } else {
+                        self.tap(start, in_view);
+                    }
                 }
                 self.mode = Mode::Idle;
             }
@@ -1052,16 +1073,37 @@ mod tests {
     }
 
     #[test]
-    fn an_armed_finger_still_long_presses_if_it_stays() {
+    fn an_armed_finger_still_long_presses_if_it_stays_and_lifts() {
         let mut g = on_map();
         let mut frames = run(&mut g, &[down(1, 100.0, 100.0)]);
         frames.extend(waits(&mut g, 500));
+        assert!(
+            buttons(&frames).is_empty(),
+            "nothing while the finger is down: {frames:?}"
+        );
+        assert!(frames.iter().any(|f| f.armed.is_some()) && frames.iter().any(|f| f.pulse.is_some()));
+        frames.extend(run(&mut g, &[up(1, 100.0, 100.0)]));
         let b = buttons(&frames);
         assert_eq!(
             b.iter().map(|x| x.1).collect::<Vec<_>>(),
             [Button::Right, Button::Right]
         );
-        assert!(frames.iter().any(|f| f.armed.is_some()) && frames.iter().any(|f| f.pulse.is_some()));
+    }
+
+    #[test]
+    fn a_drag_after_a_long_still_hold_is_the_box_not_a_right_click() {
+        let mut g = on_map();
+        let mut frames = run(&mut g, &[down(1, 100.0, 100.0)]);
+        frames.extend(waits(&mut g, 3000));
+        frames.extend(run(&mut g, &[mv(1, 220.0, 190.0)]));
+        frames.extend(run(&mut g, &[up(1, 220.0, 190.0)]));
+        assert_eq!(
+            buttons(&frames).iter().map(|x| (x.1, x.2)).collect::<Vec<_>>(),
+            [(Button::Left, true), (Button::Left, false)],
+            "{frames:?}"
+        );
+        assert_eq!(total_pan(&frames), (0.0, 0.0));
+        assert!(g.idle());
     }
 
     #[test]
@@ -1078,9 +1120,10 @@ mod tests {
         let frames = waits(&mut g, 40);
         assert!(frames[0].armed.is_some());
         let frames = waits(&mut g, 200);
-        assert!(buttons(&frames).is_empty(), "no long press before 750 ms");
+        assert!(frames.iter().all(|f| f.pulse.is_none()), "no long press before 750 ms");
         let frames = waits(&mut g, 60);
-        assert_eq!(buttons(&frames).len(), 2);
+        assert!(frames[0].pulse.is_some());
+        assert_eq!(buttons(&run(&mut g, &[up(1, 100.0, 100.0)])).len(), 2);
     }
 
     #[test]
@@ -1303,16 +1346,19 @@ mod tests {
         frames.extend(waits(&mut g, 400));
         assert!(frames.is_empty(), "not yet at 400 ms: {frames:?}");
         frames.extend(waits(&mut g, 100));
+        assert!(
+            buttons(&frames).is_empty(),
+            "nothing while the finger is down: {frames:?}"
+        );
+        assert_eq!(frames[0].pulse, Some((200.0, 120.0)), "the pulse says it is ready");
+        // The right click comes with the lift, where the finger lifts.
+        let frames = run(&mut g, &[up(1, 201.0, 120.0)]);
         assert_eq!(
             buttons(&frames),
             [(0, Button::Right, true), (1, Button::Right, false)],
             "{frames:?}"
         );
-        assert_eq!(frames[0].pulse, Some((200.0, 120.0)));
-        assert_eq!(frames[0].pointer, Some((200.0, 120.0)));
-        // Lifting afterwards does nothing more, and neither does a late wobble.
-        let rest = run(&mut g, &[up(1, 201.0, 120.0)]);
-        assert!(rest.is_empty());
+        assert_eq!(frames[0].pointer, Some((201.0, 120.0)));
         assert!(g.idle());
     }
 
@@ -1322,6 +1368,7 @@ mod tests {
         let mut frames = run(&mut g, &[down(1, 200.0, 120.0)]);
         frames.extend(run(&mut g, &[mv(1, 208.0, 126.0)]));
         frames.extend(waits(&mut g, 500));
+        frames.extend(run(&mut g, &[up(1, 208.0, 126.0)]));
         assert_eq!(buttons(&frames).len(), 2, "still a long press: {frames:?}");
         assert_eq!(buttons(&frames)[0].1, Button::Right);
         // Past the slop it is a drag instead, however long the wait.
@@ -1521,13 +1568,17 @@ mod tests {
     }
 
     #[test]
-    fn a_finger_held_after_a_long_press_does_not_drag() {
+    fn a_finger_moved_after_a_long_press_drags_instead() {
         let mut g = plain();
         let mut frames = run(&mut g, &[down(1, 100.0, 100.0)]);
         frames.extend(waits(&mut g, 500));
         frames.extend(run(&mut g, &[mv(1, 300.0, 300.0)]));
         frames.extend(run(&mut g, &[up(1, 300.0, 300.0)]));
-        assert_eq!(buttons(&frames).len(), 2, "only the right click: {frames:?}");
+        assert_eq!(
+            buttons(&frames).iter().map(|x| (x.1, x.2)).collect::<Vec<_>>(),
+            [(Button::Left, true), (Button::Left, false)],
+            "no right click: {frames:?}"
+        );
     }
 
     #[test]

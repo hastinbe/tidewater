@@ -137,7 +137,7 @@ touchscreen or use `--touch-emulation`.
 | Tap a unit | Select it (a near miss still counts) |
 | Tap the ground, an enemy or a resource, with your units selected | Order them there, as a right click does |
 | Tap twice | Select all of that type on screen |
-| Long press | Right click |
+| Hold a finger still until a pulse shows, then lift | Right click (nothing happens while the finger stays down, so you can still drag a box) |
 | Tap or drag the minimap; hold it | Move the view; order the selected units there |
 | Place a building or choose a target | Drag the outline, then tap it to confirm; a finger at the map's edge scrolls |
 | Two fingers: drag; pinch | Scroll the map; zoom (on phones; a setting on tablets) |
