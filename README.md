@@ -139,7 +139,7 @@ touchscreen or use `--touch-emulation`.
 | Tap twice | Select all of that type on screen |
 | Hold a finger still until a pulse shows, then lift | Right click (nothing happens while the finger stays down, so you can still drag a box) |
 | Tap or drag the minimap; hold it | Move the view; order the selected units there |
-| Place a building or choose a target | Drag the outline, then tap it to confirm; a finger at the map's edge scrolls |
+| Place a building or choose a target | Drag the outline (or tap where it should go), then tap it to confirm, as the status bar says; a finger at the map's edge scrolls |
 | Two fingers: drag; pinch | Scroll the map; zoom (on phones; a setting on tablets) |
 | Three fingers: tap | Open the game menu |
 

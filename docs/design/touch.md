@@ -53,7 +53,9 @@ the pointer instead of clicking, so the outline follows the finger and stays whe
 the outline there; a tap on the outline (or within 8 mm of the pointer, for a target) confirms with a left click at
 the pointer, never under the finger, so the building goes where the outline showed. A finger held within 8 mm of the
 map view's edge scrolls the map (60 mm/s) and does not long-press; a long press elsewhere is the right click that
-cancels.
+cancels. Because a tap away from the outline only moves it, the status bar says so while touch is in use ("Tap the
+outline to build; drag to move it", and "Tap a target, then tap it again to confirm") in place of the game's own
+Select Location and Select Target prompts.
 
 **Mouse frames.** The core's mouse model drops a release that arrives in the same frame as its press, so the machine
 emits one frame at a time (`Gesture::pop`) and the core applies one per game frame: press, then release, then any

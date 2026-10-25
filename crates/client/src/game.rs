@@ -2626,6 +2626,7 @@ pub(crate) fn update_messages(c: &mut Core) {
         info_panel: Some(info_panel),
         screen_ui: Some(scr),
         script,
+        touch,
         ..
     } = c
     else {
@@ -2663,12 +2664,16 @@ pub(crate) fn update_messages(c: &mut Core) {
         }
     }
     let demo = sim.world.sounds.demo;
+    // On touch a tap away from the outline or the pointer only moves it, so the prompt says how to confirm.
+    let fingers = touch.touch_only || touch.emulate || touch.active;
     let prompt = match ui.mode {
-        panel::Mode::Target(_) => Some(messages::net::SELECT_TARGET),
-        panel::Mode::Place(_) => Some(messages::net::SELECT_LOCATION),
+        panel::Mode::Target(_) if fingers => Some(crate::touch::TARGET_PROMPT.to_string()),
+        panel::Mode::Place(_) if fingers => Some(crate::touch::PLACE_PROMPT.to_string()),
+        panel::Mode::Target(_) => Some(hud.art.net_string(messages::net::SELECT_TARGET)),
+        panel::Mode::Place(_) => Some(hud.art.net_string(messages::net::SELECT_LOCATION)),
         _ => None,
     };
-    scr.status.set_prompt(prompt.map(|n| hud.art.net_string(n)));
+    scr.status.set_prompt(prompt);
     match (&ui.tooltip, &info_panel.hover) {
         (Some((text, (kind, cost, mana))), _) => scr.status.button(text, *kind, *cost, *mana, demo),
         (None, Some(name)) => scr.status.name(name, demo),

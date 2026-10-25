@@ -40,6 +40,10 @@ pub const LINE_MM: f32 = 7.0;
 pub const PULSE_MS: f32 = 400.0;
 /// A screen whose short side is under this many millimetres is a phone's, where the pinch zoom is on by default.
 pub const PHONE_MM: f32 = 90.0;
+/// The status bar's prompt while placing a building with a finger: a tap away from the outline only moves it there.
+pub const PLACE_PROMPT: &str = "Tap the outline to build; drag to move it";
+/// The status bar's prompt while choosing a target with a finger: a tap away from the pointer only moves it there.
+pub const TARGET_PROMPT: &str = "Tap a target, then tap it again to confirm";
 
 /// The core's touch state.
 #[derive(Default)]
@@ -453,6 +457,23 @@ pub fn draw_pulse(c: &mut Core) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The placing and targeting prompts fit the status bar's text in the install's own font (`TIDEWATER_INSTALL`;
+    /// skipped without one).
+    #[test]
+    fn the_prompts_fit_the_status_bar_in_the_real_font() {
+        let Some(root) = std::env::var_os("TIDEWATER_INSTALL") else {
+            eprintln!("skipped: set TIDEWATER_INSTALL to run");
+            return;
+        };
+        let install = tidewater_formats::install::Install::open(&root).expect("the install opens");
+        let front = crate::frontend::Front::load(install).expect("the fonts load");
+        let room = 341 - crate::messages::STATUS_TEXT_X;
+        for p in [PLACE_PROMPT, TARGET_PROMPT] {
+            let w = front.small.width(p.as_bytes()) as i32;
+            assert!(w <= room, "{p:?} is {w} wide, the bar has {room}");
+        }
+    }
 
     /// The `widescreen` option is ignored where touch is the main input (`crate::widescreen`): the pillarbox holds the
     /// chrome, so the screen stays 640 wide.
