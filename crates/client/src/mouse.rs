@@ -495,26 +495,34 @@ pub fn tap_snap(board: &Board, p: (i32, i32), radius: i32) -> (i32, i32) {
 
 /// The smart tap of a touchscreen (ours, the `touch-smart-tap` option, `docs/design/touch.md`): whether a tap at map
 /// pixel `p` should be a right click rather than a left one. It is when the selection holds a unit of the local
-/// player's that can move and the tap lands on no unit of the local player's, within `radius` map pixels of its box (the
-/// tap tolerance, [`tap_snap`]): ground, an enemy or a resource then takes the order, and a tap on one of your own units
-/// still selects it.
+/// player's that can move and the tap is not for a unit of the local player's: ground, an enemy or a resource then takes
+/// the order, and a tap on one of your own units still selects it. The tap is for the unit whose box it lands on (yours
+/// first, where boxes overlap); off every box, for the nearest unit within `radius` map pixels of its box, the one
+/// [`tap_snap`] would pick. So an enemy fighting beside your units is attacked when the tap lands on it.
 pub fn smart_tap(board: &Board, p: (i32, i32), radius: i32, sel: &[UnitId]) -> bool {
     let local = board.view.local;
     let commanding = board
         .units
         .iter()
         .any(|c| c.owner == local && c.mobile && !c.dying && sel.contains(&c.id));
-    let near = |c: &Cand| {
+    let mut on_box: Option<bool> = None;
+    let mut nearest: Option<(i64, bool)> = None;
+    for c in board.units.iter().filter(|c| board.can_pick(c)) {
         let b = c.sel_box();
+        let own = c.owner == local;
+        if b.contains(p) {
+            on_box = Some(on_box.unwrap_or(false) || own);
+            continue;
+        }
         let dx = i64::from((b.l - p.0).max(p.0 - b.r).max(0));
         let dy = i64::from((b.t - p.1).max(p.1 - b.b).max(0));
-        dx * dx + dy * dy <= i64::from(radius.max(0)).pow(2)
-    };
-    let on_own = board
-        .units
-        .iter()
-        .any(|c| c.owner == local && board.can_pick(c) && near(c));
-    commanding && !on_own
+        let d = dx * dx + dy * dy;
+        if d <= i64::from(radius.max(0)).pow(2) && nearest.is_none_or(|(bd, _)| d < bd) {
+            nearest = Some((d, own));
+        }
+    }
+    let for_own = on_box.or(nearest.map(|(_, own)| own)).unwrap_or(false);
+    commanding && !for_own
 }
 
 /// The click rules (Enhanced only); `None` hands the click to the box rules.
@@ -1559,6 +1567,19 @@ mod tests {
         assert!(!smart_tap(&b, beside, 24, &ids([1])));
         assert!(smart_tap(&b, beside, 18, &ids([1])));
         assert!(!smart_tap(&b, at((2, 2)), 24, &ids([1])));
+    }
+
+    #[test]
+    fn a_smart_tap_on_an_enemy_beside_your_units_attacks() {
+        // A grunt fighting your footman, a tile apart: the grunt is well within your footman's tolerance.
+        let b = board(true, vec![unit(1, FOOTMAN, 0, (5, 5)), unit(2, GRUNT, 1, (6, 5))]);
+        assert!(smart_tap(&b, at((6, 5)), 24, &ids([1])));
+        assert!(!smart_tap(&b, at((5, 5)), 24, &ids([1])));
+        // Off every box, the nearer unit decides.
+        let b = board(true, vec![unit(1, FOOTMAN, 0, (5, 5)), unit(2, GRUNT, 1, (7, 5))]);
+        let c = at((5, 5));
+        assert!(smart_tap(&b, (c.0 + 44, c.1), 64, &ids([1])));
+        assert!(!smart_tap(&b, (c.0 + 22, c.1), 64, &ids([1])));
     }
 
     #[test]
