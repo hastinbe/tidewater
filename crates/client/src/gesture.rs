@@ -21,7 +21,9 @@
 //! finger on the map view moves the pointer instead of clicking: a drag carries the outline along and leaves it where
 //! the finger lifts, a tap elsewhere moves it there, and a tap on the outline ([`Config::ghost`]) or near the pointer
 //! confirms with a left click at the pointer. A finger held near the view's edge scrolls the map (as the mouse at the
-//! screen's edge does); a long press is still a right click, which cancels.
+//! screen's edge does); a long press is still a right click, which cancels. A tap on the spot of a confirm, within
+//! [`DOUBLE_TAP_MS`] of it, is dropped: a double tap on the outline confirms once, where the second tap would otherwise
+//! reach the game after placement ended and, as a smart tap, send the builder to the site instead of building there.
 //!
 //! **Frames.** The mouse model needs a press and its release in different frames (a press and release in one frame
 //! drop the release), and a pointer move after a press in a later one. The machine therefore emits [`Frame`]s, and
@@ -276,6 +278,8 @@ pub struct Gesture {
     last_tap: Option<(Pt, f64)>,
     /// Where the pointer rests while placing or targeting.
     hover_at: Option<Pt>,
+    /// The last confirming tap's point and the time of its lift (or of the last tap dropped after it).
+    confirmed: Option<(Pt, f64)>,
 }
 
 impl Default for Gesture {
@@ -292,6 +296,7 @@ impl Default for Gesture {
             glide: None,
             last_tap: None,
             hover_at: None,
+            confirmed: None,
         }
     }
 }
@@ -737,7 +742,7 @@ impl Gesture {
                 if !cancelled {
                     if ripe {
                         self.long_press(pos);
-                    } else {
+                    } else if !self.repeats_confirm(start) {
                         self.tap(start, in_view);
                     }
                 }
@@ -754,7 +759,7 @@ impl Gesture {
                 if !cancelled {
                     if moved {
                         self.rest_pointer(pos);
-                    } else {
+                    } else if !self.repeats_confirm(start) {
                         self.hover_tap(start);
                     }
                 }
@@ -844,9 +849,20 @@ impl Gesture {
                 self.button(Button::Left, true, p);
                 self.next_frame();
                 self.button(Button::Left, false, p);
+                self.confirmed = Some((at, self.now));
             }
             None => self.rest_pointer(at),
         }
+    }
+
+    /// Whether a tap at `at` repeats the last confirm (the module doc): soon after it and on the same spot, as for a
+    /// double tap. Such a tap is dropped, and the next one is measured from it.
+    fn repeats_confirm(&mut self, at: Pt) -> bool {
+        let repeats = self
+            .confirmed
+            .is_some_and(|(p, t)| self.now - t <= DOUBLE_TAP_MS && dist(p, at) <= DOUBLE_TAP_MM * self.cfg.mm);
+        self.confirmed = repeats.then_some((at, self.now));
+        repeats
     }
 }
 
@@ -1256,6 +1272,54 @@ mod tests {
         let frames = run(&mut g, &[down(1, 320.0, 210.0), up(1, 320.0, 210.0)]);
         assert_eq!(frames[0].pointer, Some((300.0, 200.0)));
         assert_eq!(buttons(&frames).len(), 2);
+    }
+
+    /// The iPad report: a double tap on the outline built nothing. The first tap confirmed and ended placement; the
+    /// second came as an ordinary tap, which the smart tap turned into a right click, so the builder walked to the site
+    /// and stopped. That second tap is dropped now, whether placement has ended by then or not.
+    #[test]
+    fn placing_a_double_tap_on_the_outline_confirms_once() {
+        let ghost = Zone {
+            x: 280.0,
+            y: 180.0,
+            w: 64.0,
+            h: 64.0,
+        };
+        let mut g = placing(Some(ghost));
+        run(&mut g, &[down(1, 300.0, 200.0), up(1, 300.0, 200.0)]);
+        let mut frames = run(&mut g, &[down(1, 310.0, 210.0), up(1, 310.0, 210.0)]);
+        assert_eq!(buttons(&frames).len(), 2, "the confirm: {frames:?}");
+        // The game ends placement mode.
+        g.cfg.hover = false;
+        g.cfg.ghost = None;
+        frames.extend(waits(&mut g, 100));
+        // 20 points (4 mm) off: the same spot for a finger.
+        frames.extend(run(&mut g, &[down(1, 322.0, 226.0), up(1, 322.0, 226.0)]));
+        assert_eq!(buttons(&frames).len(), 2, "no second click: {frames:?}");
+        assert!(frames.iter().all(|f| !f.tap_press && !f.tap));
+        // A third tap straight after is dropped too.
+        frames.extend(waits(&mut g, 100));
+        frames.extend(run(&mut g, &[down(1, 318.0, 220.0), up(1, 318.0, 220.0)]));
+        assert_eq!(buttons(&frames).len(), 2, "{frames:?}");
+        // Later, or elsewhere, a tap is a tap again.
+        waits(&mut g, 600);
+        let frames = run(&mut g, &[down(1, 318.0, 220.0), up(1, 318.0, 220.0)]);
+        assert_eq!(buttons(&frames).len(), 2);
+        assert!(frames[0].tap_press);
+        let mut g = placing(Some(ghost));
+        run(&mut g, &[down(1, 300.0, 200.0), up(1, 300.0, 200.0)]);
+        run(&mut g, &[down(1, 310.0, 210.0), up(1, 310.0, 210.0)]);
+        g.cfg.hover = false;
+        waits(&mut g, 100);
+        let frames = run(&mut g, &[down(1, 450.0, 210.0), up(1, 450.0, 210.0)]);
+        assert_eq!(buttons(&frames).len(), 2, "30 mm away: {frames:?}");
+        // While placement is still on (a refused site keeps it), the repeat doesn't confirm a second time either.
+        let mut g = placing(Some(ghost));
+        run(&mut g, &[down(1, 300.0, 200.0), up(1, 300.0, 200.0)]);
+        run(&mut g, &[down(1, 310.0, 210.0), up(1, 310.0, 210.0)]);
+        waits(&mut g, 100);
+        let frames = run(&mut g, &[down(1, 312.0, 212.0), up(1, 312.0, 212.0)]);
+        assert!(buttons(&frames).is_empty(), "{frames:?}");
     }
 
     #[test]
