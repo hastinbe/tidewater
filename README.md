@@ -7,7 +7,7 @@
 ## What you need
 
 - **Your own copy of the game.** Tidewater needs *Warcraft II: Battle.net Edition* (for example the GOG release, or the Battle.net Edition CD). No game data is included. The 1995 DOS edition is not supported.
-- **A desktop computer.** macOS, Windows and Linux builds are made and checked in CI. Day-to-day play testing has been on macOS. iOS and Android apps exist as early builds (see [iPhone and iPad](#iphone-and-ipad-early) and [Android](#android-early)).
+- **A desktop computer.** macOS, Windows and Linux builds are made and checked in CI. Day-to-day play testing has been on macOS. iOS, Android and PS Vita apps exist as early builds (see [iPhone and iPad](#iphone-and-ipad-early), [Android](#android-early) and [PS Vita](#ps-vita-early)).
 - **A download, or a build toolchain.** Prebuilt downloads are on the [releases page](../../releases/latest); otherwise [build from source](#build-from-source).
 
 ## Install
@@ -21,6 +21,7 @@ Download the file for your system from the [latest release](../../releases/lates
 | **Linux** (x64) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. The archive has a `tidewater.desktop` menu entry to adapt and a `README.txt`. |
 | **Android** (7.0 or newer, early) | `tidewater-<version>-android.apk` | Download it on the device and open it; Android asks to allow installs from that browser or file manager, so allow it for that app. It is not on Google Play and does not update itself: to update, download the newer APK and install it over the old one (your game files and settings stay). Then [get your game files onto it](#android-early). A release may lack the APK until its signing key is set up. |
 | **iPhone and iPad** (iOS 15 or newer, early) | `tidewater-<version>-ios.ipa` | Not signed and not on the App Store: sideload it with your own Apple ID using AltStore, SideStore or Sideloadly (a free Apple ID needs a re-sign every 7 days). Steps: [Install the unsigned IPA](docs/design/ios.md#install-the-unsigned-ipa). |
+| **PS Vita** (custom firmware, early) | `tidewater-<version>-vita.vpk` | Install it with VitaShell, then copy your game files to `ux0:data/Tidewater`. Not tried on a real Vita and no controller input yet. Steps: [PS Vita](#ps-vita-early). |
 
 ## Import your game files
 
@@ -63,6 +64,7 @@ Tidewater looks for a newer release in the background when it starts (one reques
 | **macOS** | Replaces the app and restarts it. This needs the app in a folder you can write to, such as Applications: run from the disk image or straight from Downloads, the main menu says "Move Tidewater to Applications to enable updates." once, and Update now opens the release page. |
 | **Linux** | Opens the release page; download the new archive and unpack it over the old one. |
 | **Android, iOS** | Opens the release page; download the new APK or IPA and install it over the old one (your game files and saves stay). |
+| **PS Vita** | No check; install the newer VPK over the old one (your game files and saves stay). |
 
 Downloads are checked against the size the release lists; they are not signed. A failed check is ignored without a message, and development builds never check. Turn the check off with `update_check=0` in `settings.txt` or `--no-update-check` for one run. The main menu's version line and `tidewater --version` show the release you have. Branches, versioning and cutting a release: [docs/release.md](docs/release.md).
 
@@ -218,6 +220,17 @@ adb shell am start -n dev.tidewater.client/.TidewaterActivity
 `--abi arm64-v8a` builds one ABI; `--libs-only` stops before Gradle. This debug APK is signed with Gradle's debug key. The releases' APK is signed with a release key once the maintainer has set it up (see [docs/release.md](docs/release.md#android-apk)); `platform/android/build.sh --release --version X.Y.Z` builds that kind.
 
 **Get the game files onto it.** Either copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD image (`.iso`, `.bin`/`.cue`, `.mdf`, `.nrg`) into the app's folder with a computer, for example `adb push Warcraft2 /sdcard/Android/data/dev.tidewater.client/files/` (open the app once first so the folder exists), then tap Scan again on the first-run screen; or tap "Choose game folder..." or "Choose CD image..." to pick from the phone's storage, which Tidewater copies into its cache first. **A GOG installer (`.exe`) does not work on Android**, because unpacking it needs `innoextract`: unpack it on a computer, or install the game and copy the folder.
+
+### PS Vita (early)
+
+Tidewater builds as a PS Vita app that starts in the Vita3K emulator (it is not yet tried on a Vita, and the buttons and sticks are not read yet). The build uses a pinned nightly Rust toolchain and the [Vita SDK](https://vitasdk.org). Details and limits: [`docs/design/vita.md`](docs/design/vita.md).
+
+```sh
+export VITASDK=/path/to/vitasdk
+platform/vita/build.sh             # platform/vita/build/tidewater.vpk
+```
+
+**Install it** by opening the VPK in VitaShell. **Get the game files onto it:** copy a game folder or a CD image into `ux0:data/Tidewater` (VitaShell's FTP or USB), then choose Scan again on the first-run screen.
 
 ### How faithful it is
 
