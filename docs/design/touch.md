@@ -69,7 +69,8 @@ targeting; otherwise a lifted finger leaves no cursor to scroll the map's edge.
 units is a right click, press and release: ground moves there, an enemy is attacked, a mine or a forest is worked, as
 the right-click rules decide (`mouse::smart_tap`). The tap is for the unit whose box it lands on (yours first where
 boxes overlap); off every box, for the nearest unit within the 6 mm tap tolerance, so an enemy fighting beside your
-units is attacked, not selected. A tap on your own unit or building still selects it, and so does any tap with nothing of yours selected (an enemy you are looking at gives no
+units is attacked, not selected. A wall is terrain, not a unit, so a tap on a wall tile (off every box) counts as a
+target too, and the right click attacks it as a mouse's would. A tap on your own unit or building still selects it, and so does any tap with nothing of yours selected (an enemy you are looking at gives no
 orders). The **plain-click** button (the pointer with a click mark) makes the next tap on the map an ordinary left click, for the rare case the smart
 tap guesses wrong; the option `touch-smart-tap` turns it off.
 
