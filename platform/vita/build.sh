@@ -1,12 +1,14 @@
 #!/bin/sh
 # Builds the PS Vita app (docs/design/vita.md).
 #
-#   platform/vita/build.sh [--version X.Y.Z] [--out FILE]
+#   platform/vita/build.sh [--version X.Y.Z] [--out FILE] [--args "WORDS"] [--env "NAME=value ..."]
 #
 # Builds the program for armv7-sony-vita-newlibeabihf with the pinned nightly (nightly-version) and `-Z build-std`
 # (the target has no prebuilt standard library), then packs it the way the Vita expects: velf, eboot.bin, param.sfo
 # and the icon in a .vpk. The default output is platform/vita/build/tidewater.vpk; --out FILE copies it elsewhere.
 # --version X.Y.Z sets the version the Vita shows (APP_VER, "XX.YY": major and minor, each under 100; 00.00 without).
+# --args bakes a command line into a test build (the Vita gives an app none), e.g. --args "--script firstrun
+# --script-out ux0:data/Tidewater/out --headless"; --env adds environment variables to it. Releases carry neither.
 #
 # Needs rustup, CMake, and VITASDK (the folder of the Vita SDK, https://vitasdk.org; its bin folder holds
 # arm-vita-eabi-gcc and vita-pack-vpk). Install the SDK from its official release for your system; CI does.
@@ -26,8 +28,16 @@ while [ $# -gt 0 ]; do
             out=$2
             shift 2
             ;;
+        --args)
+            export TIDEWATER_BAKED_ARGS="$2"
+            shift 2
+            ;;
+        --env)
+            export TIDEWATER_BAKED_ENV="$2"
+            shift 2
+            ;;
         *)
-            echo "usage: $0 [--version X.Y.Z] [--out FILE]" >&2
+            echo "usage: $0 [--version X.Y.Z] [--out FILE] [--args \"WORDS\"] [--env \"NAME=value ...\"]" >&2
             exit 2
             ;;
     esac

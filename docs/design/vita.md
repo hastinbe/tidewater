@@ -78,6 +78,27 @@ platform/vita/build.sh --version 1.2.3 --out dist/tidewater-vita.vpk
 To try it in Vita3K: `Vita3K --frontend sdl platform/vita/build/tidewater.vpk` installs the VPK and runs it. The
 emulator prints "Unhandled write protected region" lines; they are its own memory tracking and harmless.
 
+### Test builds
+
+A Vita app gets no command line (Vita3K's `--app-args` does not reach it either), so a test build bakes one in:
+
+```sh
+# One scene, fixed at build time:
+platform/vita/build.sh --args "--script firstrun --script-out ux0:data/TWtest/firstrun --headless"
+# Any command line, read from a file when the app starts, so one build runs every scene:
+platform/vita/build.sh --args "@ux0:data/TWtest/args.txt" --env "TIDEWATER_NO_BEACON=1"
+```
+
+`--env "NAME=value ..."` sets environment variables first, such as `TIDEWATER_SCRIPT_PICTURES=0` (save each shot as
+a PNG) or `TIDEWATER_FRAME_STATS=1`. With `@FILE`, a missing file means no arguments: the normal program. Release
+builds carry neither option. A test build runs the same on a real Vita: copy the files there with VitaShell and read
+the results back from `ux0:data/TWtest`.
+
+To compare with the desktop, copy the imported game folder to `ux0:data/Tidewater/game`, run a scene with
+`--install ux0:data/Tidewater/game --script NAME --script-out ux0:data/TWtest/NAME --headless`, and diff the
+`NAME.txt` and `NAME-audio.txt` it writes against `crates/client/tests/snapshots/`. The `firstrun` scene differs on
+purpose: the Vita's first-run screen has its own text and only **Scan again**.
+
 ## Limits
 
 - **Not tried on a Vita.** Memory, speed, touch and the extended-memory request are all untested on hardware.
