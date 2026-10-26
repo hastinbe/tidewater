@@ -54,14 +54,16 @@ mkdir -p "$build"
 arm-vita-eabi-gcc -c -O2 "$here/stub.c" -o "$build/stub.o"
 
 # The Rust target's tools: the Vita's compiler and linker, and the SDK's CMake toolchain file (sdl3-sys builds SDL from
-# source). `-u` keeps the linker from dropping the stack-size symbol.
+# source). `-u` keeps the linker from dropping the stack-size symbol. `__sce_headroom` (read by the SDK's linker script)
+# leaves room after the code for the module data vita-elf-create adds there: without it the build fails whenever the
+# code happens to end within a few KiB of a 64 KiB boundary ("Cannot allocate ... segment 1 overlaps").
 lower=$(echo "$target" | tr - _)
 upper=$(echo "$lower" | tr '[:lower:]' '[:upper:]')
 export "CMAKE_TOOLCHAIN_FILE_$lower=$VITASDK/share/vita.toolchain.cmake"
 export "CC_$lower=arm-vita-eabi-gcc"
 export "AR_$lower=arm-vita-eabi-ar"
 export "CARGO_TARGET_${upper}_LINKER=arm-vita-eabi-gcc"
-export "CARGO_TARGET_${upper}_RUSTFLAGS=-C link-arg=$build/stub.o -C link-arg=-Wl,-u,sceUserMainThreadStackSize"
+export "CARGO_TARGET_${upper}_RUSTFLAGS=-C link-arg=$build/stub.o -C link-arg=-Wl,-u,sceUserMainThreadStackSize -C link-arg=-Wl,--defsym=__sce_headroom=0x4000"
 
 cd "$root"
 cargo "+$nightly" build --locked --release -Z build-std=std,panic_abort --target "$target" \
