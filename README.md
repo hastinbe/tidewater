@@ -197,7 +197,9 @@ The control groups are the Enhanced rules' (the default; Classic is opt-in and m
 L2, R2 or stick presses. The full table, by pad maker, is in [`docs/design/gamepad.md`](docs/design/gamepad.md).
 
 Whichever you used last has the pointer: the stick moves on from where the mouse or a finger left it, and moving the
-mouse takes it back. While a pad is connected the touch side bars hide. The Settings screen's Controller page (shown
+mouse takes it back. While a pad is connected the touch side bars hide. The **Controls** setting (General page) picks
+which devices work the game: Automatic (the default) uses every device there is, and you can choose keyboard and mouse,
+touch, controller, or controller and touch when those devices are there. The Settings screen's Controller page (shown
 once a pad is connected) sets the pointer speed, acceleration, the dead zone, swapping South and East for Nintendo's
 layout, and the side bars. Details: [`docs/design/gamepad.md`](docs/design/gamepad.md).
 
@@ -318,7 +320,7 @@ The idle-worker key is F6; keys can be rebound on the Settings screen's Keys pag
 | `minimap-ping` | `--extra-minimap-ping` | on, off | off | Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours |
 | `shift-queue` | `--extra-shift-queue` | on, off | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order (S) |
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
-| `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) (C+L) |
+| `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored while the touch side bars show; menus and videos stay 4:3) (C+L) |
 | `map-zoom` | `--extra-map-zoom VALUE` | off, wheel | off | `wheel`: the mouse wheel over the map view magnifies it up to 4 times around the pointer and back to the normal view, never showing more map than the original does (on touch devices the pinch is `touch-pinch`) (C) |
 | `touch-drag` | `--extra-touch-drag VALUE` | pan, pan-no-glide, box | pan | Touch only. A finger dragged on the map scrolls it (`pan` glides on after a flick, `pan-no-glide` stops where the finger lifts); hold it still a moment first to draw a selection box instead. `box`: a drag draws the box at once, as the mouse does |
 | `touch-smart-tap` | `--extra-touch-smart-tap VALUE` | on, off | on | Touch only. With your units selected, a tap on the ground, an enemy or a resource orders them there, as a right click does; a tap on your own unit or building selects it. `off`: every tap is a left click |
@@ -332,7 +334,8 @@ The idle-worker key is F6; keys can be rebound on the Settings screen's Keys pag
 | `pad-acceleration` | `--extra-pad-acceleration VALUE` | on, off | on | Controller only. A small push on the left stick moves the pointer slowly for aiming and a full push fast; it also slows over units and buttons. `off`: the speed follows the push evenly |
 | `pad-dead-zone` | `--extra-pad-dead-zone VALUE` | normal, small, large | normal | Controller only. How far a stick moves before it counts: raise it if the pointer drifts on its own |
 | `pad-swap` | `--extra-pad-swap` | on, off | off | Controller only. The right face button clicks and the bottom one right-clicks, for pads with Nintendo's layout |
-| `pad-hide-touch` | `--extra-pad-hide-touch VALUE` | on, off | on | Controller and touch. While a controller is connected the touch screen's side bars hide (taps still work, and the shoulder buttons are Shift and Ctrl) |
+| `pad-hide-touch` | `--extra-pad-hide-touch VALUE` | on, off | on | Controller and touch mode. While a controller is connected the touch screen's side bars hide (taps still work, and the shoulder buttons are Shift and Ctrl) |
+| `controls` | `--extra-controls VALUE` | auto, mouse, touch, pad, pad-touch | auto | Which devices work the game; the keyboard always does. `auto`: every device there is. `mouse`: keyboard and mouse only. `touch`: fingers. `pad`: controller. `pad-touch`: both. A missing device falls back to `auto` |
 
 **C+L** marks an option that gives you an edge (health bars, smart attack-move, widescreen). In a game with other players the host chooses it in the lobby's "Extras" box (from the command line, `--lobby extras=health-bars=always/widescreen=16:9`; the host's own settings stand for the ones not named) and every player, observers included, plays with the host's choice, whatever their own setting. In single-player games and replays you get your own. **S** marks an option that changes the simulation (rally points, the production queue, shift-queued orders,
 the selection limit and the extra speed levels): the flag or the setting starts a single-player game with it, and in a
