@@ -32,7 +32,7 @@ use crate::chrome::{self, Chrome, Control, Fed, Latch, Overlay};
 use crate::core::{Core, game_running};
 use crate::extras::{TouchSettings, TouchTwoFinger};
 use crate::gesture::{self, Gesture, OneFinger, Pt, TwoFinger, Zone};
-use crate::input::{Button, Key, KeyEvent, Touch, Wheel, WindowGeom};
+use crate::input::{Button, Key, KeyEvent, Touch, TouchPhase, Wheel, WindowGeom};
 use crate::states::AppState;
 use crate::touchemu::Emulator;
 
@@ -99,6 +99,8 @@ pub struct TouchState {
     /// A text box wanted typing last step ([`text_wanted`]), and the keyboard is open because it did.
     text_was: bool,
     auto_keyboard: bool,
+    /// Fingers spent closing the keyboard ([`TouchState::text_tap`]): the rest of their touch goes nowhere.
+    spent: Vec<u64>,
 }
 
 impl TouchState {
@@ -216,6 +218,33 @@ impl TouchState {
         self.latched_at = None;
     }
 
+    /// A finger while a text box wants typing (`area`, window points; "Text boxes"): landing outside the box with the
+    /// keyboard open closes the keyboard and is spent on that (true), so no keyboard needs a hide key of its own;
+    /// landing on the box with it closed opens it again and goes on to the box.
+    fn text_tap(&mut self, f: Touch, area: Option<(f32, f32, f32, f32)>) -> bool {
+        if let Some(i) = self.spent.iter().position(|&id| id == f.id) {
+            if matches!(f.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+                self.spent.swap_remove(i);
+            }
+            return true;
+        }
+        let (Some((x, y, w, h)), TouchPhase::Began) = (area, f.phase) else {
+            return false;
+        };
+        let inside = (x..=x + w).contains(&f.pos.0) && (y..=y + h).contains(&f.pos.1);
+        if self.chrome.keyboard && !inside {
+            self.chrome.keyboard = false;
+            self.auto_keyboard = false;
+            self.spent.push(f.id);
+            return true;
+        }
+        if !self.chrome.keyboard && inside {
+            self.chrome.keyboard = true;
+            self.auto_keyboard = true;
+        }
+        false
+    }
+
     fn release_latches(&mut self, keys: &mut Vec<(Key, bool)>) {
         for (latch, k) in [
             (&mut self.chrome.shift, Key::ShiftLeft),
@@ -277,16 +306,40 @@ pub fn chrome_hidden(mode: crate::controls::Mode, hide_touch: bool, screen_w: u3
     !mode.chrome_shown(hide_touch) || screen_w > crate::display::SCREEN.0
 }
 
-/// Whether a text box wants typing this frame (`docs/design/touch.md`, "Text boxes"): the in-game chat line, the save
-/// dialog's name, or a multiplayer menu's or the lobby's focused box.
-pub fn text_wanted(c: &Core) -> bool {
+/// The text box that wants typing this frame (`docs/design/touch.md`, "Text boxes"): the in-game chat line (in game
+/// screen pixels), the save dialog's name, or a multiplayer menu's or the lobby's focused box (in 640 x 480 menu
+/// pixels, `true`).
+pub fn text_box(c: &Core) -> Option<(crate::hud::Rect, bool)> {
     match c.states.get() {
         AppState::Game => {
-            c.screen_ui.as_ref().is_some_and(|s| s.status.chat.is_some()) || c.menu.as_ref().is_some_and(|m| m.naming())
+            if let Some(m) = &c.menu {
+                return m.name_box().map(|r| (r, true));
+            }
+            let chat = c.screen_ui.as_ref().is_some_and(|s| s.status.chat.is_some());
+            chat.then(|| c.hud.as_ref().and_then(|h| h.layout))
+                .flatten()
+                .map(|l| (l.bottom, false))
         }
-        AppState::Multiplayer => crate::frontend::mp_text_wanted(c),
-        _ => false,
+        AppState::Multiplayer => crate::frontend::mp_text_box(c).map(|r| (r, true)),
+        _ => None,
     }
+}
+
+/// Whether a text box wants typing this frame ([`text_box`]).
+pub fn text_wanted(c: &Core) -> bool {
+    text_box(c).is_some()
+}
+
+/// The text box in window points (left, top, width, height), for the shell to keep clear of the soft keyboard
+/// (`SDL_SetTextInputArea`) and for a finger to be told from a tap elsewhere.
+pub fn text_area(c: &Core, w: WindowGeom) -> Option<(f32, f32, f32, f32)> {
+    let (r, menu) = text_box(c)?;
+    let lb = w.letterbox();
+    let o = if menu { lb.flow_origin() } else { (0, 0) };
+    let at = |x: i32, y: i32| lb.window_of(((x + o.0) as f32, (y + o.1) as f32), w.factor);
+    let (x0, y0) = at(r.x, r.y);
+    let (x1, y1) = at(r.x + r.w as i32, r.y + r.h as i32);
+    Some((x0, y0, x1 - x0, y1 - y0))
 }
 
 /// Opens the soft keyboard as a text box starts wanting typing, and closes it as the box is done if it was opened so.
@@ -323,6 +376,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     let raw = std::mem::take(&mut c.input.touches);
     let mice = std::mem::take(&mut c.input.mouse_touches);
     let Some(w) = window else { return };
+    let area = text_area(c, w);
     let lb = w.letterbox();
     let ppmm = w.points_per_mm();
     let extras = crate::game::extras(c);
@@ -398,6 +452,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     let mut passed = Vec::new();
     for f in fingers {
         match if hide_chrome { Fed::Pass } else { t.chrome.feed(f) } {
+            Fed::Pass if t.text_tap(f, area) => {}
             Fed::Pass => passed.push(f),
             Fed::Consumed => {}
             Fed::Pressed(ctl) => t.press(ctl, &mut keys),
@@ -759,6 +814,32 @@ mod tests {
         follow_text_boxes(&mut t, false);
         follow_text_boxes(&mut t, true);
         assert!(t.chrome.keyboard, "the next box opens it again");
+    }
+
+    #[test]
+    fn a_tap_outside_the_box_closes_the_keyboard_and_one_on_it_opens_it() {
+        let mut t = TouchState::new(false);
+        let area = Some((100.0, 200.0, 50.0, 10.0));
+        let touch = |id, phase, pos| Touch { id, phase, pos };
+        follow_text_boxes(&mut t, true);
+        assert!(t.chrome.keyboard);
+        // On the box: it goes on to the box.
+        assert!(!t.text_tap(touch(1, TouchPhase::Began, (120.0, 205.0)), area));
+        assert!(t.chrome.keyboard);
+        // Elsewhere: the keyboard closes and the whole touch is spent.
+        assert!(t.text_tap(touch(2, TouchPhase::Began, (10.0, 10.0)), area));
+        assert!(!t.chrome.keyboard);
+        assert!(t.text_tap(touch(2, TouchPhase::Moved, (12.0, 10.0)), area));
+        assert!(t.text_tap(touch(2, TouchPhase::Ended, (12.0, 10.0)), area));
+        assert!(t.spent.is_empty());
+        // With it closed, a tap elsewhere acts as ever, and one on the box opens it.
+        assert!(!t.text_tap(touch(3, TouchPhase::Began, (10.0, 10.0)), area));
+        assert!(!t.chrome.keyboard);
+        assert!(!t.text_tap(touch(4, TouchPhase::Began, (149.0, 209.0)), area));
+        assert!(t.chrome.keyboard);
+        // No box: fingers are left alone.
+        assert!(!t.text_tap(touch(5, TouchPhase::Began, (10.0, 10.0)), None));
+        assert!(t.chrome.keyboard);
     }
 
     #[test]

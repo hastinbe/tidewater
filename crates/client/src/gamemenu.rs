@@ -321,11 +321,13 @@ impl Builder {
 }
 
 impl GameMenu {
-    /// Whether the save dialog is open on its list, where typing names the game.
-    pub(crate) fn naming(&self) -> bool {
+    /// The save dialog's name field while the dialog is open on its list, where typing names the game (640 x 480
+    /// menu pixels).
+    pub(crate) fn name_box(&self) -> Option<crate::hud::Rect> {
         self.save
             .as_ref()
             .is_some_and(|s| s.dialog.mode == saves::Mode::Save && s.dialog.stage == saves::Stage::List)
+            .then_some(savedlg::FIELD)
     }
 
     fn screen(&self) -> Screen {

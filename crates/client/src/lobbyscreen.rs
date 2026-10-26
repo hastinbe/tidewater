@@ -654,6 +654,11 @@ impl Lobby {
         self.notice.is_none() && self.popup.is_none() && self.focus == T::Say
     }
 
+    /// The player's chat line while it has the focus.
+    pub(crate) fn text_rect(&self) -> Option<Rect> {
+        self.text_focused().then(|| chat_rect(self.me))
+    }
+
     fn keys(&mut self, input: &Input, ctx: &mut Ctx) -> Outcome {
         let mut pad = input.pad_focus;
         if self.text_focused() {

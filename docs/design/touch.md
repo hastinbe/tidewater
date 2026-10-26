@@ -152,11 +152,22 @@ says so too. A controller hides the bars whatever the width (`pad-hide-touch`); 
 
 ### Text boxes
 
-While a box wants typing and touch is in use, the soft keyboard opens by itself (`touch::text_wanted`): the in-game
+While a box wants typing and touch is in use, the soft keyboard opens by itself (`touch::text_box`): the in-game
 chat line, the save dialog's name, the multiplayer menus' name, address and port boxes, and the lobby's chat line. It
-closes again when the box is done, unless the player had opened it with the keyboard button. Closing it by hand
-(the system's hide key, Back) leaves it closed until the next box opens. This is what makes the keyboard reachable
-with the bars hidden, and it saves a tap with them shown.
+closes again when the box is done, unless the player had opened it with the keyboard button. This is what makes the
+keyboard reachable with the bars hidden, and it saves a tap with them shown.
+
+| Doing | Does |
+|---|---|
+| Return | Enter: saves, sends the line or confirms the box, which then closes the keyboard. |
+| A tap outside the box and the bars | Closes the keyboard and nothing else; the box stays. Not every keyboard has a hide key (an iPhone's has none), so this is the way out everywhere. |
+| A tap on the box | Opens the keyboard again. |
+| The system's hide key, Back | Closes it until the next box, or a tap on this one. |
+| A tap on the status bar in a game | Opens the chat line (also for cheats), as Enter does: without the bars there is no Enter until the keyboard is up. Touch only; a mouse click there does nothing, as in the original. |
+
+**Keeping the box in view.** The core hands the box's place in window points to the shell
+(`Core::text_input_area`), which gives it to SDL (`SDL_SetTextInputArea`). On iOS, SDL then slides the view up so the
+box sits just above the keyboard; the rest of a dialog may be under it, but what is typed shows.
 
 ## Scaling
 

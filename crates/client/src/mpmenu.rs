@@ -714,6 +714,19 @@ impl Mp {
         }
     }
 
+    /// The text box that has the focus, where typing goes.
+    pub(crate) fn text_rect(&self) -> Option<Rect> {
+        if !self.text_focused() {
+            return None;
+        }
+        match (&self.overlay, self.focus) {
+            (Overlay::Name(_), _) => Some(NAME_BOX),
+            (_, T::Address) => Some(ADDRESS_BOX),
+            (_, T::Port) => Some(PORT_BOX),
+            _ => None,
+        }
+    }
+
     fn focused_box(&mut self) -> Option<&mut EditBox> {
         match (&self.overlay, self.focus) {
             (Overlay::Name(_), _) => Some(&mut self.name),

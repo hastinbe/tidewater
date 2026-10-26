@@ -2645,11 +2645,11 @@ struct MpScreen {
     ready_at: f64,
 }
 
-/// Whether the multiplayer menus' or the lobby's focused box takes typing (`touch::text_wanted`).
-pub(crate) fn mp_text_wanted(c: &Core) -> bool {
+/// The multiplayer menus' or the lobby's focused text box, if one takes typing (`touch::text_box`).
+pub(crate) fn mp_text_box(c: &Core) -> Option<crate::hud::Rect> {
     match &c.screens.mp_lobby {
-        Some(lobby) => lobby.text_focused(),
-        None => c.screens.mp.as_ref().is_some_and(|m| m.ui.text_focused()),
+        Some(lobby) => lobby.text_rect(),
+        None => c.screens.mp.as_ref().and_then(|m| m.ui.text_rect()),
     }
 }
 
