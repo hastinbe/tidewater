@@ -20,8 +20,8 @@
 //! [`end_with`] (a game's end, through the victory or defeat dialog's Continue), and [`to_main_menu`].
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
+use std::sync::{Arc, Mutex};
 
 use glam::Vec2;
 use tidewater_formats::fnt::Font;
@@ -1181,14 +1181,15 @@ pub(crate) fn enter_video(c: &mut Core) {
     let Some(Step::Video(n)) = flow.current else { return };
     music.start(None);
     flow.memory.played(n);
-    let data = front.install.read(&cf::video_path(n)).unwrap_or_default();
-    // The audio track is gathered from a second decoder on a thread and starts where the picture is.
+    let data = Arc::new(front.install.read(&cf::video_path(n)).unwrap_or_default());
+    // The audio track is gathered from a second decoder on a thread and starts where the picture is. Both read the one
+    // copy of the file: the intro is over 30 MB, and the Vita's heap is small.
     let (tx, rx) = channel();
-    let copy = data.clone();
+    let shared = Arc::clone(&data);
     std::thread::spawn(move || {
-        let _ = tx.send(video::audio_wav(copy));
+        let _ = tx.send(video::audio_wav(shared));
     });
-    let Ok(mut smk) = Smacker::from_vec(data) else {
+    let Ok(mut smk) = Smacker::from_shared(data) else {
         commands.queue(|c| c.screens.clock = Some(Clock(f64::INFINITY)));
         return;
     };
