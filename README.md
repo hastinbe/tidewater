@@ -178,15 +178,15 @@ Triangle and LB/RB/LT/RT are L1/R1/L2/R2. On a Switch pad the face buttons go by
 | Xbox | PlayStation | In a game | In the menus |
 |---|---|---|---|
 | Left stick | Left stick | Move the pointer (small push: slow, full push: fast) | The same |
-| A | Cross | Left click; hold and move to drag a selection box | Left click |
-| B | Circle | Right click (move, attack, harvest) | Right click |
+| A | Cross | Left click; hold and move to drag a selection box | Press the highlighted item |
+| B | Circle | Right click (move, attack, harvest) | Back (Esc) |
 | X | Square | Command buttons: the d-pad steps between them, A presses, B goes back | - |
 | Y | Triangle | The pointer to the minimap, and back | - |
 | LB | L1 | Shift, held (add to or remove from the selection) | The same |
 | RB | R1 | Ctrl, held (all of that type on screen) | The same |
 | LT | L2 | The pointer twice as fast, held | The same |
 | RT | R2 | Alt, held | The same |
-| D-pad | D-pad | Control groups 1 to 4 (up, right, down, left): recall, twice to centre; RB held: set; RT held: centre and recall | Arrow keys |
+| D-pad | D-pad | Control groups 1 to 4 (up, right, down, left): recall, twice to centre; RB held: set; RT held: centre and recall | Arrow keys; up and down move the focus |
 | Right stick | Right stick | Scroll the map | Scroll lists |
 | Menu (☰) | Options | Game menu (F10); Esc while a menu is open | Enter |
 | View (⧉) | Create | Pause and resume | Esc |

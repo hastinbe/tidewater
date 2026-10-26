@@ -63,15 +63,15 @@ What each one does, with the options at their defaults:
 | Pad | In a game | In the menus and dialogs |
 |---|---|---|
 | Left stick | moves the pointer; a small push aims slowly, a full push is fast | the same |
-| South | left click; held while the stick moves, a selection box | left click |
-| East | right click (move, attack, harvest); in panel mode, back to the map | right click |
+| South | left click; held while the stick moves, a selection box | presses the focused item (Enter) |
+| East | right click (move, attack, harvest); in panel mode, back to the map | back (Esc) |
 | West | panel mode (below) | - |
 | North | the pointer to the minimap, and back | - |
 | L1 | Shift, held (Shift-click adds to the selection or removes from it) | Shift, held |
 | R1 | Ctrl, held (Ctrl-click takes every unit of that type on screen) | Ctrl, held |
 | L2 | the pointer twice as fast, held | the same |
 | R2 | Alt, held | Alt, held |
-| D-pad | control groups 1 to 4 (up, right, down, left): a press recalls the group, twice quickly centres on it; with R1 held it sets the group, with R2 held it centres and recalls | arrow keys |
+| D-pad | control groups 1 to 4 (up, right, down, left): a press recalls the group, twice quickly centres on it; with R1 held it sets the group, with R2 held it centres and recalls | arrow keys; up and down also move the focus ring (see below) |
 | Right stick | scrolls the map (past half a push) | the mouse wheel (lists) |
 | Start | the game menu (F10); while a menu is open, Esc | Enter |
 | Back | pause and resume, as the Pause button | Esc |
@@ -88,6 +88,16 @@ A (east) the click and B (south) the right click, as Nintendo's own games do.
 
 **The PS Vita** has no L2, R2 or stick presses, so the faster pointer, Alt, the system keyboard and the idle-worker
 button are not on its pad (the touch screen and the Pause and Menu buttons still work).
+
+**The d-pad in the menus.** Up and down move the focus ring, as Shift+Tab and Tab do, and confirm (south, or east with
+`pad-swap`) or Start presses the focused item: confirm sends Enter rather than a click at the pointer, and back sends
+Esc. The pad's focus also stops on the main menu's links (Settings, Touch Controls), which the keyboard's Tab passes
+over because F2 opens Settings, and its confirm toggles a game dialog's focused check box or radio button, which Enter
+leaves alone (`Input::pad_confirm`). The d-pad still acts as arrow keys too, so lists, pop-ups and the Settings screen
+move as with the keyboard; where a screen gives the arrows a meaning of their own, the pad's up and down move the focus
+instead: on the Custom Scenario screen left and right change the focused option, and in the multiplayer menus and the
+lobby the focus moves except in the game list and an open pop-up. A keyboard's arrow keys are unchanged
+(`Input::pad_focus` is set only by the pad).
 
 **Panel mode.** West puts the pointer on the first command button shown; the d-pad steps between the buttons (by
 their grid, skipping empty slots), south presses one, and east or west goes back to where the pointer was on the map.
