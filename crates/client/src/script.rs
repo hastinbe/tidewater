@@ -509,6 +509,13 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        Scene {
+            name: "pad-focus",
+            start: vec![Step::MainMenu],
+            cmds: pad_focus(),
+            extras: &[],
+            keys: "",
+        },
         // Needs no game files: `host::launch` shows the first-run screen over a demo backend.
         Scene {
             name: FIRST_RUN,
@@ -838,6 +845,31 @@ fn pad_menu() -> Vec<Cmd> {
     v.extend([Wait(5), Shot("controller")]);
     v.extend(pad_press(P::Back));
     v.extend([Wait(30), Shot("left")]);
+    v
+}
+
+/// The d-pad moves a menu's focus ring as Tab and Shift+Tab do, and Start chooses the focused button; the keyboard's
+/// arrow keys still don't move it (the menus' focus moves only with Tab, screen spec "Keyboard focus").
+fn pad_focus() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    use PadButton as P;
+    let mut v = vec![PadAdded, Until(AppState::MainMenu), Wait(25), Shot("menu")];
+    v.extend(tap(K::Down));
+    v.extend([Wait(2), Shot("keyboard-down")]);
+    v.extend(pad_press(P::Down));
+    v.extend([Wait(2), Shot("pad-down")]);
+    v.extend(pad_press(P::Down));
+    v.extend(pad_press(P::Up));
+    v.extend([Wait(2), Shot("pad-down-up")]);
+    v.extend(pad_press(P::Start));
+    v.extend([Until(AppState::Multiplayer), Wait(3), Shot("multiplayer")]);
+    // The multiplayer menus handle the arrows themselves: the keyboard's Down still does nothing there, the pad's moves
+    // the focus from Enhanced to Classic.
+    v.extend(tap(K::Down));
+    v.extend([Wait(2), Shot("mp-keyboard-down")]);
+    v.extend(pad_press(P::Down));
+    v.extend([Wait(2), Shot("mp-pad-down")]);
     v
 }
 

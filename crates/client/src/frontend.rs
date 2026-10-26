@@ -1569,6 +1569,7 @@ fn menu_input(
     at: Option<Vec2>,
     mouse: &Buttons<Button>,
     keys: &Buttons<Key>,
+    pad: Option<menuscreen::FocusKey>,
 ) -> Option<usize> {
     menu.hot = at.and_then(|p| menu.items.iter().position(|it| it.enabled && it.r.contains(p.x, p.y)));
     if mouse.just_pressed(Button::Left) {
@@ -1580,7 +1581,7 @@ fn menu_input(
             menu.focus = h;
         }
     }
-    if let Some(k) = focus_key(keys) {
+    if let Some(k) = focus_key(keys).or(pad) {
         let enabled: Vec<bool> = menu.items.iter().map(|it| it.enabled && !it.link).collect();
         menu.focus = menuscreen::move_focus(&enabled, menu.focus, k);
     }
@@ -1926,7 +1927,7 @@ fn run_menu(c: &mut Core) {
         return;
     }
     let at = pointer(input, cam);
-    let mut pick = menu_input(menu, front, pictures, at, mouse, keys);
+    let mut pick = menu_input(menu, front, pictures, at, mouse, keys, input.pad_focus);
     // F2 is the Settings link's key.
     if pick.is_none()
         && keys.just_pressed(Key::F(2))
@@ -2036,7 +2037,7 @@ fn run_single_player(c: &mut Core) {
     }
     let keys = &input.keys;
     let at = pointer(input, cam);
-    let pick = menu_input(menu, front, pictures, at, &input.mouse, keys);
+    let pick = menu_input(menu, front, pictures, at, &input.mouse, keys, input.pad_focus);
     match pick {
         // New Campaign: the campaign menu, on the same picture with no fade.
         Some(0) => {
@@ -2171,7 +2172,7 @@ fn run_new_campaign(c: &mut Core) {
     let keys = &input.keys;
     let mouse = &input.mouse;
     let at = pointer(input, cam);
-    let pick = menu_input(menu, front, pictures, at, mouse, keys);
+    let pick = menu_input(menu, front, pictures, at, mouse, keys, input.pad_focus);
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     // Campaign flow, "Choosing a new campaign": a choice fades all sound (track 22 out), then the screen to black over
     // 200 ms, then the flow goes on; Previous Menu goes back at once, with no fade, and track 22 plays on.
@@ -2321,6 +2322,7 @@ pub(crate) fn custom_input(input: &crate::input::Input, cam: &FrontScreen) -> cu
         ctrl: input.keys.any_pressed([Key::ControlLeft, Key::ControlRight]),
         alt: input.keys.any_pressed([Key::AltLeft, Key::AltRight]),
         wheel: lines.round() as i32,
+        pad_focus: input.pad_focus,
         ..Default::default()
     }
 }

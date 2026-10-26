@@ -186,7 +186,7 @@ Triangle and LB/RB/LT/RT are L1/R1/L2/R2. On a Switch pad the face buttons go by
 | RB | R1 | Ctrl, held (all of that type on screen) | The same |
 | LT | L2 | The pointer twice as fast, held | The same |
 | RT | R2 | Alt, held | The same |
-| D-pad | D-pad | Control groups 1 to 4 (up, right, down, left): recall, twice to centre; RB held: set; RT held: centre and recall | Arrow keys |
+| D-pad | D-pad | Control groups 1 to 4 (up, right, down, left): recall, twice to centre; RB held: set; RT held: centre and recall | Arrow keys; up and down move the focus |
 | Right stick | Right stick | Scroll the map | Scroll lists |
 | Menu (☰) | Options | Game menu (F10); Esc while a menu is open | Enter |
 | View (⧉) | Create | Pause and resume | Esc |

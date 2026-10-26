@@ -19,7 +19,7 @@
 //! | North | the pointer to the minimap and back | - |
 //! | L1 / R1 | Shift / Ctrl, held | the same |
 //! | L2 / R2 | the pointer twice as fast / Alt, held | the same |
-//! | D-pad | control groups 1-4 (with R1 set, with R2 centre and recall) | arrow keys |
+//! | D-pad | control groups 1-4 (with R1 set, with R2 centre and recall) | arrow keys; up and down also step the focus |
 //! | Right stick | scrolls the map (the arrow keys) | the mouse wheel |
 //! | Start | F10, the game menu (Esc while a menu is open) | Enter |
 //! | Back / Select | pause | Esc |
@@ -37,6 +37,7 @@ use crate::game::PadAim;
 use crate::gesture::Pt;
 use crate::hud::Rect;
 use crate::input::{Button, Input, Key, KeyEvent, PadAxis, PadButton, PadEvent, Wheel, WindowGeom};
+use crate::menuscreen::FocusKey;
 
 /// The pointer's speed at a full push of the stick, in screen pixels a second.
 pub const SPEED: f32 = 640.0;
@@ -309,6 +310,7 @@ impl PadState {
 
 /// One frame's pad step; see the module doc.
 pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
+    c.input.pad_focus = None;
     let events = std::mem::take(&mut c.input.pads);
     let fingers = !c.input.touches.is_empty() || !c.input.mouse_touches.is_empty();
     if events.is_empty() && c.pad.bound.is_empty() && c.pad.level_keys.is_empty() && !c.pad.active {
@@ -415,7 +417,15 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         );
         p.bound.insert(b, out);
         match out {
-            Out::Key(k) => key(input, k, true),
+            Out::Key(k) => {
+                key(input, k, true);
+                // In the menus the d-pad's up and down also move the focus ring, which the menus move only with Tab.
+                match k {
+                    Key::Up => input.pad_focus = Some(FocusKey::Back),
+                    Key::Down => input.pad_focus = Some(FocusKey::Next),
+                    _ => {}
+                }
+            }
             Out::Mouse(m) => input.button(m, true),
             Out::Panel => {
                 if p.panel.is_some() {

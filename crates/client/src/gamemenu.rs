@@ -1169,7 +1169,7 @@ pub(crate) fn run_menu(c: &mut Core) {
     {
         focus = Some(i);
     }
-    if let (Some(k), Some(f)) = (frontend::focus_key(keys), focus) {
+    if let (Some(k), Some(f)) = (frontend::focus_key(keys).or(input.pad_focus), focus) {
         focus = Some(crate::menuscreen::step_focus(&tab_stops(&built, screen), f, k));
     }
     if focus != m.focus {

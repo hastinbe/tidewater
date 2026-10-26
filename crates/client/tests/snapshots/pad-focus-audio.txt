@@ -1,0 +1,2 @@
+# mixed sound fingerprints of the scripted scene `pad-focus` (hashes only): 22050 Hz stereo 16-bit, one-second blocks
+tail	20212	45706ac0638d7239
