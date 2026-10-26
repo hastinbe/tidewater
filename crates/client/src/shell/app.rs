@@ -94,9 +94,37 @@ pub fn android_main(argv: Vec<std::ffi::OsString>) -> i32 {
     }
 }
 
-/// The program, from its command line: what `main` does on a desktop, and what the iOS app's entry calls.
+/// The program, from its command line: what `main` does on a desktop, and what the iOS app's entry calls. A test build
+/// with a command line baked in (`baked_args`) runs that instead.
 pub fn run_program() -> Result<()> {
+    if let Some(args) = baked_args() {
+        return run_program_from(Args::parse_from(args));
+    }
     run_program_from(Args::parse())
+}
+
+/// A test build's command line, baked in when it was built: `TIDEWATER_BAKED_ARGS` (words split at spaces, or `@FILE`
+/// for the words in that file, read at start so one build runs many tests), after the variables in
+/// `TIDEWATER_BAKED_ENV` (`NAME=value` words) are set. For a system that gives an app no command line, the PS Vita
+/// (`platform/vita/build.sh --args`, `docs/design/vita.md`); a build without them is the normal program.
+fn baked_args() -> Option<Vec<String>> {
+    let baked = option_env!("TIDEWATER_BAKED_ARGS")?;
+    for word in option_env!("TIDEWATER_BAKED_ENV").unwrap_or("").split_whitespace() {
+        if let Some((name, value)) = word.split_once('=') {
+            sdl::set_env(name, value);
+        }
+    }
+    // A missing file is an empty command line: the normal program.
+    let words = match baked.strip_prefix('@') {
+        Some(file) => std::fs::read_to_string(file).unwrap_or_default(),
+        None => baked.to_owned(),
+    };
+    Some(
+        std::iter::once("tidewater")
+            .chain(words.split_whitespace())
+            .map(String::from)
+            .collect(),
+    )
 }
 
 /// The program, from parsed arguments.
