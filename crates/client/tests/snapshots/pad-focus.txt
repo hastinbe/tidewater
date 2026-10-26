@@ -25,3 +25,8 @@ shot	51	mp-keyboard-down	b6581ec9fb687a37
 frames	43-51	b6581ec9fb687a37
 shot	55	mp-pad-down	a992df2f132e5937
 frames	52-55	a992df2f132e5937
+shot	60	mp-confirm	11cc09a8a72a6d0a
+frames	56-60	11cc09a8a72a6d0a
+frames	61-61	8a413a74a6d95867
+shot	65	mp-back	ae002ae8f7021e83
+frames	62-65	ae002ae8f7021e83

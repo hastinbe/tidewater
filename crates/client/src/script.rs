@@ -828,27 +828,29 @@ fn pad_mixed() -> Vec<Cmd> {
     v
 }
 
-/// The pad in the menus: the stick takes the pointer to Settings... on the main menu and south opens it; the
-/// Controller tab shows because a pad is connected, and the stick and south open it; Back (Esc) leaves.
+/// The pad in the menus: the d-pad takes the focus to the Settings link on the main menu and south (confirm) opens it,
+/// as Enter would the focused button; the Controller tab shows because a pad is connected, and the d-pad goes to it;
+/// Back (Esc) leaves.
 fn pad_menu() -> Vec<Cmd> {
     use Cmd::*;
     use PadButton as P;
     let mut v = vec![PadAdded, Until(AppState::MainMenu), Wait(25), Shot("menu")];
-    v.extend(pad_push(1.0, 0.0, 23));
-    v.extend(pad_push(0.0, 1.0, 21));
-    v.extend([Wait(1), Shot("aimed")]);
+    // Up from the first button wraps to the Settings link, which a pad's focus stops on (the keyboard's passes it).
+    v.extend(pad_press(P::Up));
+    v.extend([Wait(2), Shot("aimed")]);
     v.extend(pad_press(P::South));
     v.extend([Wait(30), Shot("settings")]);
-    v.extend(pad_push(0.0, -1.0, 36));
-    v.extend(pad_push(-1.0, 0.0, 2));
-    v.extend(pad_press(P::South));
+    // The focus opens on the General tab; Right goes along the tabs to the Controller page.
+    for _ in 0..5 {
+        v.extend(pad_press(P::Right));
+    }
     v.extend([Wait(5), Shot("controller")]);
     v.extend(pad_press(P::Back));
     v.extend([Wait(30), Shot("left")]);
     v
 }
 
-/// The d-pad moves a menu's focus ring as Tab and Shift+Tab do, and Start chooses the focused button; the keyboard's
+/// The d-pad moves a menu's focus ring as Tab and Shift+Tab do, and Start or confirm chooses the focused button; the keyboard's
 /// arrow keys still don't move it (the menus' focus moves only with Tab, screen spec "Keyboard focus").
 fn pad_focus() -> Vec<Cmd> {
     use Cmd::*;
@@ -870,6 +872,11 @@ fn pad_focus() -> Vec<Cmd> {
     v.extend([Wait(2), Shot("mp-keyboard-down")]);
     v.extend(pad_press(P::Down));
     v.extend([Wait(2), Shot("mp-pad-down")]);
+    // Confirm presses the focused button (Classic, to the connection methods), wherever the pointer is; back is Esc.
+    v.extend(pad_press(P::South));
+    v.extend([Wait(3), Shot("mp-confirm")]);
+    v.extend(pad_press(P::East));
+    v.extend([Wait(3), Shot("mp-back")]);
     v
 }
 

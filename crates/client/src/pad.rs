@@ -13,8 +13,8 @@
 //!
 //! | Pad | In a game | Elsewhere |
 //! |---|---|---|
-//! | South (confirm) | left button; held, a box | left button |
-//! | East (back) | right button; in panel mode, back to the map | right button |
+//! | South (confirm) | left button; held, a box | Enter, the focused item |
+//! | East (back) | right button; in panel mode, back to the map | Esc |
 //! | West | panel mode: the pointer on the command buttons, the d-pad stepping between them | - |
 //! | North | the pointer to the minimap and back | - |
 //! | L1 / R1 | Shift / Ctrl, held | the same |
@@ -185,6 +185,9 @@ fn bind(b: PadButton, x: Ctx) -> Out {
         }
     };
     match b {
+        // In the menus confirm presses the focused item and back is Esc, rather than clicks at the pointer.
+        _ if b == confirm && !game => Out::Key(Key::Enter),
+        _ if b == back && !game => Out::Key(Key::Escape),
         _ if b == confirm => Out::Mouse(Button::Left),
         _ if b == back => {
             if x.panel {
@@ -311,6 +314,7 @@ impl PadState {
 /// One frame's pad step; see the module doc.
 pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     c.input.pad_focus = None;
+    c.input.pad_confirm = false;
     let events = std::mem::take(&mut c.input.pads);
     let fingers = !c.input.touches.is_empty() || !c.input.mouse_touches.is_empty();
     if events.is_empty() && c.pad.bound.is_empty() && c.pad.level_keys.is_empty() && !c.pad.active {
@@ -423,6 +427,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
                 match k {
                     Key::Up => input.pad_focus = Some(FocusKey::Back),
                     Key::Down => input.pad_focus = Some(FocusKey::Next),
+                    Key::Enter => input.pad_confirm = true,
                     _ => {}
                 }
             }
@@ -597,8 +602,11 @@ mod tests {
         assert_eq!(bind(PadButton::Start, g), Out::Key(Key::F(10)));
         assert_eq!(bind(PadButton::Back, g), Out::Pause);
         assert_eq!(bind(PadButton::RightStick, g), Out::Key(Key::F(6)));
-        // Outside a game: arrows, Enter and Esc; no panel or minimap.
+        // Outside a game: arrows, Enter and Esc; confirm and back press the focused item and go back; no panel or
+        // minimap.
         let m = ctx(false);
+        assert_eq!(bind(PadButton::South, m), Out::Key(Key::Enter));
+        assert_eq!(bind(PadButton::East, m), Out::Key(Key::Escape));
         assert_eq!(bind(PadButton::Up, m), Out::Key(Key::Up));
         assert_eq!(bind(PadButton::Start, m), Out::Key(Key::Enter));
         assert_eq!(bind(PadButton::Back, m), Out::Key(Key::Escape));
@@ -606,6 +614,11 @@ mod tests {
         // The game menu open: Start closes it.
         let menu = Ctx { menu_open: true, ..g };
         assert_eq!(bind(PadButton::Start, menu), Out::Key(Key::Escape));
+        assert_eq!(bind(PadButton::South, menu), Out::Key(Key::Enter));
+        assert_eq!(bind(PadButton::East, menu), Out::Key(Key::Escape));
+        let swapped_menu = Ctx { swap: true, ..m };
+        assert_eq!(bind(PadButton::East, swapped_menu), Out::Key(Key::Enter));
+        assert_eq!(bind(PadButton::South, swapped_menu), Out::Key(Key::Escape));
         // Panel mode: the d-pad steps and back leaves it.
         let panel = Ctx { panel: true, ..g };
         assert_eq!(bind(PadButton::Right, panel), Out::PanelStep(1, 0));
