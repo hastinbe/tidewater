@@ -2645,6 +2645,14 @@ struct MpScreen {
     ready_at: f64,
 }
 
+/// Whether the multiplayer menus' or the lobby's focused box takes typing (`touch::text_wanted`).
+pub(crate) fn mp_text_wanted(c: &Core) -> bool {
+    match &c.screens.mp_lobby {
+        Some(lobby) => lobby.text_focused(),
+        None => c.screens.mp.as_ref().is_some_and(|m| m.ui.text_focused()),
+    }
+}
+
 pub(crate) fn enter_multiplayer(c: &mut Core) {
     let opening = MenuScreen::Multiplayer.opening(menu_screen(c.states.previous()));
     let Core {

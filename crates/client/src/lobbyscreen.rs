@@ -649,7 +649,8 @@ impl Lobby {
         }
     }
 
-    fn text_focused(&self) -> bool {
+    /// Whether the player's chat line has the focus, so typing goes into it.
+    pub(crate) fn text_focused(&self) -> bool {
         self.notice.is_none() && self.popup.is_none() && self.focus == T::Say
     }
 

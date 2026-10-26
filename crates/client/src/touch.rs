@@ -33,6 +33,7 @@ use crate::core::{Core, game_running};
 use crate::extras::{TouchSettings, TouchTwoFinger};
 use crate::gesture::{self, Gesture, OneFinger, Pt, TwoFinger, Zone};
 use crate::input::{Button, Key, KeyEvent, Touch, Wheel, WindowGeom};
+use crate::states::AppState;
 use crate::touchemu::Emulator;
 
 /// How far a tap may miss a unit and still select it, in millimetres.
@@ -89,12 +90,15 @@ pub struct TouchState {
     pause: bool,
     /// The platform's pointer the last frame, to see a mouse come back.
     last_platform: Option<Option<Pt>>,
-    /// The chrome is hidden for a controller (`pad::PadState::hides_touch`).
+    /// The chrome is hidden ([`chrome_hidden`]): for a controller, or by a widescreen game screen.
     hidden: bool,
     /// The chrome as the shell last drew it, and a count of its changes.
     drawn: Chrome,
     drawn_hidden: bool,
     pub revision: u64,
+    /// A text box wanted typing last step ([`text_wanted`]), and the keyboard is open because it did.
+    text_was: bool,
+    auto_keyboard: bool,
 }
 
 impl TouchState {
@@ -105,14 +109,6 @@ impl TouchState {
             active: emulate,
             ..Default::default()
         }
-    }
-
-    /// Whether the `widescreen` option is ignored (`crate::widescreen::width`) because the pillarbox holds the chrome:
-    /// touch is the main input (a touch-only platform, `--touch-emulation`, or touch in use on a computer with a
-    /// touch screen) and the chrome shows (`chrome_shown`, from `controls::Mode::chrome_shown`). With the chrome
-    /// hidden (a controller, or the keyboard and mouse chosen) the pillarbox is empty and the option applies.
-    pub fn blocks_widescreen(&self, chrome_shown: bool) -> bool {
-        chrome_shown && (self.touch_only || self.emulate || self.active)
     }
 
     /// Notes a real mouse on a phone or tablet (a pointer that moved with no finger down), for the `controls`
@@ -147,6 +143,7 @@ impl TouchState {
     /// dark, so the next tap on it opens the keyboard again rather than "closing" one that is already gone.
     pub fn keyboard_hidden(&mut self) {
         self.chrome.keyboard = false;
+        self.auto_keyboard = false;
     }
 
     /// The pointer after a platform's or a scene's (called once the frame's pointer is set): while touch is in use it
@@ -193,7 +190,10 @@ impl TouchState {
             }
             Control::Plain => self.chrome.plain = !self.chrome.plain,
             Control::Pause => self.pause = true,
-            Control::Keyboard => self.chrome.keyboard = !self.chrome.keyboard,
+            Control::Keyboard => {
+                self.chrome.keyboard = !self.chrome.keyboard;
+                self.auto_keyboard = false;
+            }
             Control::Menu => self.stroke(Key::F(10), keys),
             Control::IdleWorker => self.stroke(Key::F(crate::idle::KEY), keys),
             Control::Group(n) => self.stroke(Key::Digit(n), keys),
@@ -201,6 +201,21 @@ impl TouchState {
     }
 
     /// After a click: the one-shot latches let go; a locked one stays held.
+    /// Lets go every latch, locked or not.
+    fn drop_latches(&mut self, keys: &mut Vec<(Key, bool)>) {
+        for (latch, k) in [
+            (&mut self.chrome.shift, Key::ShiftLeft),
+            (&mut self.chrome.ctrl, Key::ControlLeft),
+            (&mut self.chrome.alt, Key::AltLeft),
+        ] {
+            if latch.held() {
+                keys.push((k, false));
+            }
+            *latch = Latch::Off;
+        }
+        self.latched_at = None;
+    }
+
     fn release_latches(&mut self, keys: &mut Vec<(Key, bool)>) {
         for (latch, k) in [
             (&mut self.chrome.shift, Key::ShiftLeft),
@@ -255,6 +270,39 @@ fn gesture_config(s: &TouchSettings, w: WindowGeom) -> gesture::Config {
     }
 }
 
+/// Whether the side bars are hidden: by the mode (`controls::Mode::chrome_shown`: a controller, or no fingers) or by a
+/// game screen wider than 640 (`screen_w`, option `widescreen`), whose map fills the pillarbox they sit in. The
+/// widescreen option is the touch player's choice between the bars and the wider map.
+pub fn chrome_hidden(mode: crate::controls::Mode, hide_touch: bool, screen_w: u32) -> bool {
+    !mode.chrome_shown(hide_touch) || screen_w > crate::display::SCREEN.0
+}
+
+/// Whether a text box wants typing this frame (`docs/design/touch.md`, "Text boxes"): the in-game chat line, the save
+/// dialog's name, or a multiplayer menu's or the lobby's focused box.
+pub fn text_wanted(c: &Core) -> bool {
+    match c.states.get() {
+        AppState::Game => {
+            c.screen_ui.as_ref().is_some_and(|s| s.status.chat.is_some()) || c.menu.as_ref().is_some_and(|m| m.naming())
+        }
+        AppState::Multiplayer => crate::frontend::mp_text_wanted(c),
+        _ => false,
+    }
+}
+
+/// Opens the soft keyboard as a text box starts wanting typing, and closes it as the box is done if it was opened so.
+fn follow_text_boxes(t: &mut TouchState, wanted: bool) {
+    if wanted == t.text_was {
+        return;
+    }
+    t.text_was = wanted;
+    if wanted && !t.chrome.keyboard {
+        t.chrome.keyboard = true;
+        t.auto_keyboard = true;
+    } else if !wanted && std::mem::take(&mut t.auto_keyboard) {
+        t.chrome.keyboard = false;
+    }
+}
+
 /// One frame's touch step; see the module doc.
 pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     c.input.tap_radius = None;
@@ -271,6 +319,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         return;
     }
     let in_game = game_running(c);
+    let wanted = text_wanted(c);
     let raw = std::mem::take(&mut c.input.touches);
     let mice = std::mem::take(&mut c.input.mouse_touches);
     let Some(w) = window else { return };
@@ -305,7 +354,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         idle_worker: extras.idle_worker(),
     };
     let tap_px = TAP_MM * ppmm * w.factor / lb.scale;
-    let hide_chrome = !mode.chrome_shown(extras.pad().hide_touch);
+    let hide_chrome = chrome_hidden(mode, extras.pad().hide_touch, w.screen.0);
     // The Pause button shows play while the game is paused.
     c.touch.chrome.paused = in_game && c.sim.as_ref().is_some_and(|s| s.world.paused);
     let Core {
@@ -315,6 +364,7 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
         ..
     } = c;
     t.active = true;
+    follow_text_boxes(t, wanted);
     let ms = elapsed.as_secs_f32() * 1000.0;
 
     t.chrome
@@ -339,8 +389,11 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
     for m in mice {
         fingers.extend(t.emu.feed(m, lb.centre(w.factor), 5.0 * ppmm));
     }
-    // With the chrome hidden for a controller (option `pad-hide-touch`) every finger goes to the gesture machine, and
-    // the shoulder buttons are the modifiers (`pad`).
+    // With the chrome hidden (`chrome_hidden`) every finger goes to the gesture machine, and with a controller the
+    // shoulder buttons are the modifiers (`pad`). Latches held as it hides let go, as nothing could tap them off.
+    if hide_chrome && !t.hidden {
+        t.drop_latches(&mut keys);
+    }
     t.hidden = hide_chrome;
     let mut passed = Vec::new();
     for f in fingers {
@@ -469,16 +522,7 @@ fn park(c: &mut Core) {
         return;
     }
     let mut keys: Vec<(Key, bool)> = std::mem::take(&mut t.queued);
-    for (latch, k) in [
-        (&mut t.chrome.shift, Key::ShiftLeft),
-        (&mut t.chrome.ctrl, Key::ControlLeft),
-        (&mut t.chrome.alt, Key::AltLeft),
-    ] {
-        if latch.held() {
-            keys.push((k, false));
-        }
-        *latch = Latch::Off;
-    }
+    t.drop_latches(&mut keys);
     t.emu.cancel();
     t.gesture.reset();
     while let Some(f) = t.gesture.pop() {
@@ -569,36 +613,27 @@ mod tests {
         }
     }
 
-    /// The `widescreen` option is ignored where touch is the main input and its side bars show (`crate::widescreen`):
-    /// the pillarbox holds the chrome, so the screen stays 640 wide. With the bars hidden the option applies
-    /// (`controls`' tests).
+    /// The `widescreen` option applies on touch too (`crate::widescreen`): on a phone the width is the option's, and the
+    /// side bars give way to a wider screen (`chrome_hidden`).
     #[test]
-    fn touch_with_its_side_bars_overrides_the_widescreen_option() {
+    fn widescreen_applies_on_touch_and_takes_the_bars_place() {
+        use crate::controls::Mode;
         use crate::extras::Widescreen;
-        let width =
-            |t: &TouchState, mode| crate::widescreen::width(mode, Some((1920, 1080)), t.blocks_widescreen(true));
-        // A mouse and keyboard: the option stands.
-        let desktop = TouchState::new(false);
-        assert!(!desktop.blocks_widescreen(true));
-        assert_eq!(width(&desktop, Widescreen::Ratio16x9), 864);
-        assert_eq!(width(&desktop, Widescreen::Auto), 864);
-        // A phone or tablet.
-        let mut phone = TouchState::new(false);
-        phone.touch_only = true;
-        phone.active = true;
-        for mode in [Widescreen::Ratio16x10, Widescreen::Ratio16x9, Widescreen::Auto] {
-            assert_eq!(width(&phone, mode), 640, "{mode:?}");
+        let phone = (1336, 752);
+        for (mode, want) in [
+            (Widescreen::Off, 640),
+            (Widescreen::Ratio16x10, 768),
+            (Widescreen::Ratio16x9, 864),
+            (Widescreen::Auto, 864),
+        ] {
+            let w = crate::widescreen::width(mode, Some(phone));
+            assert_eq!(w, want, "{mode:?}");
+            assert_eq!(chrome_hidden(Mode::Touch, true, w), w > 640, "{mode:?}");
         }
-        // `--touch-emulation` forces it off, even before a finger has touched.
-        let emulated = TouchState::new(true);
-        assert!(emulated.blocks_widescreen(true));
-        assert_eq!(width(&emulated, Widescreen::Ratio16x9), 640);
-        // A computer with a touch screen: off while touch is in use, back once the mouse is used again.
-        let mut hybrid = TouchState::new(false);
-        hybrid.active = true;
-        assert_eq!(width(&hybrid, Widescreen::Ratio16x9), 640);
-        hybrid.active = false;
-        assert_eq!(width(&hybrid, Widescreen::Ratio16x9), 864);
+        // A 4:3 tablet with `auto`: no wider, so the bars stay.
+        let w = crate::widescreen::width(Widescreen::Auto, Some((2048, 1536)));
+        assert_eq!(w, 640);
+        assert!(!chrome_hidden(Mode::Touch, true, w));
     }
 
     #[test]
@@ -697,6 +732,46 @@ mod tests {
         t.clock += 100.0;
         t.press(Control::Shift, &mut keys);
         assert_eq!(t.chrome.shift, Latch::Once);
+    }
+
+    #[test]
+    fn a_text_box_opens_the_keyboard_and_closes_only_what_it_opened() {
+        let mut t = TouchState::new(false);
+        let mut keys = Vec::new();
+        // The box opens it and, once done, closes it.
+        follow_text_boxes(&mut t, true);
+        assert!(t.chrome.keyboard);
+        follow_text_boxes(&mut t, true);
+        assert!(t.chrome.keyboard, "only the change acts");
+        follow_text_boxes(&mut t, false);
+        assert!(!t.chrome.keyboard);
+        // Opened by its button first: the box leaves it open after.
+        t.press(Control::Keyboard, &mut keys);
+        follow_text_boxes(&mut t, true);
+        follow_text_boxes(&mut t, false);
+        assert!(t.chrome.keyboard, "the player opened it");
+        t.press(Control::Keyboard, &mut keys);
+        // Hidden by the system while the box wants typing: it stays hidden until the next box.
+        follow_text_boxes(&mut t, true);
+        t.keyboard_hidden();
+        follow_text_boxes(&mut t, true);
+        assert!(!t.chrome.keyboard);
+        follow_text_boxes(&mut t, false);
+        follow_text_boxes(&mut t, true);
+        assert!(t.chrome.keyboard, "the next box opens it again");
+    }
+
+    #[test]
+    fn hiding_the_bars_lets_go_a_locked_latch() {
+        let mut t = TouchState::new(false);
+        let mut keys = Vec::new();
+        t.press(Control::Ctrl, &mut keys);
+        t.press(Control::Ctrl, &mut keys);
+        assert_eq!(t.chrome.ctrl, Latch::Locked);
+        keys.clear();
+        t.drop_latches(&mut keys);
+        assert_eq!(t.chrome.ctrl, Latch::Off);
+        assert_eq!(keys, [(Key::ControlLeft, false)]);
     }
 
     #[test]

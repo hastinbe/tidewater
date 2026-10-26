@@ -321,6 +321,13 @@ impl Builder {
 }
 
 impl GameMenu {
+    /// Whether the save dialog is open on its list, where typing names the game.
+    pub(crate) fn naming(&self) -> bool {
+        self.save
+            .as_ref()
+            .is_some_and(|s| s.dialog.mode == saves::Mode::Save && s.dialog.stage == saves::Stage::List)
+    }
+
     fn screen(&self) -> Screen {
         self.nav.current().unwrap_or(Screen::Game)
     }

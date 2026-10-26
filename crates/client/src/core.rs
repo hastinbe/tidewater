@@ -638,11 +638,7 @@ pub(crate) fn screen_size(c: &Core, window: Option<WindowGeom>) -> (u32, u32) {
         return original;
     }
     let area = window.map(|w| (w.safe.2, w.safe.3));
-    let width = crate::widescreen::width(
-        game::extras(c).widescreen(),
-        area,
-        crate::controls::blocks_widescreen(c),
-    );
+    let width = crate::widescreen::width(game::extras(c).widescreen(), area);
     (width, original.1)
 }
 

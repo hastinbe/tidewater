@@ -130,9 +130,33 @@ height allows), and the buttons are laid out in a grid of 9 mm squares (7 or 11 
 a narrow bar but never under 30 points; if only one bar is wide enough it takes every control, and a window with none
 gets the two lists over the picture's left and right edges. A control acts when its finger lifts inside it, except a
 held group button, which acts at 450 ms. The chrome is an
-RGBA overlay of the window's size that the shell blends over the picture; it is never part of the frame (640 x 480; the game screen is never wider on a touch device, because the `widescreen`
-option is ignored there while the chrome shows: the pillarbox is where the chrome lives, see `client-core.md`, "Widescreen"; with a controller hiding it the option applies), so frames and
+RGBA overlay of the window's size that the shell blends over the picture; it is never part of the frame (the chrome shows only beside a 640 x 480 screen; see "Widescreen or the side buttons"), so frames and
 snapshots do not depend on it.
+
+### Widescreen or the side buttons
+
+The bars live in the pillarbox beside the 4:3 picture, so a wider game screen has no room for them. The `widescreen`
+option is the choice between the two: `off` keeps the bars, and a game screen wider than 640 (`16:10`, `16:9`, or
+`auto` in a window wider than 4:3) hides them while it shows (`touch::chrome_hidden`). Outside a game the screen is
+640 wide again and the keyboard button comes back.
+
+| Without the bars | What still works |
+|---|---|
+| Control groups (Ctrl and a digit) | Select units with taps and boxes instead. |
+| Shift, Ctrl and Alt latches | Two taps select every unit of a type; there is no add-to-selection or queued order. |
+| Pause | The interface's own Pause button, shown with the Enhanced rules (the default; Classic is opt-in and multiplayer only), and the Menu button, whose game menu stops a single-player game. |
+| Keyboard button | The keyboard opens by itself for a text box (see "Text boxes"). |
+
+Latches held when the bars hide let go, since nothing could tap them off. The Touch Controls help's Buttons page
+says so too. A controller hides the bars whatever the width (`pad-hide-touch`); see `gamepad.md`.
+
+### Text boxes
+
+While a box wants typing and touch is in use, the soft keyboard opens by itself (`touch::text_wanted`): the in-game
+chat line, the save dialog's name, the multiplayer menus' name, address and port boxes, and the lobby's chat line. It
+closes again when the box is done, unless the player had opened it with the keyboard button. Closing it by hand
+(the system's hide key, Back) leaves it closed until the next box opens. This is what makes the keyboard reachable
+with the bars hidden, and it saves a tap with them shown.
 
 ## Scaling
 

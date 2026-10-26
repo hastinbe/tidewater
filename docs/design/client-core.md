@@ -230,14 +230,13 @@ full screen) only changes its letterbox. After a
 game ends the 640 screen sits in the middle of the wider window with black beside it.
 
 **Touch.** On a touch device the pillarbox beside the 4:3 picture holds the touch buttons (`chrome`), so the option
-is ignored while they show and the screen stays 640 wide: on a phone or tablet (`TouchState::touch_only`, set by the
-shell on iOS and Android), with `--touch-emulation` (which forces it off even before a finger has touched) and while
-touch is in use on a computer with a touch screen (`TouchState::blocks_widescreen`; it comes back the moment the mouse
-is used again, and the layout is made again). When the buttons are hidden the pillarbox is empty and the option
-applies: a controller hides them by default (`pad-hide-touch`; `controls::blocks_widescreen`), and so do the
-Controller and Keyboard and mouse modes of the `controls` option (`gamepad.md`, "Control modes"). A handheld with a
-built-in pad therefore gets a wide screen in Automatic; the gesture machine and the chrome's layout work in the
-letterbox's screen, whatever its width, so fingers map correctly on it.
+is the player's choice between the buttons and the wider map: a game screen wider than 640 hides them
+(`touch::chrome_hidden`), and `off`, or `auto` in a 4:3 window such as a 4:3 tablet's, keeps them. Without them the
+control groups, the Shift, Ctrl and Alt latches, Pause and the keyboard button are gone; the game menu stays on the
+interface's Menu button, and the keyboard opens by itself while a text box wants typing (`touch.md`, "Text boxes").
+Latches held when the buttons hide let go. A controller hides them as well, whatever the width (`pad-hide-touch`), as
+do the Controller and Keyboard and mouse modes of the `controls` option (`gamepad.md`, "Control modes"). The gesture
+machine and the chrome's layout work in the letterbox's screen, whatever its width, so fingers map correctly on it.
 
 **Tests.** The width rules (`widescreen`'s tests), the letterbox with a wide screen (`display`), the clipping of a wide
 frame (`compose`), the layout (`hud`), the view's pointer mapping (`mapview`), the minimap rectangle (`minimap`), the

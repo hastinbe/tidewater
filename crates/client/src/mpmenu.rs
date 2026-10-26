@@ -704,7 +704,8 @@ impl Mp {
         true
     }
 
-    fn text_focused(&self) -> bool {
+    /// Whether a text box has the focus, so typing goes into it.
+    pub(crate) fn text_focused(&self) -> bool {
         match &self.overlay {
             // The caret is in the name box whichever button has the ring (traced).
             Overlay::Name(_) => true,
