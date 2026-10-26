@@ -15,7 +15,8 @@ touchscreen.
 | `game` | `pad_aim`: what the pointer is over (the minimap, the map view, the command buttons shown, a unit), for friction and panel mode. |
 | `extras` | The five `pad-*` options and `PadSettings`. |
 | `settings` | The Settings screen's Controller page, shown once a pad has been connected. |
-| `touch` | Hides the side bars while a pad is connected (option `pad-hide-touch`). |
+| `controls` | The `controls` option's modes and the rule that resolves them (see "Control modes"). |
+| `touch` | Drops fingers in the modes without them; hides the side bars in the Controller and touch mode while a pad is connected (option `pad-hide-touch`). |
 | `shell/sdl.rs`, `shell/app.rs` | `SDL_INIT_GAMEPAD`, opening and closing pads, their events; moving the system pointer to the pad's. |
 
 SDL's gamepad layer does the device work: it maps each pad's buttons to one layout (with HIDAPI drivers for the
@@ -111,11 +112,44 @@ where south moves the view as a click does; north again puts it back on the map 
 Mouse, touch and pad work together; nothing has to be switched. The shoulder buttons are real Shift and Ctrl, so
 holding L1 while clicking the mouse or tapping adds to the selection. While a pad is connected the touch side bars
 hide (`pad-hide-touch`, on by default), since the pad has every button they hold; taps on the map still work, and the
-bars come back when the last pad goes.
+bars come back when the last pad goes. The `controls` option below can turn a device off instead.
+
+## Control modes
+
+The `controls` option (Settings, General page, **Controls**) picks which input devices drive the game. The keyboard
+and the mouse's own buttons work in every mode; only the pad and fingers can be left out. **Automatic is the
+default and behaves as everything above says**: it uses every device that is there.
+
+| Value | Settings word | Pad | Fingers | Touch side bars | Offered when |
+|---|---|---|---|---|---|
+| `auto` | Automatic | as resolved below | | | always |
+| `mouse` | Keyboard and mouse | ignored | ignored | hidden | not a phone or tablet, or a real mouse has been used this run |
+| `touch` | Touch | ignored | work | shown | a phone or tablet, `--touch-emulation`, or a finger has touched this run |
+| `pad` | Controller | works | ignored | hidden | a pad is connected now |
+| `pad-touch` | Controller and touch | works | work | hidden unless `pad-hide-touch` is off | a pad is connected now and touch is there |
+
+**Resolution.** `controls::Devices::resolve` gives the mode in force: the stored choice if its devices are there now,
+otherwise Automatic. Automatic picks the controller and touch together when both are there, the controller alone,
+touch alone, or the keyboard and mouse. The Settings screen offers only the values in the last column; a stored value
+whose device is gone still shows as itself, and its description says Automatic is in use until the device is back.
+
+**Why Automatic changes nothing.** It leaves out only a device that is not there, so there is nothing to drop. The
+first finger of a run counts as touch being there before the modes are read (`controls::note_fingers`), so it is
+never dropped.
+
+**What ignoring means.** A pad left out still has its connections noted, but its buttons and sticks are dropped, and
+whatever it held lets go as when it is unplugged. Fingers left out are dropped before the side bars and the gesture
+machine see them (`touch::park`); the left button, latched Shift, Ctrl and Alt, and queued keys let go, and touch
+that was in use comes back when fingers are on again. With `--touch-emulation` the shell sends the mouse's buttons
+as plain mouse buttons in a mode without fingers (`Core::fingers_enabled`).
+
+**Widescreen.** The `widescreen` option is ignored only while the side bars show (the Touch mode, or Controller and
+touch with `pad-hide-touch` off, on a touch device). With the bars hidden the pillarbox is empty, so on a handheld
+with a built-in pad Automatic allows widescreen; with no pad it is as before.
 
 ## Options
 
-All five are client options (`C`: they change nothing for other players) on the Settings screen's Controller page,
+The five `pad-*` options are client options (`C`: they change nothing for other players) on the Settings screen's Controller page,
 which shows once a pad has been connected this run:
 
 | Option | Choices | Default |
@@ -125,6 +159,9 @@ which shows once a pad has been connected this run:
 | `pad-dead-zone` | normal, small, large | normal |
 | `pad-swap` | on, off | off |
 | `pad-hide-touch` | on, off | on |
+
+`pad-hide-touch` applies in the Controller and touch mode. `controls` (auto, mouse, touch, pad, pad-touch; default
+auto) is on the General page and is described under "Control modes".
 
 ## Testing
 
@@ -142,5 +179,5 @@ which shows once a pad has been connected this run:
 
 - **Controllers.** The original has no controller support; all of this is new, and none of it reaches the game's
   rules: the pad sends only the mouse buttons and keys a player could press.
-- **The touch side bars hide** while a pad is connected (`pad-hide-touch`).
+- **The touch side bars hide** while a pad is connected in the Controller and touch mode (`pad-hide-touch`).
 - **The Settings screen has a Controller page** once a pad has been connected.

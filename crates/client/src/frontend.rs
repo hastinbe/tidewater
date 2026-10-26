@@ -2470,6 +2470,7 @@ pub(crate) fn enter_settings(c: &mut Core) {
         touch: touch.touch_only,
         touch_input: touch.emulate || touch.active,
         pad: pad.seen,
+        devices: crate::controls::Devices::of(pad, touch),
         updates: crate::update::build_version().is_some(),
         data: game_files_line(opts),
         in_game: false,

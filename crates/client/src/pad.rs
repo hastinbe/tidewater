@@ -3,6 +3,11 @@
 //! the touch step and before the frame's events are applied, and does nothing at all until a pad's event comes in, so
 //! without a pad every frame is exactly what it was.
 //!
+//! **Control modes.** Option `controls` (`crate::controls`) can leave the pad out (the Touch and Keyboard and mouse
+//! modes): its connections are still noted, but its buttons and sticks are dropped and whatever it held lets go, as
+//! when it is unplugged. It can also leave fingers out (the Controller mode), so a finger does not take the pointer
+//! from the pad then. Automatic leaves out only a device that is not there.
+//!
 //! **The pointer.** While the pad has it ([`PadState::active`]), the pointer is the pad's: the left stick moves it in
 //! screen pixels a second, with a dead zone, an optional curve and friction over units and command buttons. A pad
 //! button or a push of a stick takes it, starting where the pointer last was (so a finger or the mouse puts it, and
@@ -229,11 +234,6 @@ impl PadState {
         self.active.then_some(self.pointer).flatten()
     }
 
-    /// Whether a pad is connected and the touch chrome should hide for it (option `pad-hide-touch`).
-    pub fn hides_touch(&self, s: &PadSettings) -> bool {
-        !self.connected.is_empty() && s.hide_touch
-    }
-
     /// Where the shell should move the system's pointer, if the pad moved it since the last call.
     pub fn take_warp(&mut self) -> Option<Pt> {
         self.warp.take()
@@ -358,6 +358,14 @@ pub fn step(c: &mut Core, elapsed: Duration, window: Option<WindowGeom>) {
             presses.clear();
             p.let_go(&mut c.input);
         }
+    }
+    // The control mode (`controls`): a pad it leaves out is ignored from here, and what it held lets go.
+    let mode = crate::controls::mode(c);
+    let fingers = fingers && mode.fingers();
+    if !mode.pad() {
+        presses.clear();
+        c.pad.let_go(&mut c.input);
+        c.pad.active = false;
     }
     let (push, dir) = stick(c.pad.axes[0], c.pad.axes[1], settings.dead_zone);
     let (rpush, _) = stick(c.pad.axes[2], c.pad.axes[3], settings.dead_zone);

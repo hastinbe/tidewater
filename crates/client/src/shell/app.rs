@@ -497,7 +497,9 @@ impl Shell<'_> {
         let mut pending: Option<KeyEvent> = None;
         let mut keyboard_event = None;
         self.motion = (0.0, 0.0);
-        let touching = core.touch.active || self.emulating;
+        // `controls` can turn fingers off: the mouse is a mouse again, even with `--touch-emulation`.
+        let emulating = self.emulating && core.fingers_enabled();
+        let touching = core.touch.active || emulating;
         let (points_w, points_h) = {
             let (w, h) = self.window.size_in_pixels();
             let d = self.window.pixel_density();
@@ -540,7 +542,7 @@ impl Shell<'_> {
                         _ => {}
                     }
                     // Alt chooses the emulation's extra fingers: the game does not see it.
-                    if !(self.emulating && matches!(key, Key::AltLeft | Key::AltRight)) {
+                    if !(emulating && matches!(key, Key::AltLeft | Key::AltRight)) {
                         pending = Some(KeyEvent {
                             key,
                             pressed: down,
@@ -548,7 +550,7 @@ impl Shell<'_> {
                         })
                     }
                 }
-                sdl::Event::Button { button: 1, down, x, y } if self.emulating => {
+                sdl::Event::Button { button: 1, down, x, y } if emulating => {
                     self.left_down = down;
                     input.mouse_touch(self.mouse_touch(
                         if down { MouseTouchKind::Down } else { MouseTouchKind::Up },
@@ -561,7 +563,7 @@ impl Shell<'_> {
                 sdl::Event::Motion { dx, dy, x, y } => {
                     self.motion.0 += dx;
                     self.motion.1 += dy;
-                    if self.emulating && self.left_down {
+                    if emulating && self.left_down {
                         input.mouse_touch(self.mouse_touch(MouseTouchKind::Move, x, y));
                     }
                 }

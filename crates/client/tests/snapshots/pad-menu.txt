@@ -40,27 +40,27 @@ frames	54-54	c06f6b0e47eed602
 frames	55-55	a2234871a255eeb0
 frames	56-56	050a5f58f649cb08
 frames	57-57	e0b660907664c1a9
-shot	64	settings	c6d79548c90b62bb
-frames	58-64	c6d79548c90b62bb
+shot	64	settings	6032c8d487ffbfde
+frames	58-64	6032c8d487ffbfde
 frames	65-65	2e0582ebfd2c538e
 frames	66-66	0be010428f2a2f26
 frames	67-67	a87373752eb47c65
 frames	68-68	c7b51eadc3319988
 frames	69-69	e506cdda8ff68804
-shot	75	controller	2cdd26ada89e20cc
-frames	70-76	2cdd26ada89e20cc
-frames	77-77	e5046a84f1605d5c
-frames	78-78	5f62e6d0974dd950
-frames	79-79	4d1d388e10e6585c
-frames	80-80	c2962a659bcc3ece
-frames	81-81	355453e6a1a0db00
-frames	82-82	df24188ec9c6b772
-frames	83-83	799c6c624d08a06a
-frames	84-84	b3490f3a0634ad73
-frames	85-85	6c2c519d8664f451
-frames	86-86	69249608acfabc8e
-frames	87-87	2743e9a8ba6a9501
-frames	88-88	95ce5f18b84ebcb4
+shot	75	controller	da070334cca595ae
+frames	70-76	da070334cca595ae
+frames	77-77	a205092fc4bb37fe
+frames	78-78	85630815b4959cd6
+frames	79-79	9a0f2b5e694e8f6a
+frames	80-80	0eb36dd365b995ba
+frames	81-81	6fdca9ee4c9fb228
+frames	82-82	e539607f124411ee
+frames	83-83	ca18843d296351f6
+frames	84-84	af51646ba17cf875
+frames	85-85	d01c4961b7f2183f
+frames	86-86	d53cc82582eb5658
+frames	87-87	c34e31fc0308021f
+frames	88-88	59b428c77c49ccab
 frames	89-89	156ed4086987e325
 frames	90-90	1441019148d7593b
 frames	91-91	584a40b5f6e700b0
