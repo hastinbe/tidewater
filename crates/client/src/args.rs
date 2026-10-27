@@ -39,6 +39,10 @@ pub struct Args {
     /// by that name in the current folder.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["map", "record_replay", "setup"])]
     pub replay: Option<PathBuf>,
+    /// Development: enable the mod in this folder name of `<data>/mods` for this run, after the mods the settings enable
+    /// (repeat for several; later ones override earlier ones). `docs/mods.md`.
+    #[arg(long = "mod", value_name = "NAME")]
+    pub mods: Vec<String>,
     /// Play a `--replay` even when it was recorded with other game files or mods than these (it will most likely go out
     /// of sync; without this the game stops and says what differs).
     #[arg(long, requires = "replay")]

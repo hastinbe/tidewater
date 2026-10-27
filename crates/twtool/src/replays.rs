@@ -40,9 +40,20 @@ fn start(install: &mut Install, header: &Header, over: Option<&Path>) -> Result<
 }
 
 /// `twtool replay`: plays the replay headlessly and checks every checkpoint.
-pub fn replay(file: &Path, install: &Path, map: Option<&Path>, force: bool) -> Result<()> {
+pub fn replay(
+    file: &Path,
+    install: &Path,
+    map: Option<&Path>,
+    force: bool,
+    mods: Option<(&Path, &[String])>,
+) -> Result<()> {
     let r = read_replay(file)?;
     let mut inst = Install::open(install)?;
+    if let Some((dir, names)) = mods {
+        inst = inst.with_mods(std::sync::Arc::new(tidewater_formats::mods::ModSet::resolve(
+            dir, names,
+        )?));
+    }
     println!(
         "{}: map {}, seed {}, {}, {} cycles, {} checkpoints, recorded by {}",
         file.display(),
@@ -53,6 +64,9 @@ pub fn replay(file: &Path, install: &Path, map: Option<&Path>, force: bool) -> R
         r.checkpoints.len(),
         r.header.sim_build
     );
+    if let Some(d) = r.header.data.as_ref().filter(|d| !d.mods.is_empty()) {
+        println!("mods: {}", tidewater_formats::identity::describe_mods(&d.mods));
+    }
     for n in &r.notes {
         println!("note: {n}");
     }

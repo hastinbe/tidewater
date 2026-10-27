@@ -172,6 +172,13 @@ enum Cmd {
         /// sync; the check exists to say why).
         #[arg(long)]
         force: bool,
+        /// The mods folder, for a replay recorded with mods (`<data>/mods` of the game).
+        #[arg(long, requires = "mods")]
+        mods_dir: Option<PathBuf>,
+        /// A mod from `--mods-dir` to enable, in order (repeat for several); the replay's header names the ones it
+        /// was recorded with.
+        #[arg(long = "mod", value_name = "NAME", requires = "mods_dir")]
+        mods: Vec<String>,
     },
     /// Play two replays side by side (or one replay twice, with `--local` making another human the second run's
     /// local player) and print the first cycle where their state hashes differ, then the first differing piece of
@@ -480,7 +487,15 @@ fn main() -> Result<()> {
             file,
             map,
             force,
-        } => replays::replay(&file, &install, map.as_deref(), force)?,
+            mods_dir,
+            mods,
+        } => replays::replay(
+            &file,
+            &install,
+            map.as_deref(),
+            force,
+            mods_dir.as_deref().map(|d| (d, &mods[..])),
+        )?,
         Cmd::DesyncDiff {
             install,
             a,

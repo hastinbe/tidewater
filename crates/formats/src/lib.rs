@@ -8,6 +8,7 @@ pub mod fnt;
 pub mod grp;
 pub mod identity;
 pub mod install;
+pub mod mods;
 pub mod mpq;
 mod mpq_codec;
 pub mod pcx;
