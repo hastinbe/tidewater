@@ -111,8 +111,8 @@ whatever orientation it chooses, and the game returns to landscape afterwards.
 ## Limits
 
 - **No GOG installer.** `innoextract` is a separate program and an Android app cannot start one.
-- **Not tried on a phone.** Only the arm64 emulator ran; a real device, other screen shapes (notches), the soft keyboard
-  and a controller are untried.
+- **Not tried on a phone.** Besides the arm64 emulator it has run on an Android handheld (a Retroid Pocket 3+) with its
+  touch screen and built-in controller; phones, other screen shapes (notches) and the soft keyboard are untried.
 - **The CD-image picker is untried** on Android (the folder picker was run); the import of CD images is the pure-Rust
   reader that works elsewhere.
 - **Storage.** Imported files are about 500 MB and the original stays; the picker needs the same again in cache.

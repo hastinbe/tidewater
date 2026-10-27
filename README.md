@@ -459,7 +459,7 @@ What is done, what is early and what is not built. Not built: Battle.net and mod
 |---|---|---|
 | **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: menus, lobby, LAN game list, map transfer, chat and pause counts, the game going on when the host leaves, observers (our own addition); no Battle.net or modem |
 | **Custom games against the computer** | The Custom Scenario screen: race, opponents, resources, terrain, units and a map list. | Done |
-| **Touch, controllers and handhelds** | Touch input on desktop, iOS and Android; gamepads; a PS Vita app. | Early: tried on an iPad, in the iOS Simulator, the Android emulator and Vita3K; not yet on an Android phone or a real Vita |
+| **Touch, controllers and handhelds** | Touch input on desktop, iOS and Android; gamepads; a PS Vita app. | Early: tried on an iPad, an Android handheld, the iOS Simulator, the Android emulator and Vita3K; not yet on an Android phone or a real Vita |
 | **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Done: see [Optional improvements](#optional-improvements) |
 
 ## How it is built
