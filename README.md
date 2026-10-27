@@ -7,7 +7,7 @@
 ## What you need
 
 - **Your own copy of the game.** Tidewater needs *Warcraft II: Battle.net Edition* (for example the GOG release, or the Battle.net Edition CD). No game data is included. The 1995 DOS edition is not supported.
-- **A desktop computer.** macOS, Windows and Linux builds are made and checked in CI. Day-to-day play testing has been on macOS. iOS, Android and PS Vita apps exist as early builds (see [iPhone and iPad](#iphone-and-ipad-early), [Android](#android-early) and [PS Vita](#ps-vita-early)).
+- **A desktop computer.** macOS, Windows and Linux builds are made and checked in CI. Day-to-day play testing has been on macOS. The Linux AppImage is meant for the Steam Deck too (see [Steam Deck](#linux-and-the-steam-deck-being-tested)); that is being tested. iOS, Android and PS Vita apps exist as early builds (see [iPhone and iPad](#iphone-and-ipad-early), [Android](#android-early) and [PS Vita](#ps-vita-early)).
 - **A download, or a build toolchain.** Prebuilt downloads are on the [releases page](../../releases/latest); otherwise [build from source](#build-from-source).
 
 ## Install
@@ -18,10 +18,22 @@ Download the file for your system from the [latest release](../../releases/lates
 |---|---|---|
 | **Windows** (x64) | `tidewater-<version>-windows-x64-setup.exe` | Run it. It installs for your user only, so it needs no administrator, and adds a Start menu entry (and, if you tick it, a desktop shortcut) and an uninstaller. Uninstalling removes the program only: your imported game files and your saved games and settings (see [Where your files go](#import-your-game-files)) stay, so a reinstall picks up where you left off; delete those folders by hand if you want them gone. Windows may say "Windows protected your PC" because the installer is not signed: choose **More info**, then **Run anyway**. |
 | **macOS** (Apple silicon and Intel) | `tidewater-<version>-macos.dmg` | Open it and **drag Tidewater to Applications**, then eject the disk image. The app is not signed, so the first time **right-click it, choose Open and confirm**. If macOS offers no Open button, open System Settings, Privacy & Security and click **Open Anyway**. After that it opens normally. |
-| **Linux** (x64) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. The archive has a `tidewater.desktop` menu entry to adapt and a `README.txt`. |
+| **Linux and Steam Deck** (x86_64, being tested) | `tidewater-<version>-linux-x86_64.AppImage` | One file, nothing to install. Mark it executable (`chmod +x`, or right-click, Properties, Permissions, "Is executable") and run it. It updates itself in place. Steam Deck steps: [below](#linux-and-the-steam-deck-being-tested). |
+| **Linux** (x64, tarball) | `tidewater-<version>-linux-x64.tar.gz` | Unpack it and run `tidewater`. The archive has a `tidewater.desktop` menu entry to adapt and a `README.txt`. |
 | **Android** (7.0 or newer, early) | `tidewater-<version>-android.apk` | Download it on the device and open it; Android asks to allow installs from that browser or file manager, so allow it for that app. It is not on Google Play and does not update itself: to update, download the newer APK and install it over the old one (your game files and settings stay). Then [get your game files onto it](#android-early). A release may lack the APK until its signing key is set up. |
 | **iPhone and iPad** (iOS 15 or newer, early) | `tidewater-<version>-ios.ipa` | Not signed and not on the App Store: sideload it with your own Apple ID using AltStore, SideStore or Sideloadly (a free Apple ID needs a re-sign every 7 days). Steps: [Install the unsigned IPA](docs/design/ios.md#install-the-unsigned-ipa). |
 | **PS Vita** (custom firmware, early) | `tidewater-<version>-vita.vpk` | Install it with VitaShell, then copy your game files to `ux0:data/Tidewater`. Plays in the Vita3K emulator, buttons and sticks included; not tried on a real Vita. Steps: [PS Vita](#ps-vita-early). |
+
+### Linux and the Steam Deck (being tested)
+
+The AppImage is built for the Steam Deck (SteamOS) as well as other desktop Linux systems. On a Steam Deck (SteamOS, Desktop Mode) it starts, imports the game files, and its scripted test scenes draw and sound frame for frame the same as on macOS. **Playing it by hand, Game Mode and the Deck's controls are still being tested**, so expect rough edges and please report them. It needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, SteamOS 3).
+
+1. **Download** the `.AppImage` in Desktop Mode (hold the power button, choose Switch to Desktop) with the browser.
+2. **Mark it executable:** right-click the file, Properties, Permissions, tick "Is executable". Or in Konsole: `chmod +x tidewater-*.AppImage`.
+3. **Run it** by double-clicking, then [import your game files](#import-your-game-files). Put the file somewhere you can write to (your home folder), as updates replace it.
+4. **To play in Game Mode,** open Steam in Desktop Mode, choose Games, Add a Non-Steam Game to My Library, Browse, pick the AppImage, and add it. It then appears in your library. The Deck's controls work through Tidewater's gamepad support.
+
+It needs the system's FUSE 2 library to start, which SteamOS has. If your Linux system lacks it, run `tidewater-*.AppImage --appimage-extract-and-run` or install `libfuse2`.
 
 ## Import your game files
 
@@ -62,7 +74,8 @@ Tidewater looks for a newer release in the background when it starts (one reques
 |---|---|
 | **Windows** | Downloads the installer, runs it silently and restarts the game. |
 | **macOS** | Replaces the app and restarts it. This needs the app in a folder you can write to, such as Applications: run from the disk image or straight from Downloads, the main menu says "Move Tidewater to Applications to enable updates." once, and Update now opens the release page. |
-| **Linux** | Opens the release page; download the new archive and unpack it over the old one. |
+| **Linux, AppImage** | Downloads the new AppImage, replaces the file you started (in place, so the folder must be writable) and restarts. |
+| **Linux, tarball** | Opens the release page; download the new archive and unpack it over the old one. |
 | **Android, iOS** | Opens the release page; download the new APK or IPA and install it over the old one (your game files and saves stay). |
 | **PS Vita** | No check; install the newer VPK over the old one (your game files and saves stay). |
 
