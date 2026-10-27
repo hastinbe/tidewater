@@ -150,6 +150,15 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p tidewater-client
+      - name: Check the program has its icon
+        shell: pwsh
+        run: |
+          # ExtractIconEx with index -1 counts the icons in the file's resources: 0 means the build script's icon is missing.
+          Add-Type -Namespace Win32 -Name Icons -MemberDefinition '[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint count);'
+          $exe = (Resolve-Path target\release\tidewater.exe).Path
+          $n = [Win32.Icons]::ExtractIconEx($exe, -1, $null, $null, 0)
+          Write-Host "icons in tidewater.exe: $n"
+          if ($n -lt 1) { throw "tidewater.exe has no icon resource" }
       - name: Build the installer
         run: |
           choco install innosetup --no-progress -y

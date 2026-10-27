@@ -82,7 +82,7 @@ commit what it writes.
 | Android | `platform/android/app/src/main/res/mipmap-*/` | The manifest's `android:icon`. |
 | macOS | `packaging/macos/tidewater.icns` | `build-dmg.sh` puts it in `Tidewater.app/Contents/Resources`; `Info.plist` names it. |
 | Vita | `platform/vita/sce_sys/icon0.png` | 8-bit indexed (`--indexed`), as the Vita's installer requires; `build.sh` packs it into the VPK. |
-| Windows | `packaging/windows/tidewater.ico` | `tidewater.iss`: the installer's own icon, the shortcuts and the Apps list. `tidewater.exe` has no icon resource yet, so Explorer shows a plain program icon for the file itself. |
+| Windows | `packaging/windows/tidewater.ico` | `tidewater.iss`: the installer's own icon, the shortcuts and the Apps list. `crates/client/build.rs` also embeds it in `tidewater.exe` (the `winresource` crate, Windows targets only, a no-op everywhere else) so Explorer and the taskbar show it for the file itself; the `windows` job fails if the built program has no icon. |
 | Linux | `packaging/linux/tidewater.png` | The tarball, for `tidewater.desktop`'s `Icon=` line. |
 | The window | `crates/client/assets/icon/window.png` | The desktop shell sets it with `SDL_SetWindowIcon` (title bar, taskbar, Dock). |
 
