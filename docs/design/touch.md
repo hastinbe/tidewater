@@ -10,7 +10,7 @@ turn touch on from the first frame.
 
 | Module | Job |
 |---|---|
-| `input` | `Touch { id, phase, pos }` (window points) and `WindowGeom`, which now also carries the safe area, the density and whether the fit is fractional. |
+| `input` | `Touch { id, phase, pos }` (window points) and `WindowGeom`, which carries the safe area, the density and whether the fit is fractional. |
 | `gesture` | The state machine: fingers in, mouse frames and view intents out. No clock, no engine. |
 | `chrome` | The on-screen controls: layout in the pillarbox, hit tests, the overlay picture. |
 | `touchemu` | The mouse as fingers for `--touch-emulation`. |
@@ -43,9 +43,7 @@ more.
 short hold first: still for 300 ms, the finger arms (the same ring as a long press, smaller as it starts), and a drag
 after that is the left button's. Kept still to 450 ms it also becomes the long press, but nothing is clicked
 while the finger stays down: lifting it there right-clicks, and a drag (however long the hold) still draws the box.
-An earlier version right-clicked at 450 ms with the finger down, so a hold held a moment too long before the drag
-sent the selection away. Outside the map view (the
-minimap, the panel, the menus) a drag is the left button's at once, as before. A flick glides on and slows (a time
+Outside the map view (the minimap, the panel, the menus) a drag is the left button's at once. A flick glides on and slows (a time
 constant of 325 ms, from 30 mm/s down to 8 mm/s); any new finger stops it.
 
 **Placing and targeting.** While a building is being placed or a command's target chosen, a finger on the map moves
@@ -89,7 +87,7 @@ box, a drag or a mouse click never snaps.
 ## The chrome
 
 A touchscreen has no Shift, Ctrl or Alt, no pause key and no number keys. The chrome puts them in the black bars
-beside the picture (in the safe area). The left bar holds the tools, the right bar the control groups (the option
+beside the 4:3 picture (in the safe area); a wider game screen hides them (see "Widescreen or the side buttons"). The left bar holds the tools, the right bar the control groups (the option
 `touch-swap-bars` swaps them):
 
 | Control | Icon | Does |

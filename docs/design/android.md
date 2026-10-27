@@ -11,7 +11,7 @@ The gestures are in [touch.md](touch.md), the import in [import.md](import.md) a
 | Area | State |
 |---|---|
 | Build (arm64-v8a, x86_64), debug APK | Works. |
-| Touch, chrome buttons | On from the first frame; checked with taps in the emulator. One-finger pan, hold-then-drag box, smart tap and the control-group bar ([touch.md](touch.md)) are new and not yet run in the emulator. |
+| Touch, chrome buttons | On from the first frame; checked with taps in the emulator. One-finger pan, hold-then-drag box, smart tap and the control-group bar ([touch.md](touch.md)) are not yet run in the emulator. |
 | Touch Controls help | Shows by itself at the first game, then under Help and on the main menu. |
 | Exit Program, Back | Exit Program is not offered (Android closes apps itself); the Back button is Esc (`SDL_HINT_ANDROID_TRAP_BACK_BUTTON`), not yet tried in the emulator. |
 | Landscape only | Works (the manifest and an SDL hint). |

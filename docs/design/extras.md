@@ -203,8 +203,8 @@ without new screen code. The file and the flags still work and are for power use
   to a whole tile) and `auto` the tile multiple nearest the window's shape, from 640 to 864. The screen stays 480 lines
   high, so the interface art keeps its pixel size and the map view only gains width: 18 or 21 tiles across instead of
   14, nothing zoomed out and nothing more shown above or below. Menus, briefings, videos, the score screen and the game
-  menu stay 640 x 480 in the middle with black beside them. The option is ignored on a phone or tablet, with
-  `--touch-emulation`, and while touch is in use, where the pillarbox holds the touch buttons. Because the wider view
+  menu stay 640 x 480 in the middle with black beside them. On a touch device it replaces the side buttons
+  (the wider map takes the pillarbox they sit in; `off` keeps them, see `docs/design/touch.md`, "Widescreen or the side buttons"). Because the wider view
   is an edge, the lobby's value is used for everyone in a game with other players. The widths, the layout and the
   pointer mapping are in `docs/design/client-core.md`, "Widescreen"; the code is `widescreen.rs`.
 - **Magnifying zoom** (`map-zoom`, C). Off by default, which leaves the mouse wheel doing nothing over the map view, as in
