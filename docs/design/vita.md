@@ -39,7 +39,7 @@ Copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD 
 On the first-run screen, choose **Scan again**: it lists what it found, and choosing one copies the files once into
 `ux0:data/Tidewater/game`. You can delete your copy afterwards.
 
-Plan for about 700 MB of free space for the import, and the same again while your copy is still there.
+Plan for about 500 MB of free space for the import, and the same again while your copy is still there.
 
 ## How it is put together
 

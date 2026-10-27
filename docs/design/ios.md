@@ -138,5 +138,5 @@ platforms always use. Touch is active from the first frame.
 
 - **No GOG installer.** `innoextract` is a separate program and iOS apps cannot start programs.
 - **The document picker is untried.** The Simulator run had no way to tap (no UI automation tool was available).
-- **Storage.** Imported files are about 700 MB; the app needs that much free storage and the original is not removed.
+- **Storage.** Imported files are about 500 MB; the app needs that much free storage and the original is not removed.
 - **Network play** is untried on the phone.

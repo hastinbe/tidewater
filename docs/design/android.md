@@ -91,7 +91,7 @@ app's cache folder (`cache/picked`), writes the copy's path to `files/pick-resul
 `nativePicked`, which hands the path to the first-run screen as SDL's dialogs do. The activity shows a toast while it
 copies. This needs no storage permission, because the picker grants access to the chosen item only.
 
-Copying through the picker is slow (the full game is 700 MB and took about a minute in the emulator), and it makes a
+Copying through the picker is slow (the full game is about 500 MB and took about a minute in the emulator), and it makes a
 second copy until the next start of the app, which deletes `cache/picked`. A single picked file is read alone: a `.cue`
 sheet picked this way cannot see its `.bin`, so put multi-file images in the external files folder.
 
@@ -115,7 +115,7 @@ whatever orientation it chooses, and the game returns to landscape afterwards.
   and a controller are untried.
 - **The CD-image picker is untried** on Android (the folder picker was run); the import of CD images is the pure-Rust
   reader that works elsewhere.
-- **Storage.** Imported files are about 700 MB and the original stays; the picker needs the same again in cache.
+- **Storage.** Imported files are about 500 MB and the original stays; the picker needs the same again in cache.
 - **Network play** is untried on the phone.
 - **No Play Store packaging.** The release APK is for sideloading; when a newer release exists the main menu offers it, and **Update now** opens the release page to download the new APK (`update.rs`). The manifest asks only for `INTERNET`, for network games and that check.
 - **Sound** is untested in the emulator (it ran with `-no-audio`).
