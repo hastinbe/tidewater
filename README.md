@@ -44,7 +44,7 @@ The first time you start Tidewater with no game files, it opens an import screen
 | Windows | Game files: `%LOCALAPPDATA%\Tidewater\data`. Saved games and settings: `%APPDATA%\Tidewater\data` (it roams with your account; the game files are too big to). |
 | Linux | `~/.local/share/tidewater` (or under `$XDG_DATA_HOME`) |
 
-Imported files go in `game`, saved games in `Save`, settings in `settings.txt`. `--data-dir <dir>` moves all of it.
+Imported files go in `game`, saved games in `Save`, settings in `settings.txt`, and mods in `mods` (see [Mods](#mods)). `--data-dir <dir>` moves all of it.
 
 **Import again.** Run `tidewater --reimport` to open the import screen even though files are already there, for example to use another copy of the game. A second import replaces the first, and Esc leaves it as it was. Removing the data directory (both of them on Windows) removes everything Tidewater stored.
 
@@ -274,6 +274,7 @@ original's main-menu buttons are unchanged.
 | **Interface** | Health bars, idle worker button, game clock, control group bar, smart attack-move, minimap ping, record replays, magnifying zoom. | At once or from the next game |
 | **Sound** | Unit voices, sound effects and music, 0 to 100 percent in steps of 10. | At once |
 | **Gameplay** | Rally points, production queue, selection limit, extra game speeds, shift-queued orders. These change the game rules: they apply to single-player games you start, and in a multiplayer game the host chooses them in the lobby. | From the next game |
+| **Mods** | Which mods to use and in what order. Shown only when the `mods` folder holds a mod. See [Mods](#mods). | The next start |
 | **Keys** | Every key you can rebind, in a scrolling list, with **Reset keys**. Desktop only (a phone has no keyboard to rebind). | At once |
 | **Touch** | How a drag, a tap, two fingers, the pinch and the holds work, the button size and which side bar is which. Shown where touch is in use. | At once |
 | **Controller** | Pointer speed, acceleration, dead zone, swapping confirm and back, and hiding the touch bars. Shown once a controller has been connected. | At once |
@@ -300,6 +301,10 @@ main menu. It is hidden when the game files are read in place with `--install`.
 folder** finds it) or give a flag. A flag lasts for one run: a choice you make on the screen replaces the run's flag for that
 option, and `--no-mouse-lock`, `--no-intro` and `--no-update-check` still win over the screen's rows for the run.
 `--goto settings` opens the screen directly.
+
+## Mods
+
+A mod is a folder of loose files that replaces some of the game's own files: pictures, sounds, maps and data tables. Put it in the `mods` folder of the data directory (next to `game`), turn it on in the **Mods** page of Settings (which appears once there is a mod), and restart. Everyone in a network game needs the same mods, and a replay records which mods it was recorded with. Mods are data only: no scripting and no new kinds of units yet, and desktop only for now. Enhanced rules are the default whatever the mods; Classic is an opt-in for multiplayer only. See [docs/mods.md](docs/mods.md) for the folder layout, `mod.toml`, the limits and the plans. `tidewater --mod NAME` turns a mod on for one run.
 
 ## Optional improvements
 
@@ -391,6 +396,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--demo-fight` | Send every player's units against the nearest enemy within 16 tiles. |
 | `--demo-select <N>`, `--demo-type <N>`, `--demo-place <N>`, `--demo-site <X,Y>` | Preselect your first N units, narrow that to one unit type, start in building placement, and click a site. |
 | `--record-replay` | Record the game to a `.twrep` replay in the `replays` folder of your user data (see [Replays](#replays)). Off unless given. |
+| `--mod <NAME>` | Turn on the mod in this folder of `<data>/mods` for one run, after the ones Settings enables; repeat for several. See [Mods](#mods). |
 | `--replay <FILE>` | Play a recorded game back, as the recording player saw it. Cannot be combined with `<MAP>`, `--record-replay` or the setup options. `--force-replay` plays it even when it was recorded with other game files. |
 | `--host [PORT]`, `--join <ADDR>`, `--lobby <SPEC>`, `--observe`, `--name <NAME>` | Network play without the menus. See [Multiplayer](#multiplayer-early). |
 | `--script <NAME>`, `--script-out <DIR>`, `--headless` | Run a scripted scene for the frame snapshot test or the end-to-end network check (the `mp-*` scenes). `--script` and `--script-out` go together; `--headless` uses no window or GPU. |
@@ -421,7 +427,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `fell` | Fell trees in a field of one forest shape and print the resulting forest table rows. |
 | `sim` | Run a map headless: give orders, step some ticks, print where units ended up and the state hash. |
 | `snapshot` | Print fingerprints of the simulation over every campaign and custom map; the behaviour snapshot `tests/snapshot.rs` checks. |
-| `replay` | Play a `.twrep` replay headlessly, check every state-hash checkpoint and exit non-zero at the first mismatch. |
+| `replay` | Play a `.twrep` replay headlessly, check every state-hash checkpoint and exit non-zero at the first mismatch. Refuses a replay recorded with other game files or mods (`--force` plays it anyway; `--mods-dir` and `--mod` turn mods on). |
 | `desync-diff` | Play two replays (or one twice with `--local SLOT`) and print the first cycle whose state hash differs and the first differing field. |
 | `app-icon` | Draw the app icon as PNG, ICO and ICNS; `packaging/icon/render.sh` runs it for every platform. |
 | `oracle` | Compare the simulation cycle by cycle with a trace of the original game and report the first record that differs. |

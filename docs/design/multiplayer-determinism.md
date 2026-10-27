@@ -91,8 +91,7 @@ but not an attacker; a stronger hash is a version bump away.
 
 **Game data identity (format version 7).** The header also records which game data the game ran on
 (`tidewater_formats::identity::DataIdentity`): the FNV-64 data hash the multiplayer lobby compares
-(`unitdata.dat`, `upgrades.dat`, `script.bin` and `ai.bin`, each with its name and length), and the active mods (see
-below). Playing a replay compares the recorded identity with the installation's first (`Header::check_data`, run by
+(`unitdata.dat`, `upgrades.dat`, `script.bin` and `ai.bin`, each with its name and length), and the active mods (their names, versions and the hash of every file, `tidewater_formats::mods`, [mods.md](../mods.md)). Playing a replay compares the recorded identity with the installation's first (`Header::check_data`, run by
 `new_world`, `twtool replay` and `tidewater --replay`) and stops with "this replay was recorded with different game
 files" and which part differs: the data hash (other game version or edition: the tables are not the same) or the mod
 set. Without that check the only symptom is an opaque out-of-sync report at the first checkpoint. `twtool replay
