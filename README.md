@@ -26,7 +26,7 @@ Download the file for your system from the [latest release](../../releases/lates
 
 ### Linux and the Steam Deck (being tested)
 
-The AppImage is built for the Steam Deck (SteamOS) as well as other desktop Linux systems. It has been built and its start-up checked in CI; **playing it on a real Steam Deck is still being tested**, so expect rough edges and please report them.
+The AppImage is built for the Steam Deck (SteamOS) as well as other desktop Linux systems. On a Steam Deck (SteamOS, Desktop Mode) it starts, imports the game files, and its scripted test scenes draw and sound frame for frame the same as on macOS. **Playing it by hand, Game Mode and the Deck's controls are still being tested**, so expect rough edges and please report them. It needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, SteamOS 3).
 
 1. **Download** the `.AppImage` in Desktop Mode (hold the power button, choose Switch to Desktop) with the browser.
 2. **Mark it executable:** right-click the file, Properties, Permissions, tick "Is executable". Or in Konsole: `chmod +x tidewater-*.AppImage`.

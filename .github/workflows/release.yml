@@ -79,7 +79,8 @@ jobs:
   linux:
     needs: plan
     if: needs.plan.outputs.build == 'true'
-    runs-on: ubuntu-24.04
+    # The oldest Ubuntu runner: the tarball and the AppImage need the glibc they were built against (2.35) or newer.
+    runs-on: ubuntu-22.04
     env:
       TIDEWATER_VERSION: ${{ needs.plan.outputs.version }}
     steps:
