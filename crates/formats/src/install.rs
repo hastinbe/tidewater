@@ -199,26 +199,33 @@ impl Install {
 }
 
 /// Resolves a relative path (components separated by `/` or `\`) under `root`, matching each component
-/// case-insensitively. A `.` or `..` component, or one with a `:`, finds nothing.
+/// case-insensitively. A `.` or `..` component, or one with a `:`, finds nothing. On a case-sensitive file system two
+/// folders can differ only by case (`Rez` and `rez`); each is searched, the exact spelling first.
 pub(crate) fn find_case_insensitive(root: &Path, rel: &str) -> Option<PathBuf> {
-    let mut cur = root.to_path_buf();
-    for part in rel.split(['/', '\\']).filter(|p| !p.is_empty()) {
-        // A name never climbs out of the folder it is looked up in.
-        if part == ".." || part == "." || part.contains(':') {
-            return None;
-        }
-        let direct = cur.join(part);
-        if direct.exists() {
-            cur = direct;
-            continue;
-        }
-        let entry = std::fs::read_dir(&cur)
-            .ok()?
-            .filter_map(Result::ok)
-            .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(part))?;
-        cur = entry.path();
+    let parts: Vec<&str> = rel.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+    // A name never climbs out of the folder it is looked up in.
+    if parts.iter().any(|p| *p == ".." || *p == "." || p.contains(':')) {
+        return None;
     }
-    cur.is_file().then_some(cur)
+    find_parts(root, &parts)
+}
+
+fn find_parts(cur: &Path, parts: &[&str]) -> Option<PathBuf> {
+    let Some((part, rest)) = parts.split_first() else {
+        return cur.is_file().then(|| cur.to_path_buf());
+    };
+    let direct = cur.join(part);
+    if direct.exists()
+        && let Some(found) = find_parts(&direct, rest)
+    {
+        return Some(found);
+    }
+    std::fs::read_dir(cur)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name() != std::ffi::OsStr::new(part))
+        .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(part))
+        .find_map(|e| find_parts(&e.path(), rest))
 }
 
 #[cfg(test)]
