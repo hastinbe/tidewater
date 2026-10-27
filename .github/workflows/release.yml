@@ -100,10 +100,21 @@ jobs:
           mkdir -p dist
           packaging/linux/build-tarball.sh "$TIDEWATER_VERSION" target/release/tidewater \
             "dist/tidewater-${TIDEWATER_VERSION}-linux-x64.tar.gz"
+          # The AppImage (Steam Deck and other Linux systems), built on this runner so its glibc sets the oldest system it runs on.
+          packaging/linux/appimage.sh "$TIDEWATER_VERSION" target/release/tidewater \
+            "dist/tidewater-${TIDEWATER_VERSION}-linux-x86_64.AppImage"
+      - name: Check the AppImage starts
+        run: |
+          # No FUSE on the runner: the AppImage unpacks itself to run.
+          got=$(APPIMAGE_EXTRACT_AND_RUN=1 "dist/tidewater-${TIDEWATER_VERSION}-linux-x86_64.AppImage" --version)
+          echo "$got"
+          [ "$got" = "tidewater $TIDEWATER_VERSION" ] || { echo "expected 'tidewater $TIDEWATER_VERSION'"; exit 1; }
       - uses: actions/upload-artifact@v7
         with:
           name: linux
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.AppImage
           if-no-files-found: error
 
   macos:
