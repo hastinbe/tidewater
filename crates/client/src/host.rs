@@ -246,6 +246,22 @@ pub fn launch(mut args: Args) -> Result<Launch> {
                     tidewater_replay::format::sim_build()
                 );
             }
+            // A recording made on other game files or mods is refused with the reason, rather than going out of sync at
+            // the first checkpoint; `--force-replay` plays it anyway.
+            if let Some(recorded) = &replay.header.data {
+                let now = tidewater_formats::identity::DataIdentity::of(&mut front.install)?;
+                if let Some(m) = recorded.mismatch(&now) {
+                    if args.force_replay {
+                        eprintln!(
+                            "warning: this replay was recorded with different game files: {m}; playing it anyway"
+                        );
+                    } else {
+                        anyhow::bail!(
+                            "this replay was recorded with different game files: {m} (--force-replay plays it anyway, but expect it to go out of sync)"
+                        );
+                    }
+                }
+            }
             Some(replay)
         }
         None => None,

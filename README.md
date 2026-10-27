@@ -391,7 +391,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--demo-fight` | Send every player's units against the nearest enemy within 16 tiles. |
 | `--demo-select <N>`, `--demo-type <N>`, `--demo-place <N>`, `--demo-site <X,Y>` | Preselect your first N units, narrow that to one unit type, start in building placement, and click a site. |
 | `--record-replay` | Record the game to a `.twrep` replay in the `replays` folder of your user data (see [Replays](#replays)). Off unless given. |
-| `--replay <FILE>` | Play a recorded game back, as the recording player saw it. Cannot be combined with `<MAP>`, `--record-replay` or the setup options. |
+| `--replay <FILE>` | Play a recorded game back, as the recording player saw it. Cannot be combined with `<MAP>`, `--record-replay` or the setup options. `--force-replay` plays it even when it was recorded with other game files. |
 | `--host [PORT]`, `--join <ADDR>`, `--lobby <SPEC>`, `--observe`, `--name <NAME>` | Network play without the menus. See [Multiplayer](#multiplayer-early). |
 | `--script <NAME>`, `--script-out <DIR>`, `--headless` | Run a scripted scene for the frame snapshot test or the end-to-end network check (the `mp-*` scenes). `--script` and `--script-out` go together; `--headless` uses no window or GPU. |
 
@@ -449,7 +449,7 @@ The default port is 6112: TCP for the game, which the host opens on its firewall
 
 Run with `--record-replay` and the game writes a `.twrep` file to the `replays` folder of your user data (never into the game folder). It holds the map's name and hash, the seed, the setup and the rules, then the commands given each cycle and a state-hash check every 100 cycles. Recording is a flag rather than always on, so nothing is written unless you ask. The `auto-replay` option does the asking for you: `--extra-auto-replay always` (or the `[extras]` setting) writes every game's replay, single-player or network, and `menu` holds the recording in memory and adds a Save Replay button to the in-game menu.
 
-`tidewater --replay FILE` plays it back as the recording player saw it. Your input is ignored except the game menu, pause (Ctrl+P) and speed (`+` and `-`). If the game ever stops matching the recording, playback stops at the first check that fails and says which cycle. `twtool replay FILE` does the same check without a window, and `twtool desync-diff` finds the first cycle and field where two runs differ. A replay is refused on a map that is not the one it was recorded on. Games that were loaded from a save, or that used the `--demo-*` options, are not recorded. A network game records on each side with the same flag.
+`tidewater --replay FILE` plays it back as the recording player saw it. Your input is ignored except the game menu, pause (Ctrl+P) and speed (`+` and `-`). If the game ever stops matching the recording, playback stops at the first check that fails and says which cycle. `twtool replay FILE` does the same check without a window, and `twtool desync-diff` finds the first cycle and field where two runs differ. A replay is refused on a map that is not the one it was recorded on, and on game files that differ from the ones it was recorded with (another game version or edition): it says which part differs instead of going out of sync later. `tidewater --force-replay` and `twtool replay --force` play it anyway. Games that were loaded from a save, or that used the `--demo-*` options, are not recorded. A network game records on each side with the same flag.
 
 ## Roadmap
 

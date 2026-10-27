@@ -128,8 +128,19 @@ impl Install {
         Ok(self.archives.read(name)?)
     }
 
+    /// Whether `name` is a loose file or in the archives.
     pub fn contains(&self, name: &str) -> bool {
-        self.archives.contains(name)
+        matches!(self.files.open(name), Ok(Some(_))) || self.archives.contains(name)
+    }
+
+    /// The hash of the active mods' files, 0 with no mod (see [`crate::identity::DataIdentity`]).
+    pub fn mods_hash(&self) -> u64 {
+        0
+    }
+
+    /// The active mods, in the order they apply.
+    pub fn mod_tags(&self) -> Vec<crate::identity::ModTag> {
+        Vec::new()
     }
 
     /// The tileset directory name used by an era.

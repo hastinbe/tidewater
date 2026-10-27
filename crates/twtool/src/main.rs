@@ -159,8 +159,8 @@ enum Cmd {
         out: Option<PathBuf>,
     },
     /// Play a recorded game (`.twrep`, from `tidewater --record-replay`) headlessly and check every state-hash
-    /// checkpoint. Exits non-zero, with the cycle, on the first mismatch, a damaged file, or a map that is not the one
-    /// the replay was recorded on.
+    /// checkpoint. Exits non-zero, with the cycle, on the first mismatch, a damaged file, a map that is not the one
+    /// the replay was recorded on, or game files or mods other than the ones it was recorded with (`--force` plays it anyway).
     Replay {
         #[arg(long)]
         install: PathBuf,
@@ -168,6 +168,10 @@ enum Cmd {
         /// The map file, if the replay's map is not a name inside the archives.
         #[arg(long)]
         map: Option<PathBuf>,
+        /// Play it even when it was recorded with other game files or mods than these (it will most likely go out of
+        /// sync; the check exists to say why).
+        #[arg(long)]
+        force: bool,
     },
     /// Play two replays side by side (or one replay twice, with `--local` making another human the second run's
     /// local player) and print the first cycle where their state hashes differ, then the first differing piece of
@@ -471,7 +475,12 @@ fn main() -> Result<()> {
             let setup = setup.unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&map));
             sim(&install, &map, &setup, player, (x, y), ticks, seed, mode)?
         }
-        Cmd::Replay { install, file, map } => replays::replay(&file, &install, map.as_deref())?,
+        Cmd::Replay {
+            install,
+            file,
+            map,
+            force,
+        } => replays::replay(&file, &install, map.as_deref(), force)?,
         Cmd::DesyncDiff {
             install,
             a,

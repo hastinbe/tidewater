@@ -8,6 +8,7 @@
 use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
+pub use tidewater_formats::identity::{data_hash, fnv_extend};
 use tidewater_sim::Command;
 use tidewater_sim::setup::{Lobby, Setup};
 
@@ -397,33 +398,6 @@ pub fn manifest_archives<'a>(entries: impl Iterator<Item = (&'a str, &'a str)>) 
     h | 1
 }
 
-/// FNV-1a 64 of `bytes`, folded into `h`: the data identity hashes the tables one after another.
-pub fn fnv_extend(mut h: u64, bytes: &[u8]) -> u64 {
-    for &b in bytes {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    h
-}
-
-/// The hash of the data tables the simulation reads, through `read` (an installation's `read`). Each table's name and
-/// length go in with its bytes, so moving bytes between tables changes the hash.
-pub fn data_hash(mut read: impl FnMut(&str) -> anyhow::Result<Vec<u8>>) -> anyhow::Result<u64> {
-    let mut h = 0xcbf2_9ce4_8422_2325u64;
-    for name in [
-        "rez\\unitdata.dat",
-        "rez\\upgrades.dat",
-        "rez\\script.bin",
-        "rez\\ai.bin",
-    ] {
-        let bytes = read(name)?;
-        h = fnv_extend(h, name.as_bytes());
-        h = fnv_extend(h, &(bytes.len() as u64).to_le_bytes());
-        h = fnv_extend(h, &bytes);
-    }
-    Ok(h)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,22 +660,5 @@ mod tests {
             read_hello(&mut other.as_slice()).unwrap(),
             HelloRead::NotHello
         ));
-    }
-
-    #[test]
-    fn the_data_hash_covers_names_and_lengths() {
-        let tables = |a: &[u8], b: &[u8]| {
-            data_hash(|n| {
-                Ok(match n {
-                    "rez\\unitdata.dat" => a.to_vec(),
-                    "rez\\upgrades.dat" => b.to_vec(),
-                    _ => vec![1],
-                })
-            })
-            .unwrap()
-        };
-        assert_eq!(tables(b"ab", b"c"), tables(b"ab", b"c"));
-        assert_ne!(tables(b"ab", b"c"), tables(b"a", b"bc"), "moving a byte between tables");
-        assert_ne!(tables(b"ab", b"c"), tables(b"ab", b"d"));
     }
 }
